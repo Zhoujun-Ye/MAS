@@ -1,15 +1,35 @@
+# Secrets: provider keys and the server password stay out of version control.
 .env
 .env.*
 *.env
 !.env.example
+
+# Python environments and build or tool caches
 .venv/
 __pycache__/
-*.pyc
+*.py[cod]
+*.egg-info/
+build/
+dist/
 .pytest_cache/
 .ruff_cache/
-.DS_Store
-.cache/
-external/
-data/
+.mypy_cache/
+.ipynb_checkpoints/
+
+# Benchmark sources pinned by scripts/server/setup.sh, and inputs written by
+# scripts/<benchmark>/prepare.py. Both are recreated, never edited by hand.
+benchmarks/*/upstream/
+benchmarks/*/assets/
+
+# Run evidence (traces, results, grades, balances) and logs; kept on the server.
 outputs/
-*.egg-info/
+logs/
+.retired_sources/
+*.log
+.cache/
+
+# Editors and operating systems
+.DS_Store
+.idea/
+.vscode/
+*.swp

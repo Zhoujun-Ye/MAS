@@ -7,7 +7,7 @@ import json
 import re
 import threading
 
-from mas_info.llm import Completion, ModelConfig, check_reasoning_passback, normalize_usage
+from harness.llm import Completion, ModelConfig, check_reasoning_passback, normalize_usage
 
 DOCS = {
     "101": "The Alpha Prize is awarded every year to an outstanding chemist. It was founded in 1987.",
@@ -32,6 +32,8 @@ class FakeRetriever:
 
 
 ROLES = (
+    ("You are the coordinator of a general-purpose", "lead"),
+    ("You are a worker in a general-purpose", "worker"),
     ("You are the lead researcher", "lead"),
     ("You are a search agent", "worker"),
     ("sub-tasks that you will receive", "sequential"),
@@ -67,15 +69,17 @@ class ScriptedClient:
         self.cfg = ModelConfig(model="scripted")
         self.policy = policy
         self.requests: list[tuple[list[dict], list[str], str | None]] = []
+        self.efforts: list[str | None] = []
         self._ids = itertools.count(1)
         self._lock = threading.Lock()
 
-    def complete(self, messages, tools=None, tool_choice=None) -> Completion:
+    def complete(self, messages, tools=None, tool_choice=None, effort=None) -> Completion:
         if tools:
             check_reasoning_passback(messages)
         names = [tool["function"]["name"] for tool in tools or []]
         with self._lock:
             self.requests.append(([dict(m) for m in messages], names, tool_choice))
+            self.efforts.append(effort)
         reply = self.policy(messages, names, tool_choice)
         message = {
             "role": "assistant",
@@ -91,4 +95,5 @@ class ScriptedClient:
                 for i, (name, args) in zip(ids, calls)
             ]
         usage = normalize_usage({"prompt_tokens": 100 * len(messages), "completion_tokens": 10, "prompt_cache_hit_tokens": 40})
-        return Completion(message, "tool_calls" if calls else "stop", usage, 0.0, "scripted")
+        finish = reply.get("finish") or ("tool_calls" if calls else "stop")
+        return Completion(message, finish, usage, 0.0, "scripted")

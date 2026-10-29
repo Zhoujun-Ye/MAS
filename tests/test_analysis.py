@@ -2,10 +2,8 @@ import json
 
 import pytest
 
-from mas_info.analysis import criteria, stats
-from mas_info.analysis.loss_judge import build_case, parse_label, render
-from mas_info.llm import ProviderError
-from mas_info.runner import RunSpec, prepare_output, run_batch
+from analysis import cache, criteria, stats
+from analysis.loss_judge import build_case, parse_label, render
 
 
 def test_mcnemar_exact():
@@ -61,29 +59,53 @@ def test_loss_judge_case_and_parse():
     assert parse_label('{"loss_type": "unknown"}') is None
 
 
-def test_runner_keeps_errors_apart_and_reruns_them(tmp_path):
-    spec = RunSpec("bcp", "7", "C1", 0)
-    prepare_output(tmp_path, {"setup": 1})
-    with pytest.raises(RuntimeError):
-        prepare_output(tmp_path, {"setup": 2})
-
-    def failing(spec, trace):
-        raise ProviderError("http_400", "missing reasoning_content", 400)
-
-    assert run_batch([spec], failing, tmp_path, 1) == {"error": 1}
-    result = json.loads((tmp_path / "results" / f"{spec.run_id}.json").read_text())
-    assert result["error"]["http_status"] == 400
-
-    def succeeding(spec, trace):
-        trace.emit("final", agent="lead")
-        return {"status": "completed"}
-
-    assert run_batch([spec], succeeding, tmp_path, 1) == {"completed": 1}
-    assert len(list((tmp_path / "traces" / "attempts").glob("*.jsonl"))) == 1
-    assert run_batch([spec], succeeding, tmp_path, 1) == {}  # finished runs are kept
+def call(agent, prompt, output, hit):
+    usage = {"prompt_tokens": prompt, "completion_tokens": output, "cache_hit_tokens": hit}
+    return {"type": "llm_call", "agent": agent, "usage": usage}
 
 
-def test_run_ids_are_file_safe():
-    assert RunSpec("bcp", "769", "C1", 0).run_id == "bcp_q769_C1_r0"
-    run_id = RunSpec("telecom", "[mobile_data]airplane|on", "C0", 2).run_id
-    assert run_id.startswith("telecom_qmobile-data-airplane-on-") and run_id.endswith("_C0_r2")
+def test_cache_steps_and_rates():
+    events = [
+        call("lead", 2000, 500, 1024),
+        call("lead", 3000, 400, 2500),  # covers the previous prompt and output
+        call("lead", 4000, 300, 3000),  # covers only the previous prompt
+        call("search_1", 1500, 200, 1024),
+        call("search_1", 2000, 100, 0),
+    ]
+    kinds = [row["kind"] for row in cache.steps(events)]
+    assert kinds == ["prompt+output", "prompt", "miss"]
+    summary = cache.summarize([("C1", events)])
+    overall = next(g for g in summary["groups"] if g["role"] == "all")
+    assert overall["hit_rate"] == pytest.approx((1024 + 2500 + 3000 + 1024) / 12500)
+    first = next(g for g in summary["groups"] if g["role"] == "worker" and g["position"] == "first")
+    assert first["cache_hit_tokens"] == 1024
+    assert "| C1 | lead | 1 | 1 | 0 | 0 |" in cache.markdown(summary)
+
+
+def test_cache_groups_explicit_team_roles_not_agent_name_prefixes():
+    events = [dict(call("transport_specialist", 1000, 50, 0), usage_role="worker"),
+              dict(call("transport_specialist", 1500, 50, 1100), usage_role="worker"),
+              dict(call("encoder_1", 1600, 50, 1200), usage_role="handoff")]
+    summary = cache.summarize([("summary", events)])
+    assert {g["role"] for g in summary["groups"]} == {"all", "worker", "handoff"}
+    assert summary["steps"][0]["role"] == "worker"
+
+
+def test_generic_analysis_retains_unknown_and_preserves_outputs(tmp_path):
+    from scripts.analyze import load_runs, summarize
+    from harness.trace import Trace
+    (tmp_path / "results").mkdir()
+    for key, status, success in [("done", "completed", True), ("unfinished", "incomplete", True),
+                                 ("ungraded", "completed", None)]:
+        (tmp_path / "results" / f"{key}.json").write_text(json.dumps(dict(run_id=key, condition="summary", status=status, success=success)))
+        with Trace(tmp_path / "traces" / f"{key}.jsonl", key) as trace:
+            trace.emit("run_start")
+            trace.emit("final", agent="leader")
+            trace.emit("run_end", status=status)
+    before = {p: p.read_bytes() for p in tmp_path.rglob("*") if p.is_file()}
+    runs, traces = load_runs(tmp_path)
+    row = summarize(runs)["conditions"]["summary"]
+    assert row["graded"] == 1 and row["ungraded"] == 2 and row["incomplete"] == 1
+    assert row["success_rate"] == 1 and row["semantic_loss"] is None
+    assert row["estimated_cost_usd"] is None
+    assert before == {p: p.read_bytes() for p in tmp_path.rglob("*") if p.is_file()}

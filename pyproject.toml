@@ -3,23 +3,23 @@ requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "mas-info"
+name = "mas-information"
 version = "0.1.0"
 description = "Motivation study: information lost between isolated agent contexts"
 requires-python = ">=3.12,<3.14"
-# BM25 additionally needs `pyserini==1.2.0` (installed --no-deps), `pyjnius` and
-# Java 21; τ²-bench is installed from its pinned checkout. See scripts/server/setup.sh.
+# Native benchmark dependencies are optional; admission is a separate research gate.
 dependencies = [
     "httpx>=0.27",
     "PyYAML>=6.0",
-    "tokenizers>=0.20",
 ]
 
 [project.optional-dependencies]
 test = ["pytest>=8"]
+travelplanner = ["pandas>=2.0,<3", "numpy>=1.26,<3", "requests>=2.31", "tqdm>=4.66"]
 
 [tool.setuptools.packages.find]
-include = ["mas_info*"]
+include = ["harness*", "benchmarks*", "analysis*"]
+exclude = ["*.upstream*", "*.assets*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

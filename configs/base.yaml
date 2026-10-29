@@ -3,8 +3,8 @@
 
 # Every agent in every condition.
 agent_model:
-  # V4 Flash. The guide names it deepseek-v4-flash; GET /models listed only
-  # deepseek-flash and deepseek-v4-pro on 2026-10-29.
+  # Served by DeepSeek-V4.1-Flash-1017 (pricing page, 2026-10-29). The guide's
+  # deepseek-v4-flash is a retired alias routed to the same model.
   model: deepseek-flash
   base_url: https://api.deepseek.com
   api_key_env: DEEPSEEK_API_KEY
@@ -20,3 +20,14 @@ judge_model:
   thinking: enabled
   reasoning_effort: high
   max_tokens: 16384
+
+# USD per million tokens at off-peak rates, from
+# https://api-docs.deepseek.com/quick_start/pricing on 2026-10-29. Weekday peak
+# hours (UTC) cost peak_multiplier times as much. Used for estimates only; the
+# balance change recorded around each batch is the actual charge.
+pricing:
+  models:
+    deepseek-flash: {cache_hit: 0.003, cache_miss: 0.15, output: 0.6}
+    deepseek-v4-pro: {cache_hit: 0.022, cache_miss: 0.66, output: 1.98}
+  peak_multiplier: 2.0
+  peak_hours_utc: [[1, 4], [6, 10]]

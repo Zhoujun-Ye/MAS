@@ -1,166 +1,78 @@
-"""Summarize output directories: success, cost, paired tests, loss diagnostics, P1-P4.
+"""Read existing results/traces without benchmark code or model calls.
 
-  .venv/bin/python scripts/analyze.py outputs/bcp-phase0 outputs/tau2-phase0
-
-BrowseComp-Plus success needs grades (scripts/grade_bcp.py). Error and
-ungraded runs are counted apart and never treated as wrong answers. Writes
-summary.json into each directory and criteria.json next to the first one.
-No model calls.
+Never regrade answers or infer semantic loss. Reports go to a fresh directory.
+Historical P1-P4 thresholds are preserved in analysis/criteria.py, but are not
+automatically applied to a new team experiment.
 """
-
-from __future__ import annotations
-
 import argparse
 import json
-import sys
 from pathlib import Path
 from statistics import mean
+import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-
-from mas_info.analysis import criteria, stats
-from mas_info.bcp import diagnostics as bcp_diag
-from mas_info.bcp.data import load_qrels, load_tasks
-from mas_info.config import ROOT, load_config, resolve
-from mas_info.runner import write_json
-from mas_info.tau import diagnostics as tau_diag
-from mas_info.trace import read_trace
-
-TEAM = ("C1", "C2", "C3", "C4")
+from analysis import cache, stats
+from harness.runner import write_json
+from harness.trace import read_trace, tool_counts, usage_summary, validate
 
 
-def _avg(values: list) -> float | None:
-    values = [v for v in values if v is not None]
-    return mean(values) if values else None
+def load_runs(out):
+    runs, traces = [], {}
+    for path in sorted((out / "results").glob("*.json")):
+        run = json.loads(path.read_text())
+        trace_path = out / "traces" / f"{run['run_id']}.jsonl"
+        events = read_trace(trace_path) if trace_path.exists() else []
+        traces[run["run_id"]] = events
+        grade_path = out / "grades" / f"{run['run_id']}.json"
+        value = json.loads(grade_path.read_text()).get("correct") if grade_path.exists() else run.get("success")
+        run["success"] = value if (run["status"] == "completed" and isinstance(value, bool)
+                                   and any(e["type"] == "final" for e in events)) else None
+        run["usage"] = usage_summary(events) if events else run.get("usage", usage_summary([]))
+        run["tool_counts"] = tool_counts(events)
+        runs.append(run)
+    return runs, traces
 
 
-def load_runs(out: Path, benchmark: str) -> list[dict]:
-    """Every result with its success flag and diagnostics."""
-    runs = [json.loads(path.read_text()) for path in sorted((out / "results").glob("*.json"))]
-    if benchmark == "bcp":
-        cfg = load_config(ROOT / "configs/bcp.yaml")
-        tasks = {task["query_id"]: task for task in load_tasks(resolve(cfg["tasks"]))}
-        evidence, gold = load_qrels(resolve(cfg["qrels"]["evidence"])), load_qrels(resolve(cfg["qrels"]["gold"]))
-    for run in runs:
-        run["success"] = None
-        if run["status"] not in ("completed", "incomplete"):
-            continue
-        events = read_trace(out / "traces" / f"{run['run_id']}.jsonl")
-        if benchmark == "bcp":
-            grade_path = out / "grades" / f"{run['run_id']}.json"
-            run["success"] = json.loads(grade_path.read_text()).get("correct") if grade_path.exists() else None
-            task_id = run["task_id"]
-            diagnosis = bcp_diag.analyze(events, tasks[task_id], evidence.get(task_id, []), gold.get(task_id, []))
-            diagnosis["category"] = bcp_diag.failure_category(diagnosis, run["success"])
-        else:
-            run["success"] = run.get("success")
-            diagnosis = tau_diag.analyze(events, run.get("gold_actions", []))
-        run["diagnosis"] = diagnosis
-    return runs
-
-
-def summarize(runs: list[dict], benchmark: str) -> dict:
-    conditions = sorted({run["condition"] for run in runs})
-    success = {c: {} for c in conditions}  # condition -> (task, repeat) -> bool
+def summarize(runs):
     table = {}
-    for c in conditions:
-        mine = [run for run in runs if run["condition"] == c]
-        graded = [run for run in mine if run["success"] is not None]
-        for run in graded:
-            success[c][f"{run['task_id']}#{run['repeat']}"] = bool(run["success"])
-        flags = [float(run["success"]) for run in graded]
-        totals = [run["usage"]["total"] for run in mine if run["status"] in ("completed", "incomplete")]
-        row = {
-            "runs": len(mine),
-            "graded": len(graded),
-            "errors": sum(run["status"] == "error" for run in mine),
-            "not_applicable": sum(run["status"] == "not_applicable" for run in mine),
-            "success_rate": _avg(flags),
-            "ci95": stats.bootstrap_ci(flags),
-            "prompt_tokens": _avg([t["prompt_tokens"] for t in totals]),
-            "completion_tokens": _avg([t["completion_tokens"] for t in totals]),
-            "cache_hit_tokens": _avg([t["cache_hit_tokens"] for t in totals]),
-            "max_context_tokens": _avg([t["max_prompt_tokens"] for t in totals]),
-            "llm_calls": _avg([t["llm_calls"] for t in totals]),
-            "tool_calls": _avg([sum(run["tool_call_counts"].values()) for run in mine if "diagnosis" in run]),
-            "wall_seconds": _avg([run["wall_seconds"] for run in mine if "diagnosis" in run]),
-        }
-        diagnosed = [run["diagnosis"] for run in mine if "diagnosis" in run]
-        if benchmark == "bcp":
-            row.update(
-                r_sys=_avg([d["evidence"]["r_sys"] for d in diagnosed]),
-                r_arrive=_avg([d["evidence"]["r_arrive"] for d in diagnosed]),
-                loss=_avg([d["evidence"]["loss"] for d in diagnosed]),
-                answer_in_decider=_avg([float(d["answer_in_decider"]) for d in diagnosed]),
-                answer_in_other=_avg([float(d["answer_in_other"]) for d in diagnosed]),
-                cross_agent_repeat_search=_avg([d["searches"]["cross_agent_rate"] for d in diagnosed]),
-            )
-        else:
-            row.update(
-                delegations=_avg([d["delegations"] for d in diagnosed]),
-                repeated_calls=_avg([d["repeated_calls"] for d in diagnosed]),
-                down_loss_candidates=_avg([d["down_loss_candidates"] for d in diagnosed]),
-            )
-            trials: dict[str, list[bool]] = {}
-            for run in graded:
-                trials.setdefault(run["task_id"], []).append(bool(run["success"]))
-            row.update(pass_1=stats.pass_hat_k(trials, 1), pass_3=stats.pass_hat_k(trials, 3))
-            row["db_match"] = _avg([float(run["db_match"]) for run in graded if run.get("db_match") is not None])
-        table[c] = row
-
-    summary = {"conditions": table, "success_rate": {c: table[c]["success_rate"] for c in conditions}}
-    if "C0" in success:
-        summary["paired"] = {c: stats.mcnemar(success["C0"], success[c]) for c in conditions if c != "C0"}
-        if benchmark == "bcp":
-            by_key = {(run["condition"], f"{run['task_id']}#{run['repeat']}"): run for run in runs}
-            categories = {}
-            for c in conditions:
-                if c == "C0":
-                    continue
-                specific = [k for k in success[c] if success["C0"].get(k) and not success[c][k]]
-                counts: dict[str, int] = {}
-                for key in specific:
-                    category = by_key[(c, key)]["diagnosis"]["category"]
-                    counts[category] = counts.get(category, 0) + 1
-                categories[c] = {k: v / len(specific) for k, v in counts.items()} if specific else {}
-            summary["mas_specific_categories"] = categories
-    team = [c for c in TEAM if c in success]
-    if len(team) >= 2:
-        summary["oracle"] = stats.oracle(success, team)
-    summary["success_rate"] = {c: r for c, r in summary["success_rate"].items() if r is not None}
-    return summary
+    for condition in sorted({r["condition"] for r in runs}):
+        rows = [r for r in runs if r["condition"] == condition]
+        graded = [r["success"] for r in rows if r["success"] is not None]
+        totals = [r["usage"]["total"] for r in rows]
+        prompt = sum(t["prompt_tokens"] for t in totals)
+        estimates = [r.get("cost_usd_estimate") for r in rows]
+        table[condition] = dict(
+            runs=len(rows), graded=len(graded), ungraded=len(rows) - len(graded),
+            errors=sum(r["status"] == "error" for r in rows),
+            incomplete=sum(r["status"] == "incomplete" for r in rows),
+            success_rate=mean(graded) if graded else None,
+            ci95=stats.bootstrap_ci([float(x) for x in graded]),
+            prompt_tokens=prompt, completion_tokens=sum(t["completion_tokens"] for t in totals),
+            cache_hit_rate=sum(t["cache_hit_tokens"] for t in totals) / prompt if prompt else None,
+            llm_calls=sum(t["llm_calls"] for t in totals),
+            estimated_cost_usd=sum(estimates) if all(x is not None for x in estimates) else None,
+            budget_exhausted_runs=sum(r["tool_counts"].get("refused_over_budget", 0) > 0 for r in rows),
+            semantic_loss=None,
+        )
+    return dict(conditions=table, accounting_scope="Latest result files only; planning, judges and retry attempts may add cost.")
 
 
-def markdown(name: str, summary: dict) -> str:
-    rows = summary["conditions"]
-    if not rows:
-        return f"## {name}\n\nNo results.\n"
-    keys = [k for k in next(iter(rows.values())) if k != "ci95"]
-    lines = [f"## {name}", "", "| condition | " + " | ".join(keys) + " |", "|---" * (len(keys) + 1) + "|"]
-    for c, row in rows.items():
-        cells = [f"{row[k]:.3f}" if isinstance(row[k], float) else str(row[k]) for k in keys]
-        lines.append(f"| {c} | " + " | ".join(cells) + " |")
-    return "\n".join(lines) + "\n"
-
-
-def main() -> None:
-    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("outs", nargs="+", type=Path)
-    parser.add_argument("--human", type=Path, help="JSON with human-annotation results for P2-P4")
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("outs", type=Path, nargs="+")
+    parser.add_argument("--report-dir", type=Path, required=True)
     args = parser.parse_args()
-    summaries = {}
-    for out in args.outs:
-        benchmark = json.loads((out / "manifest.json").read_text())["frozen"]["benchmark"]
-        kind = "bcp" if benchmark == "bcp" else "tau2"
-        summary = summarize(load_runs(out, kind), kind)
-        write_json(out / "summary.json", summary)
-        (out / "summary.md").write_text(markdown(benchmark, summary), encoding="utf-8")
-        print(markdown(benchmark, summary))
-        summaries[benchmark] = summary
-    human = json.loads(args.human.read_text()) if args.human else None
-    verdict = criteria.evaluate(summaries, human)
-    write_json(args.outs[0] / "criteria.json", verdict)
-    print(json.dumps({p: v["status"] for p, v in verdict.items() if p != "thresholds"}, indent=2))
+    if any(args.report_dir.resolve().is_relative_to(p.resolve()) for p in args.outs):
+        parser.error("Reports must be outside source output directories")
+    args.report_dir.mkdir(parents=True, exist_ok=False)
+    for index, out in enumerate(args.outs):
+        runs, traces = load_runs(out)
+        report = summarize(runs)
+        report["cache"] = cache.summarize([(r["condition"], traces[r["run_id"]]) for r in runs])
+        report["log_problems"] = {key: issues for key, events in traces.items() if (issues := validate(events))}
+        report["retry_attempt_traces"] = len(list((out / "traces/attempts").glob("*.jsonl")))
+        write_json(args.report_dir / f"{index}-{out.name}.json", report)
+        print(json.dumps({"source": str(out), **report}, ensure_ascii=False))
 
 
 if __name__ == "__main__":

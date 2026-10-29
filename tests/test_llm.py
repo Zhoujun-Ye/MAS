@@ -3,7 +3,7 @@ import json
 import httpx
 import pytest
 
-from mas_info.llm import ChatClient, ModelConfig, ProviderError
+from harness.llm import ChatClient, ModelConfig, ProviderError
 
 SEARCH = {"type": "function", "function": {"name": "search", "description": "s", "parameters": {"type": "object"}}}
 REPLY = {
@@ -76,7 +76,7 @@ def test_bad_request_is_not_retried():
 
 
 def test_rate_limit_is_retried(monkeypatch):
-    monkeypatch.setattr("mas_info.llm.time.sleep", lambda seconds: None)
+    monkeypatch.setattr("harness.llm.time.sleep", lambda seconds: None)
     client, sent = client_with([(429, {"error": {}}), (200, REPLY)])
     assert client.complete([{"role": "user", "content": "hi"}]).response_id == "r1"
     assert len(sent) == 2
