@@ -22,14 +22,17 @@ self-evolution; team architecture/Blueprint search is outside this study.
   delivery, leader synthesis and five controlled handoff forms. Scheduling is
   bounded round-robin, not simultaneous threads. It does not evolve policies.
 - Legacy star/linear runtimes and their obsolete tests have been removed.
-  `harness/communication.py` holds the shared handoff contract. No paid launcher
-  is enabled. Historical design comparisons describe the removed implementations.
+  `harness/communication.py` holds the shared handoff contract. A bounded paid
+  pilot driver requires explicit authorization; do not expand or replay it
+  automatically. Historical comparisons describe removed implementations.
 - Generic agent/client/trace/accounting/cache infrastructure remains. Explicit
   telemetry now separates leader, worker and handoff calls.
 - TravelPlanner has an active **candidate adapter**, pinned native data/tools,
   direct-JSON native scoring and an unpaid five-arm integration driver.
   Its 60 three-day/single-destination validation tasks are not approved main-study
-  evidence: current-backbone headroom and actual model cost remain unmeasured.
+  evidence. A six-task/four-form paid pilot is complete: 18 correct, 2 incorrect,
+  4 incomplete; Full Context excluded by request. This does not establish main-study
+  headroom, a handoff ranking or causal information loss.
   LLM selection, semantic-loss judging, causal replay and the updater are pending.
 
 ## Design
@@ -39,6 +42,9 @@ self-evolution; team architecture/Blueprint search is outside this study.
 - [Benchmark screening and admission gates](docs/experiment1.md)
 - [Benchmark directory status](benchmarks/README.md)
 - [Historical engineering evidence](docs/engineering.md)
+- [Paid four-form pilot and reviewed failure cases](docs/paid-pilot-20261029-03.md)
+- [Decision-level information feedback](docs/information-feedback.md)
+- [Common completion protocol](docs/completion-protocol.md)
 
 Current candidate: short TravelPlanner tool-use tasks; DSBench remains deferred.
 See [adapter and server evidence](docs/travelplanner-adaptation.md). Offline
@@ -72,3 +78,10 @@ Read existing flags/traces/cache telemetry without benchmark imports or grading:
 
 This never invents semantic-loss scores or regrades answers. Cost aggregates
 cover latest result files only, not additional planning/judges/retry attempts.
+
+Extract decision-time evidence, delivery/read receipts and excerpt checks without
+model calls (semantic attribution stays unknown until reviewed):
+
+```bash
+.venv/bin/python scripts/feedback.py EXISTING_RUN --report-dir NEW_FEEDBACK_DIR
+```

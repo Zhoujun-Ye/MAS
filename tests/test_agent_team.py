@@ -18,7 +18,7 @@ def encoded(messages, content="Available; verify warehouse qualifier."):
 
 
 def policy(messages, tools, choice):
-    if choice == "none":
+    if messages[0]["content"].startswith("You are a message encoder"):
         return encoded(messages)
     role = messages[0]["content"].split("Reusable role: ")[1].split(".")[0]
     count = sum(m["role"] == "assistant" for m in messages)
@@ -87,8 +87,9 @@ def test_summary_cannot_open_reference_backdoor(tmp_path):
 def test_call_and_message_caps_include_encoders(tmp_path):
     task, team, trace = build(tmp_path, "summary", max_calls=3)
     result = team.run_task(task)
-    assert result["status"] == "incomplete" and result["reason"] == "model_call_limit"
+    assert result["status"] == "completed" and result["termination"] == "budget_finalization"
     assert team.calls == 3
+    assert result["unfinished_roles"]
     trace.close()
 
 
@@ -149,3 +150,79 @@ def test_stable_role_prefix_and_reasoning_passback(tmp_path):
     original = team.agents["researcher"].messages
     assert not any("handoff_instruction" in str(m) for m in original)
     trace.close()
+
+
+def test_final_format_retry_is_counted_and_preserves_history(tmp_path):
+    spec = select_team("Small task", {"solver": "Solve directly"})
+    def reply(messages, *args):
+        return {"content": "done" if any(m["role"] == "assistant" for m in messages) else "recap"}
+    with Trace(tmp_path / "format.jsonl", "format") as trace:
+        team = AgentTeam(spec, "summary", ScriptedClient(reply), trace, [], {"solver": []},
+                         final_validator=lambda text: text == "done", final_contract="Return done.")
+        result = team.run_task("Small task")
+        assert result["status"] == "completed" and team.calls == 2
+        assert any(m.get("content") == "recap" for m in team.agents["solver"].messages)
+
+
+def test_cooperative_stop_prevents_new_calls(tmp_path):
+    task, team, trace = build(tmp_path, "summary")
+    team.should_stop = lambda: True
+    result = team.run_task(task)
+    assert result["reason"] == "interrupted" and team.calls == 0
+    trace.close()
+
+
+@pytest.mark.parametrize("form", FORMS)
+def test_finalization_reserve_never_leaks_unencoded_report(tmp_path, form):
+    secret = "PRIVATE_UNENCODED_REPORT"
+    def reply(messages, tools, choice):
+        if messages[0]["content"].startswith("You are a message encoder"):
+            return encoded(messages)
+        if choice == "none":
+            assert (secret in str(messages)) is (form == "full_context")
+            return {"content": "Insufficient evidence"}
+        return {"calls": [("finish_assignment", {"report": secret})]}
+    task, team, trace = build(tmp_path, form, ScriptedClient(reply), max_calls=2)
+    result = team.run_task(task)
+    assert result["termination"] == "budget_finalization"
+    assert team.calls == 2
+    # Full Context has no encoding call, so its report is legitimately delivered.
+    trace.close()
+
+
+def test_completed_worker_not_reactivated_by_fyi_but_request_reopens(tmp_path):
+    for requires_reply in (False, True):
+        counts = {}
+        def reply(messages, tools, choice):
+            if messages[0]["content"].startswith("You are a message encoder"):
+                return encoded(messages)
+            role = messages[0]["content"].split("Reusable role: ")[1].split(".")[0]
+            counts[role] = counts.get(role, 0) + 1
+            if role == "reviewer" and counts[role] == 1:
+                return {"calls": [("send_message", dict(recipient="researcher", content="Check new constraint",
+                                                         requires_reply=requires_reply))]}
+            if role != "leader":
+                return {"calls": [("finish_assignment", dict(report="Work complete"))]}
+            return {"content": "Final"}
+        task, team, trace = build(tmp_path / str(requires_reply), "adaptive", ScriptedClient(reply))
+        assert team.run_task(task)["termination"] == "workers_completed"
+        assert counts["researcher"] == (2 if requires_reply else 1)
+        trace.close()
+
+
+def test_budget_finalization_refuses_tools_and_counts_format_repair(tmp_path):
+    def reply(messages, tools, choice):
+        if messages[0]["content"].startswith("You are a message encoder"):
+            return encoded(messages)
+        if choice == "none":
+            previous = sum(m["role"] == "assistant" for m in messages)
+            return {"calls": [("stock", {})]} if previous == 0 else {"content": "valid"}
+        return {"calls": [("stock", {})]}
+    task, team, trace = build(tmp_path, "summary", ScriptedClient(reply), max_calls=3,
+                              finalization_reserve=2)
+    result = team.run_task(task)
+    assert result["status"] == "completed" and team.calls == 3
+    assert team.budget.used == 1  # Finalization did not execute the requested tool.
+    trace.emit("run_end", status=result["status"])
+    trace.close()
+    assert validate(read_trace(trace.path)) == []

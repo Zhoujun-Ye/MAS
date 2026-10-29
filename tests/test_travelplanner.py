@@ -10,6 +10,7 @@ def test_public_task_excludes_grading_fields():
     row = dict(query="Plan a trip", reference_information="SECRET_REFERENCE", local_constraint="SECRET_GRADING")
     public = public_task(row)
     assert "SECRET" not in public
+    assert "meals in the departure city do not satisfy cuisine constraints" in public
     assert team_for(public).task_digest
 
 

@@ -1,5 +1,73 @@
 """Shared handoff forms and structured transport validation."""
 import json
+import re
+from copy import deepcopy
+
+
+def full_snapshot(messages):
+    """Lossless DAG encoding: materialize each upstream frame once, not recursively.
+
+    Frame references replace only previously encoded full-context envelopes;
+    every referenced frame is included inline, so no retrieval is necessary.
+    """
+    from .config import digest
+    frames = {}
+    current = deepcopy(messages)
+    for message in current:
+        if message.get("role") != "user":
+            continue
+        try:
+            value = json.loads(message.get("content", ""))
+        except (ValueError, TypeError):
+            continue
+        packet = value.get("incoming_handoff", {}) if isinstance(value, dict) else {}
+        payload = packet.get("payload")
+        if packet.get("form") == "full_context" and isinstance(payload, dict) and "frames" in payload:
+            frames.update(payload["frames"])
+            packet["payload"] = {"intent": payload["intent"], "frame_ref": payload["root"]}
+            message["content"] = json.dumps(value, ensure_ascii=False)
+    root = digest(current)
+    frames[root] = current
+    return dict(root=root, frames=frames)
+
+
+def parse_payload(text):
+    """Parse a single JSON value, optionally in one Markdown fence.
+
+    Never regex-extract a brace substring or choose between multiple candidates.
+    Prose outside a single fence is presentation, not part of the JSON contract.
+    """
+    try:
+        return json.loads(text)
+    except (ValueError, TypeError):
+        if not isinstance(text, str):
+            raise ValueError("JSON text required")
+        blocks = re.findall(r"```(?:json)?\s*\n(.*?)\n```", text, flags=re.DOTALL | re.IGNORECASE)
+        if len(blocks) != 1 or text.count("```") != 2:
+            raise ValueError("Expected exactly one JSON document")
+        outside = re.sub(r"```.*?```", "", text, flags=re.DOTALL)
+        if any(c in outside for c in "{}[]"):
+            raise ValueError("Ambiguous JSON outside fence")
+        return json.loads(blocks[0])
+
+
+def normalize_json(text):
+    try:
+        return json.dumps(parse_payload(text), ensure_ascii=False)
+    except (ValueError, TypeError):
+        return text
+
+
+def normalize_record(text):
+    """Accept JSON null for the optional verbatim field without altering facts."""
+    try:
+        record = parse_payload(text)
+        for fact in record.get("key_facts", []):
+            if isinstance(fact, dict) and fact.get("verbatim", "") is None:
+                fact.pop("verbatim")
+        return json.dumps(record, ensure_ascii=False)
+    except (ValueError, TypeError, AttributeError):
+        return text
 
 FORMS = ("full_context", "summary", "structured", "document_retrieval", "adaptive")
 

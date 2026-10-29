@@ -20,6 +20,20 @@ Use 'from CITY to CITY' for travel days, otherwise the city name. Use exact
 database entity names followed by ', City'; separate attractions with ';' and
 include a trailing ';'. Flights use 'Flight Number: ID, from CITY to CITY,
 Departure Time: HH:MM, Arrival Time: HH:MM'. Missing items use '-'."""
+RULES = """Benchmark-wide rules: this task is a round trip, ending back at the
+departure city on the last date, even when the request describes only the
+outbound destination. Respect the requested dates and destinations. On travel
+days current_city must be 'from ORIGIN to DESTINATION'; otherwise it is the
+current city. Use '-' for transportation on non-travel days, not a city name.
+Include lodging on every night except the final day; obey minimum nights, room
+type, house rules and occupancy. Do not repeat restaurants or attractions.
+On non-travel days include breakfast, lunch, dinner and an attraction. Costs
+must include transport and meals for every traveler, and enough rooms for the
+group. Transport modes may not mix flights with self-driving, or taxi with
+self-driving. Requested cuisines must be covered by meals outside the departure
+city; meals in the departure city do not satisfy cuisine constraints.
+Use database-supported entities and exact flight dates. These
+are general benchmark conventions, not hidden task answers."""
 
 
 def tasks(path=ROOT / "assets/validation.csv"):
@@ -40,7 +54,7 @@ def tasks(path=ROOT / "assets/validation.csv"):
 
 def public_task(row):
     # Do not expose structured grading fields or sole-planning reference answers.
-    return row["query"] + "\n\n" + OUTPUT
+    return row["query"] + "\n\n" + RULES + "\n\n" + OUTPUT
 
 
 def team_for(request):
