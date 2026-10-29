@@ -45,6 +45,7 @@ self-evolution; team architecture/Blueprint search is outside this study.
 - [Paid four-form pilot and reviewed failure cases](docs/paid-pilot-20261029-03.md)
 - [Decision-level information feedback](docs/information-feedback.md)
 - [Common completion protocol](docs/completion-protocol.md)
+- [BCP team pilot: frozen plans and tool adaptation](docs/bcp-team-pilot.md)
 
 Current candidate: short TravelPlanner tool-use tasks; DSBench remains deferred.
 See [adapter and server evidence](docs/travelplanner-adaptation.md). Offline

@@ -93,10 +93,11 @@ def test_call_and_message_caps_include_encoders(tmp_path):
     trace.close()
 
 
-def test_message_limit_is_not_swallowed_as_a_success(tmp_path):
+def test_message_limit_finalizes_with_explicit_resource_label(tmp_path):
     task, team, trace = build(tmp_path, "summary", max_messages=1)
     result = team.run_task(task)
-    assert result["status"] == "incomplete" and result["reason"] == "message_limit"
+    assert result["status"] == "completed" and result["termination"] == "message_limit_finalization"
+    assert "success" not in result  # Submission is not correctness.
     trace.close()
 
 

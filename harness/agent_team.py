@@ -256,25 +256,27 @@ class AgentTeam:
                     calls=self.calls, tool_calls=self.budget.used, termination=termination,
                     unfinished_roles=[n for n, done in self.completed.items() if n != agent.name and not done])
 
-    def finalize_budget(self):
+    def finalize_budget(self, reason="finalization_reserve"):
         # Consume only already encoded messages addressed to the leader. Pending
         # raw intents and other workers' private evidence never bypass treatment.
         self.finalizing = True
+        final_call_limit = min(self.max_calls, self.calls + self.finalization_reserve)
         self.receive(self.final_role)
         agent = self.agents[self.final_role]
         unfinished = [n for n, done in self.completed.items() if n != agent.name and not done]
-        self.trace.emit("finalization_start", remaining_calls=self.max_calls - self.calls,
+        self.trace.emit("finalization_start", reason=reason, remaining_calls=final_call_limit - self.calls,
                         unfinished_roles=unfinished, undelivered_messages=[p[0] for p in self.pending])
         agent.append({"role": "user", "content": "The shared work allowance is exhausted; the remaining calls are reserved for your final answer. "
                       "No further tools or coordination are allowed. Use only evidence already in your context; do not invent missing verification. "
-                      "Unfinished assignments: " + json.dumps(unfinished) + ". " + self.final_contract})
-        while self.calls < self.max_calls:
+                      "Some reports may remain undelivered. Unfinished assignments: " + json.dumps(unfinished) + ". " + self.final_contract})
+        while self.calls < final_call_limit:
             reply = self.call(agent, tool_choice="none")
             calls = reply.message.get("tool_calls") or []
             if calls:
                 agent.refuse(calls)
                 continue
-            result = self.accept_final(reply.message.get("content") or "", "budget_finalization")
+            termination = "message_limit_finalization" if reason == "message_limit" else "budget_finalization"
+            result = self.accept_final(reply.message.get("content") or "", termination)
             if result:
                 return result
         return dict(status="incomplete", reason="finalization_failed", calls=self.calls, tool_calls=self.budget.used)
@@ -333,9 +335,9 @@ class AgentTeam:
                     self.deliver()
             return dict(status="incomplete", reason="no_final")
         except TeamLimit as error:
-            if str(error) == "finalization_reserve":
+            if str(error) in ("finalization_reserve", "message_limit"):
                 try:
-                    return self.finalize_budget()
+                    return self.finalize_budget(str(error))
                 except TeamLimit as final_error:
                     error = final_error
             return dict(status="incomplete", reason=str(error), calls=self.calls, tool_calls=self.budget.used)
