@@ -106,6 +106,7 @@ def test_generic_analysis_retains_unknown_and_preserves_outputs(tmp_path):
     runs, traces = load_runs(tmp_path)
     row = summarize(runs)["conditions"]["summary"]
     assert row["graded"] == 1 and row["ungraded"] == 2 and row["incomplete"] == 1
-    assert row["success_rate"] == 1 and row["semantic_loss"] is None
+    assert row["success_rate"] is None and row["graded_success_rate"] == 1 and row["semantic_loss"] is None
+    assert row["grading_coverage"] == 0.5 and row["confirmed_success_fraction"] == 0.5
     assert row["estimated_cost_usd"] is None
     assert before == {p: p.read_bytes() for p in tmp_path.rglob("*") if p.is_file()}

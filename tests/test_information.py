@@ -10,7 +10,9 @@ def test_attribution_requires_information_feedback_not_success():
     assert attribution(dict(base, shared=False)) == "not_shared"
     assert attribution(dict(base, shared=True, handoff_faithful=False)) == "handoff_omission_or_distortion"
     assert attribution(dict(base, shared=True, reference_granted=True, evidence_read=False)) == "evidence_not_read"
-    assert attribution(dict(base, arrived_in_decision_input=True, decision_correct=False)) == "reasoning_or_coordination_after_arrival"
+    assert attribution(dict(base, arrived_in_decision_input=True, decision_correct=False)) == "available_but_failure_unresolved"
+    assert attribution(dict(base, arrived_in_decision_input=True, decision_correct=False,
+                            decision_information_sufficient=True)) == "reasoning_or_coordination_after_arrival"
     assert attribution(dict(base, arrived_in_decision_input=True, execution_failed=True)) == "tool_execution_failure"
     assert attribution(dict(base, task_specification_adequate=False)) == "task_or_evaluator_mismatch"
 
@@ -53,3 +55,41 @@ def test_excerpt_checks_do_not_promote_citations_to_truth():
     assert checks[1]["unresolved_source_tokens"] == ["e2"]
     assert all(c["semantic_support"] is None for c in checks)
     assert excerpt_checks(events, cutoff=1) == []
+
+
+def test_docid_and_tool_id_resolve_only_observed_windows():
+    events = [dict(t=1, type='evidence', evidence_id='e1', owner='researcher', text=json.dumps(dict(results=[
+        dict(docid='42', text='Exact\nobserved quote'), dict(docid='43', text='Different document')]))),
+        dict(t=2, type='tool_call', call_id='call_1', obs_id='o2',
+             observation=json.dumps(dict(evidence_id='e1', observation='wrapped')))]
+    facts = [dict(source='docid 42', verbatim='Exact\nobserved quote'),
+             dict(source='call_1', verbatim='Exact\nobserved quote'),
+             dict(source='o2', verbatim='Exact\nobserved quote'),
+             dict(source='43', verbatim='Exact\nobserved quote'),
+             dict(source='42', verbatim='unread continuation'),
+             dict(source='44', verbatim='future quote')]
+    events.append(dict(t=3, type='peer_handoff', form='structured', message_id='m1',
+                       payload=json.dumps(dict(key_facts=facts))))
+    events.append(dict(t=4, type='evidence', evidence_id='e2', text=json.dumps(dict(docid='44', text='future quote'))))
+    checks = excerpt_checks(events, cutoff=4)
+    assert [c['excerpt_check'] for c in checks] == ['exact_source_substring'] * 3 + [
+        'not_exact_source_substring', 'not_exact_source_substring', 'source_unresolved']
+    assert checks[0]['cited_observation_owners'] == {'e1': 'researcher'}
+
+
+def test_find_windows_are_not_joined_into_fabricated_quotes():
+    events = [dict(t=1, type='evidence', evidence_id='e1', text=json.dumps(dict(docid='42', matches=[
+        dict(text='First window'), dict(text='Second window')]))),
+        dict(t=2, type='peer_handoff', form='structured', message_id='m1', payload=json.dumps(dict(key_facts=[
+            dict(source='42', verbatim='First windowSecond window'), dict(source='42', verbatim='Second window')])))]
+    assert [c['excerpt_check'] for c in excerpt_checks(events, 2)] == [
+        'not_exact_source_substring', 'exact_source_substring']
+
+
+def test_historical_failed_tool_observation_is_not_evidence():
+    events = [dict(t=1, type='evidence', evidence_id='e1', text='Invalid window'),
+              dict(t=2, type='tool_call', error=True, call_id='call_1',
+                   observation=json.dumps(dict(evidence_id='e1', observation='Invalid window'))),
+              dict(t=3, type='peer_handoff', form='structured', message_id='m1',
+                   payload=json.dumps(dict(key_facts=[dict(source='e1', verbatim='Invalid window')])))]
+    assert excerpt_checks(events, 3)[0]['excerpt_check'] == 'source_unresolved'

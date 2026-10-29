@@ -29,12 +29,21 @@ causal effect are deliberately NOT inferred from receipts or success/failure.
 The `attribution` helper requires reviewed semantic fields and an explicitly
 decision-relevant fact; missing data stays
 unknown. It is a rule mapping for annotations, not an automatic semantic judge.
+An available partial clue plus an incorrect final answer is not sufficient to
+label post-arrival reasoning failure: require reviewed information sufficiency
+or specific misuse of the fact. Otherwise use `available_but_failure_unresolved`.
 
 Structured packets also include `excerpt_checks`: whether the claimed verbatim
 text occurs in an earlier cited tool observation. Unresolved IDs, absent excerpts
 and non-exact excerpts remain distinct. A mismatch may be formatting/paraphrase;
 an exact match does not prove the claim or causal use. Semantic support stays
 unknown until reviewed. Never count these flags as a semantic loss rate.
+Document/tool-call IDs resolve only to earlier recorded observation windows.
+JSON escapes are decoded, separate windows never joined, and failed tools excluded.
+No hidden document read repairs provenance. Transport status distinguishes queued,
+encoded, delivered and included in a model input; FYI non-reactivation is not
+automatically a bug. See the [BCP cases](bcp-pilot-results-20261029.md) for acquired
+facts that reached Leader before an abstention and resource-limited delivery.
 
 `scripts/feedback.py OUTPUT --report-dir NEW_DIRECTORY` creates independent review
 packets without paid calls. Complete and incomplete trajectories are distinguished.

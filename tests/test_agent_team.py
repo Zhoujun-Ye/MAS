@@ -25,7 +25,7 @@ def policy(messages, tools, choice):
     if role == "researcher" and count == 0:
         return {"calls": [("stock", {})]}
     if role == "researcher" and count == 1:
-        return {"calls": [("send_message", {"recipient": "reviewer", "content": "Check warehouse B only.", "evidence_ids": ["e1"]})]}
+        return {"calls": [("send_message", {"recipient": "reviewer", "content": "Check warehouse B only.", "evidence_ids": ["e1"], "requires_reply": True})]}
     return {"content": "Verified final" if role == "leader" else "Current work complete."}
 
 
@@ -56,11 +56,36 @@ def test_five_forms_freeze_controls_and_peer_delivery(tmp_path):
         assert team.budget.used == 1
         assert all(task in a.messages[1]["content"] for a in team.agents.values())
         assert "stock" not in team.agents["reviewer"].tools
+        assert "finish_assignment" not in team.agents["leader"].tools
+        assert "finish_assignment" in team.agents["researcher"].tools
         if form == "full_context":
             assert "warehouse B only" in str(team.agents["reviewer"].messages)
         with pytest.raises(ValueError):
             team.run_task(task)
     assert len(digests) == 1
+
+
+def test_team_state_exposes_budget_and_grants_but_not_private_facts(tmp_path):
+    task, team, trace = build(tmp_path, "summary")
+    team.run_task(task)
+    states = [json.loads(m['content'])['team_state'] for m in team.agents['reviewer'].messages
+              if m['role'] == 'user' and '"team_state"' in m['content']]
+    assert states[-1]['shared_domain_budget']['used'] == 1
+    assert states[-1]['available_evidence_ids'] == []  # Summary text is not a raw access grant.
+    assert 'warehouse B' not in json.dumps(states)
+    trace.close()
+
+
+def test_requests_require_an_explicit_wakeup_flag(tmp_path):
+    task, team, trace = build(tmp_path, "summary")
+    team.run_task(task)
+    agent = team.agents['reviewer']
+    before = team.sent
+    obs = agent.run_tool(dict(id='bad-request', function=dict(name='send_message', arguments=json.dumps(
+        dict(recipient='researcher', content='Please verify')))))
+    assert obs.meta['error_kind'] == 'invalid_arguments'
+    assert team.sent == before
+    trace.close()
 
 
 def test_acl_and_retrieval_not_a_global_notebook(tmp_path):
@@ -69,9 +94,19 @@ def test_acl_and_retrieval_not_a_global_notebook(tmp_path):
     reviewer = team.agents["reviewer"]
     read = reviewer.tools["read_evidence"].run
     assert "warehouse B only" in read({"id": "e1"}, reviewer).text
+    before = team.read_budget.used
     assert "not granted" in read({"id": "e999"}, reviewer).text
+    assert team.read_budget.used == before
     with pytest.raises(ValueError):
         team.queue("reviewer", "leader", "Invented ref", ["e999"])
+    trace.close()
+
+
+def test_failed_domain_result_does_not_create_evidence(tmp_path):
+    task, team, trace = build(tmp_path, "summary")
+    team.domain['stock'].run = lambda *args: Observation('Tool failed', {'error': True})
+    assert team.run_task(task)['status'] == 'completed'
+    assert not team.evidence and team.budget.used == 1
     trace.close()
 
 

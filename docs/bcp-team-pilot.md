@@ -101,3 +101,12 @@ artifact: `outputs/browsecomp_plus/offline-team-20261029-02`, source digest
 `3ae17f9a0f58ecd3`. No provider calls in preflight. Planning is launched separately
 with `--plan-only` for inspection, then the same directory resumes using saved
 plans without another planning call. Balance intervals distinguish both phases.
+
+## Completed Pilot and Current Driver
+
+See [results and systematic repairs](bcp-pilot-results-20261029.md): the frozen
+three-way pilot completed all 24 runs. The repaired driver accepts
+`--concurrency 1..16` (default six), frozen into each new manifest; this controls
+independent experiments, not agents within a team. The offline driver exercises
+the same six-way native retrieval path with scripted models and networking
+disabled. No paid repaired-version run has been authorized or launched.

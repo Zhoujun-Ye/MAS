@@ -1,11 +1,11 @@
-# Common Completion Protocol v3
+# Common Completion Protocol v4
 
 This is a new protocol for all handoff forms, not a retrospective repair of
 TravelPlanner pilot 03. Existing traces, grades and status labels are unchanged.
 
 - A worker explicitly calls `finish_assignment(report, evidence_ids)` or emits
   a tool-free final report. The harness records completion and sends one report.
-- `send_message` has `requires_reply`, default false. Findings, corrections and
+- `send_message` requires an explicit `requires_reply` boolean. Findings, corrections and
   acknowledgements are delivered and appended, but do not restart an idle worker.
   A concrete request with `requires_reply=true` reopens the recipient's assignment.
   All messages to the Leader wake it, including late corrections.
@@ -43,4 +43,12 @@ common protocol before the newly authorized BCP pilot, not crediting old drafts.
 Server regression after the protocol change: 51 passed, exit 0 (2026-10-29).
 Coverage includes all five forms, request versus informational reactivation,
 reserved-call accounting, refusal of tools during finalization, and no raw
-pending-report bypass. Real-model validation is still pending at this commit.
+pending-report bypass. This was the pre-BCP v3 check.
+
+The completed BCP pilot exercised v3: 24/24 submitted, including two reserved
+finalizations. Its recovered interface errors motivated v4: only workers receive
+`finish_assignment`; roles see append-only shared budget/grant state; invalid
+arguments are rejected before domain-budget reservation; requests cannot silently
+default to FYI. Schemas/prompts stay stable per role across forms. See the
+[results and repair boundaries](bcp-pilot-results-20261029.md). V4 has offline
+regression coverage, not a paid efficacy result.

@@ -53,3 +53,30 @@ def test_final_shape_and_mismatch_is_not_automatically_wrong():
     assert exact_grade(' Maria LOPEZ ', 'Maria Lopez')['correct'] is True
     assert exact_grade('M. Lopez', 'Maria Lopez')['correct'] is None
     assert exact_grade('M. Lopez', 'Maria Lopez')['status'] == 'needs_review'
+
+
+def test_invalid_search_does_not_spend_shared_budget(tmp_path):
+    from fakes import ScriptedClient
+    from harness.agent import Agent, Budget
+    from harness.trace import Trace
+    corpus = CorpusTools(FakeRetriever())
+    budget = Budget(1)
+    with Trace(tmp_path / 'validation.jsonl', 'validation') as trace:
+        agent = Agent('researcher', ScriptedClient(lambda *a: {}), trace, 'test', tools=corpus.tools(), budget=budget)
+        def call(k):
+            return agent.run_tool(dict(id=f'call-{k}', function=dict(name='search', arguments=json.dumps(dict(query='Alpha', k=k)))))
+        assert call(10).meta['error_kind'] == 'invalid_arguments'
+        assert budget.used == 0 and not corpus.retrieved
+        assert not call(1).meta.get('error')
+        assert budget.used == 1
+        obs = call(1)
+        assert obs.meta['budget_exhausted'] and 'every teammate' in obs.text
+
+
+def test_experiment_concurrency_is_bounded():
+    from scripts.browsecomp_plus.run import concurrency_value
+    import argparse
+    assert concurrency_value('6') == 6
+    for value in ('0', '17'):
+        with pytest.raises(argparse.ArgumentTypeError):
+            concurrency_value(value)

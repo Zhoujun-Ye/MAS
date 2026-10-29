@@ -131,8 +131,8 @@ class CorpusTools:
 
     def tools(self):
         definitions = {
-            'search': ('Search the fixed corpus with BM25. Returns up to k leading excerpts (1500 characters each).',
-                       dict(query=dict(type='string'), k=dict(type='integer', minimum=1, maximum=5)), ['query']),
+            'search': ('Search the fixed corpus with BM25. k is 1-5 (default 3), not 10. Returns leading excerpts (1500 characters each); use the returned offsets to read further.',
+                       dict(query=dict(type='string', minLength=1, maxLength=2000), k=dict(type='integer', minimum=1, maximum=5)), ['query']),
             'open_document': ('Read an exact document character window, with next_offset for further reading.',
                               dict(docid=dict(type='string'), offset=dict(type='integer', minimum=0),
                                    limit=dict(type='integer', minimum=1, maximum=12000)), ['docid']),

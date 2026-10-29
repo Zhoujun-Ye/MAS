@@ -65,7 +65,9 @@ class AgentTeam:
                             prompts={n: POOL[n].system for n in sorted(names)},
                             domain_permissions=self.permissions,
                             domain_schemas=[self.domain[n].schema for n in sorted(self.domain)],
-                            scheduler="explicit-completion-v3", communication="isolated-encoder-v3",
+                            scheduler="explicit-completion-v4", communication="isolated-encoder-v4",
+                            communication_schemas={n: [t.schema for t in self.communication_tools(n)]
+                                                   for n in sorted(names)} if len(names) > 1 else {},
                             encoder_system=ENCODER_SYSTEM,
                             encoder_attempts=2,
                             final_contract=final_contract)
@@ -78,6 +80,15 @@ class AgentTeam:
             raise TeamLimit("model_call_limit")
         if not self.finalizing and len(self.spec.members) > 1 and self.calls >= self.max_calls - self.finalization_reserve:
             raise TeamLimit("finalization_reserve")
+        if agent.name in self.agents:
+            # Append only operational state, never another worker's private facts.
+            agent.append({"role": "user", "content": json.dumps({"team_state": dict(
+                shared_domain_budget=self.budget.snapshot(),
+                model_calls_remaining=self.max_calls - self.calls,
+                finalization_reserve=self.finalization_reserve,
+                messages_remaining=self.max_messages - self.sent,
+                shared_evidence_reads=self.read_budget.snapshot(),
+                available_evidence_ids=sorted(self.access[agent.name]))})})
         self.calls += 1  # Includes handoff encoding, not only workers.
         try:
             reply = agent.call(**kwargs)
@@ -96,6 +107,8 @@ class AgentTeam:
     def domain_tool(self, original):
         def run(args, agent):
             obs = original.run(args, agent)
+            if obs.meta.get("error"):
+                return obs  # Failed calls are diagnostics, not source evidence.
             key = f"e{len(self.evidence) + 1}"
             self.evidence[key] = dict(owner=agent.name, tool=original.name, arguments=args, text=obs.text)
             self.access[agent.name].add(key)
@@ -111,7 +124,10 @@ class AgentTeam:
         if type(requires_reply) is not bool:
             raise ValueError("requires_reply must be boolean")
         if not set(evidence_ids) <= self.access[sender]:
-            raise ValueError("Cannot grant evidence you have not received or produced")
+            invalid = sorted(set(evidence_ids) - self.access[sender])
+            raise ValueError("Cannot grant evidence you have not received or produced: " + json.dumps(invalid)
+                             + ". Use only available_evidence_ids from team_state; document IDs and IDs "
+                             "quoted in prose are not grants. Report the finding in content with no grants if needed.")
         if self.sent >= self.max_messages:
             self.limit_reason = "message_limit"
             raise TeamLimit("message_limit")
@@ -131,7 +147,7 @@ class AgentTeam:
         self.ready[agent.name] = False
         self.trace.emit("assignment_complete", agent=agent.name)
 
-    def communication_tools(self):
+    def communication_tools(self, role=None):
         def send(args, agent):
             self.queue(agent.name, args["recipient"], args["content"], args.get("evidence_ids", []),
                        args.get("requires_reply", False))
@@ -144,39 +160,43 @@ class AgentTeam:
         def read(args, agent):
             if self.form not in ("document_retrieval", "adaptive"):
                 return Observation("Original-evidence reads are disabled in this handoff condition.")
-            if not self.read_budget.take():
-                return Observation("Communication read limit reached.", {"communication_limit": True})
             key = args["id"]
             if key not in self.access[agent.name]:
                 return Observation("Evidence not granted to this recipient.", {"error": True})
+            if not self.read_budget.take():
+                return Observation("Communication read limit reached.", {"communication_limit": True})
             return Observation(json.dumps(self.evidence[key], ensure_ascii=False), {"communication": True})
 
         def request(args, agent):
             if self.form != "adaptive":
                 return Observation("Evidence search is disabled in this handoff condition.")
-            if not self.read_budget.take():
-                return Observation("Communication read limit reached.", {"communication_limit": True})
             query = args["query"].strip().casefold()
             if not query:
                 return Observation("A non-empty exact text fragment is required.", {"error": True})
+            if not self.read_budget.take():
+                return Observation("Communication read limit reached.", {"communication_limit": True})
             matches = [{"id": key, **self.evidence[key]} for key in sorted(self.access[agent.name])
                        if query in self.evidence[key]["text"].casefold()]
             return Observation(json.dumps(matches, ensure_ascii=False), {"communication": True})
 
-        return [
+        result = [
             Tool("send_message", "Send findings, requests or corrections directly to a selected teammate.",
                  {"type": "object", "properties": {"recipient": {"type": "string"}, "content": {"type": "string"},
                  "evidence_ids": {"type": "array", "items": {"type": "string"}},
                  "requires_reply": {"type": "boolean", "description": "True only for a concrete request requiring work; false for findings, corrections or acknowledgements."}},
-                 "required": ["recipient", "content"]}, send),
+                 "required": ["recipient", "content", "requires_reply"], "additionalProperties": False}, send),
             Tool("finish_assignment", "Mark your worker assignment complete and send one final report to the leader. Do not also send a duplicate final report.",
                  {"type": "object", "properties": {"report": {"type": "string"},
-                 "evidence_ids": {"type": "array", "items": {"type": "string"}}}, "required": ["report"]}, finish),
+                 "evidence_ids": {"type": "array", "items": {"type": "string"}}}, "required": ["report"],
+                 "additionalProperties": False}, finish),
             Tool("read_evidence", "Read a granted original observation, when enabled by the handoff condition.",
-                 {"type": "object", "properties": {"id": {"type": "string"}}, "required": ["id"]}, read),
+                 {"type": "object", "properties": {"id": {"type": "string"}}, "required": ["id"],
+                 "additionalProperties": False}, read),
             Tool("request_evidence", "Search granted evidence by exact text fragment, when enabled by the handoff condition.",
-                 {"type": "object", "properties": {"query": {"type": "string"}}, "required": ["query"]}, request),
+                 {"type": "object", "properties": {"query": {"type": "string"}}, "required": ["query"],
+                 "additionalProperties": False}, request),
         ]
+        return [tool for tool in result if role != "leader" or tool.name != "finish_assignment"]
 
     def deliver(self):
         while self.pending:
@@ -296,12 +316,15 @@ class AgentTeam:
             role = member.role
             tools = [self.domain_tool(self.domain[name]) for name in self.permissions[role]]
             if not solo:
-                tools += self.communication_tools()
+                tools += self.communication_tools(role)
             agent = Agent(role, self.client, self.trace, POOL[role].system, tools=tools,
                           budget=self.budget, max_input_chars=self.max_input_chars, usage_role=role)
             agent.append({"role": "user", "content": json.dumps(dict(
                 request=request, assignment=member.assignment, team=self.spec.payload(),
-                handoff_form=self.form), ensure_ascii=False)})
+                handoff_form=self.form, shared_limits=self.limits,
+                evidence_access=dict(read_enabled=self.form in ("document_retrieval", "adaptive"),
+                                     search_enabled=self.form == "adaptive",
+                                     references_are_not_reads=True)), ensure_ascii=False)})
             self.agents[role] = agent
         try:
             while any(ready.values()) or any(self.inbox.values()):

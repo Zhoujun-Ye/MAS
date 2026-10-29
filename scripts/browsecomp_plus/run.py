@@ -23,6 +23,13 @@ from harness.trace import Trace, read_trace, usage_summary, validate
 from harness.accounting import estimate
 
 
+def concurrency_value(value):
+    value = int(value)
+    if not 1 <= value <= 16:
+        raise argparse.ArgumentTypeError('Experiment concurrency must be between 1 and 16')
+    return value
+
+
 def frozen_plan(row, cfg, directory, stopping, pricing):
     task_id = str(row['query_id'])
     path = directory / f'{task_id}.json'
@@ -72,6 +79,8 @@ def main():
     parser.add_argument('--output', type=Path, required=True)
     parser.add_argument('--authorized-6-plans-24-runs', action='store_true', required=True)
     parser.add_argument('--plan-only', action='store_true', help='Generate the same six frozen plans, then stop for review')
+    parser.add_argument('--concurrency', type=concurrency_value, default=6,
+                        help='Independent experiments in flight (1-16); does not change within-team scheduling')
     args = parser.parse_args()
     config = load_config(ROOT / 'configs/base.yaml')
     cfg = ModelConfig(**config['agent_model'])
@@ -82,7 +91,7 @@ def main():
         raise ValueError('Scope is exactly six tasks')
     base = dict(prepared=prepared, model=asdict(cfg), limits=LIMITS, forms=FORMS, source=source_digest(),
                 driver=hashlib.sha256(Path(__file__).read_bytes()).hexdigest(), pricing=config['pricing'],
-                planner_system=PLAN_SYSTEM, public_tasks={k: public_task(rows[k]) for k in ids}, concurrency=3,
+                planner_system=PLAN_SYSTEM, public_tasks={k: public_task(rows[k]) for k in ids}, concurrency=args.concurrency,
                 scope='6 planning calls + 24 team runs; no paid judge, no automatic expansion or paid replay')
     prepare_output(args.output, base)
     stopping = threading.Event()
@@ -134,7 +143,7 @@ def main():
             finally:
                 client._http.close()
 
-        print(json.dumps(run_batch(specs, execute, runout, 3, config['pricing'])), flush=True)
+        print(json.dumps(run_batch(specs, execute, runout, args.concurrency, config['pricing'])), flush=True)
         problems = {p.name: issues for p in (runout / 'traces').glob('*.jsonl') if (issues := validate(read_trace(p)))}
         print(json.dumps(dict(integrity_errors=problems)), flush=True)
     finally:

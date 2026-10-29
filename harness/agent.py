@@ -12,13 +12,15 @@ import threading
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from typing import Callable
+from jsonschema import Draft202012Validator
 
 from .llm import ChatClient, Completion, ProviderError
 from .trace import Trace
 
 BUDGET_EXHAUSTED = (
-    "Tool budget exhausted: no further calls of this tool are available. "
-    "Finish with the information you already have."
+    "The shared team domain-tool budget is exhausted for every teammate and every domain tool. "
+    "Switching tools or asking another teammate to retrieve cannot restore it. "
+    "Communicate existing evidence and finish with the information already available."
 )
 LENGTH_TRUNCATED = "Not executed: your reply was cut off at the output length limit."
 NOT_EXECUTED = "Not executed: no tool calls were allowed in this reply."
@@ -44,6 +46,10 @@ class Budget:
                 return False
             self.used += 1
             return True
+
+    def snapshot(self) -> dict:
+        with self._lock:
+            return dict(limit=self.limit, used=self.used, remaining=self.limit - self.used)
 
 
 @dataclass
@@ -177,17 +183,24 @@ class Agent:
         try:
             args = json.loads(call["function"].get("arguments") or "{}")
         except json.JSONDecodeError as error:
-            obs = Observation(f"Invalid JSON arguments: {error}", {"error": True})
+            obs = Observation(f"Invalid JSON arguments: {error}",
+                              {"error": True, "error_kind": "invalid_arguments", "budget_charged": False})
             return self.log_tool(call, None, obs)
         if tool is None:
             obs = Observation(f"Unknown tool: {name}", {"error": True})
+        elif (error := next(Draft202012Validator(tool.parameters).iter_errors(args), None)) is not None:
+            location = ".".join(str(part) for part in error.absolute_path) or "arguments"
+            obs = Observation(f"Invalid {name} arguments at {location}: {error.message}. "
+                              "Not executed; no domain budget consumed.",
+                              {"error": True, "error_kind": "invalid_arguments", "budget_charged": False})
         elif tool.budgeted and not self.budget.take():
-            obs = Observation(BUDGET_EXHAUSTED, {"budget_exhausted": True})
+            obs = Observation(BUDGET_EXHAUSTED, {"budget_exhausted": True, "budget_charged": False})
         else:
             try:
                 obs = tool.run(args, self)
             except Exception as error:  # shown to the model like any tool error
                 obs = Observation(f"Error executing {name}: {error}", {"error": True})
+            obs.meta["budget_charged"] = tool.budgeted
         return self.log_tool(call, args, obs)
 
     def answer(self, calls: list[dict]) -> None:

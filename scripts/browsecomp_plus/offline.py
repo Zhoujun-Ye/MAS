@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Exercise native retrieval and four-form team control with zero paid calls."""
 import argparse
+from concurrent.futures import ThreadPoolExecutor
 import json
 from pathlib import Path
 import socket
@@ -16,6 +17,7 @@ from harness.agent_team import AgentTeam
 from harness.config import source_digest
 from harness.pool import bind_permissions
 from harness.trace import Trace, read_trace, validate
+from scripts.browsecomp_plus.run import concurrency_value
 
 
 def policy(messages, tools, choice):
@@ -43,6 +45,7 @@ def deny(*args, **kwargs):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--output', type=Path, required=True)
+    parser.add_argument('--concurrency', type=concurrency_value, default=6)
     args = parser.parse_args()
     socket.create_connection = deny
     socket.socket.connect = deny
@@ -54,30 +57,37 @@ def main():
     hits = native.search('university history', 2)
     assert len(hits) == 2
     assert native.get_document(hits[0]['docid'])['text'] == hits[0]['text']
-    outcomes = []
+    cases = []
     for task_id in prepared['task_ids']:
         request = public_task(rows[task_id])
         plan = parse_plan(request, json.dumps(dict(members=[dict(role=r, assignment='Scripted transport check')
                                                             for r in ('researcher', 'reviewer', 'leader')])))
-        controls = set()
         for form in FORMS:
-            corpus = CorpusTools(native)
-            tools = corpus.tools()
-            path = args.output / 'traces' / f'{task_id}-{form}.jsonl'
-            with Trace(path, f'{task_id}-{form}') as trace:
-                trace.emit('run_start', kind='offline_fixture')
-                team = AgentTeam(plan, form, ScriptedClient(policy), trace, tools,
-                                 bind_permissions(plan, {t.name: 'search' for t in tools}),
-                                 final_validator=valid_final, final_contract=OUTPUT, **LIMITS)
-                result = team.run_task(request)
-                assert result['status'] == 'completed' and result['termination'] == 'workers_completed', result
-                assert not corpus.errors
-                trace.emit('run_end', status=result['status'])
-            assert not validate(read_trace(path))
-            controls.add(team.control_digest)
-            outcomes.append(dict(task_id=task_id, form=form, status=result['status'], calls=result['calls']))
-        assert len(controls) == 1
-    summary = dict(paid_calls=0, source=source_digest(), runs=outcomes,
+            cases.append((task_id, request, plan, form))
+
+    def execute(case):
+        task_id, request, plan, form = case
+        corpus = CorpusTools(native)
+        tools = corpus.tools()
+        path = args.output / 'traces' / f'{task_id}-{form}.jsonl'
+        with Trace(path, f'{task_id}-{form}') as trace:
+            trace.emit('run_start', kind='offline_fixture')
+            team = AgentTeam(plan, form, ScriptedClient(policy), trace, tools,
+                             bind_permissions(plan, {t.name: 'search' for t in tools}),
+                             final_validator=valid_final, final_contract=OUTPUT, **LIMITS)
+            result = team.run_task(request)
+            assert result['status'] == 'completed' and result['termination'] == 'workers_completed', result
+            assert not corpus.errors
+            trace.emit('run_end', status=result['status'])
+        assert not validate(read_trace(path))
+        return dict(task_id=task_id, form=form, status=result['status'], calls=result['calls'],
+                    control_digest=team.control_digest)
+
+    with ThreadPoolExecutor(args.concurrency) as pool:
+        outcomes = list(pool.map(execute, cases))
+    for task_id in prepared['task_ids']:
+        assert len({r['control_digest'] for r in outcomes if r['task_id'] == task_id}) == 1
+    summary = dict(paid_calls=0, source=source_digest(), runs=outcomes, concurrency=args.concurrency,
                    conclusion='Native tools and control flow only; no model quality, saturation or semantic-loss claim')
     (args.output / 'summary.json').write_text(json.dumps(summary, indent=2))
     print(json.dumps(summary), flush=True)

@@ -39,14 +39,21 @@ def summarize(runs):
         rows = [r for r in runs if r["condition"] == condition]
         graded = [r["success"] for r in rows if r["success"] is not None]
         totals = [r["usage"]["total"] for r in rows]
+        completed = sum(r["status"] == "completed" for r in rows)
         prompt = sum(t["prompt_tokens"] for t in totals)
         estimates = [r.get("cost_usd_estimate") for r in rows]
         table[condition] = dict(
             runs=len(rows), graded=len(graded), ungraded=len(rows) - len(graded),
+            completed=completed,
+            grading_coverage=len(graded) / completed if completed else None,
+            success_rate_scope="success_rate/ci95 require all completed runs graded; graded_success_rate excludes unknowns.",
+            confirmed_successes=sum(value is True for value in graded),
+            confirmed_success_fraction=sum(value is True for value in graded) / completed if completed else None,
             errors=sum(r["status"] == "error" for r in rows),
             incomplete=sum(r["status"] == "incomplete" for r in rows),
-            success_rate=mean(graded) if graded else None,
-            ci95=stats.bootstrap_ci([float(x) for x in graded]),
+            success_rate=mean(graded) if graded and len(graded) == completed else None,
+            graded_success_rate=mean(graded) if graded else None,
+            ci95=stats.bootstrap_ci([float(x) for x in graded]) if graded and len(graded) == completed else None,
             prompt_tokens=prompt, completion_tokens=sum(t["completion_tokens"] for t in totals),
             cache_hit_rate=sum(t["cache_hit_tokens"] for t in totals) / prompt if prompt else None,
             llm_calls=sum(t["llm_calls"] for t in totals),
