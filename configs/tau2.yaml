@@ -1,0 +1,30 @@
+benchmark: tau2
+
+# Domain -> τ² task split. Telecom base has 114 tasks (main), airline base 50.
+domains:
+  telecom: base
+  airline: base
+
+# One fixed user simulator for every condition (guide §3.1), called through τ²'s
+# own LiteLLM path. Thinking is off, so no reasoning needs to be passed back.
+user_model:
+  model: deepseek/deepseek-flash
+  args:
+    temperature: 0.0
+    extra_body:
+      thinking:
+        type: disabled
+
+# τ²'s default "semantic" scorer calls a gpt-5.5 judge; substring is the
+# original τ² communicate check and needs no extra model.
+communicate_scoring: substring
+
+budget:
+  tool_calls: 30       # environment tool calls, summed over all agents of one run
+  max_turns: 20        # LLM calls per agent per user turn or per delegation
+  max_delegations: 15  # front desk -> operator requests per conversation
+
+max_steps: 200   # τ² orchestrator steps (τ² default)
+max_errors: 10
+seed: 300
+concurrency: 8

@@ -1,0 +1,22 @@
+# Settings shared by every condition (guide §3.1). Freeze before any run: each
+# output directory records the resolved configuration and refuses a different one.
+
+# Every agent in every condition.
+agent_model:
+  # V4 Flash. The guide names it deepseek-v4-flash; GET /models listed only
+  # deepseek-flash and deepseek-v4-pro on 2026-10-29.
+  model: deepseek-flash
+  base_url: https://api.deepseek.com
+  api_key_env: DEEPSEEK_API_KEY
+  thinking: enabled
+  reasoning_effort: high
+  max_tokens: 32768
+
+# Answer grading and loss-type labels; kept separate from the tested model.
+judge_model:
+  model: deepseek-v4-pro
+  base_url: https://api.deepseek.com
+  api_key_env: DEEPSEEK_API_KEY
+  thinking: enabled
+  reasoning_effort: high
+  max_tokens: 16384

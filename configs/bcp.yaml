@@ -1,0 +1,25 @@
+benchmark: bcp
+
+# 830 official test queries, written by scripts/prepare_bcp.py.
+tasks: data/bcp/tasks.jsonl
+qrels:
+  evidence: external/BrowseComp-Plus/topics-qrels/qrel_evidence.txt
+  gold: external/BrowseComp-Plus/topics-qrels/qrel_golds.txt
+
+retriever:
+  # The guide prefers the official Qwen3-Embedding-8B dense retriever; it is not
+  # deployed yet. BM25 is the official fallback with lower recall.
+  type: bm25
+  index: /home/zhoujunye/agent-team/.cache/browsecomp-plus/bm25
+  java_home: /home/zhoujunye/agent-team/.runtime/java21
+  k: 5
+  snippet_max_tokens: 512
+  # Official snippet tokenizer (Qwen/Qwen3-0.6B); without it snippets are cut by words.
+  tokenizer: .cache/qwen3-0.6b/tokenizer.json
+
+budget:
+  tool_calls: 50   # search + get_document, summed over all agents of one run
+  max_turns: 60    # LLM calls per agent per assignment
+  max_workers: 5   # search agents available to the lead (C1-C4)
+
+concurrency: 8     # runs in flight
