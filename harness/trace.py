@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import threading
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -41,7 +42,7 @@ class Trace:
             t = self._t
             self._t += 1
             ts = datetime.now(timezone.utc).isoformat(timespec="milliseconds")
-            event = {"run_id": self.run_id, "t": t, "type": type, "ts": ts}
+            event = {"run_id": self.run_id, "t": t, "type": type, "ts": ts, "monotonic_ns": time.monotonic_ns()}
             if type in ID_FIELDS:
                 key, prefix = ID_FIELDS[type]
                 event[key] = f"{prefix}{t}"

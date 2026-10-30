@@ -18,9 +18,9 @@ from .llm import ChatClient, Completion, ProviderError
 from .trace import Trace
 
 BUDGET_EXHAUSTED = (
-    "The shared team domain-tool budget is exhausted for every teammate and every domain tool. "
-    "Switching tools or asking another teammate to retrieve cannot restore it. "
-    "Communicate existing evidence and finish with the information already available."
+    "Your domain-tool budget is exhausted. Switching tools cannot restore your allowance; "
+    "teammates retain their own independent allowances. Communicate existing evidence "
+    "and explicitly report any missing verification."
 )
 LENGTH_TRUNCATED = "Not executed: your reply was cut off at the output length limit."
 NOT_EXECUTED = "Not executed: no tool calls were allowed in this reply."
@@ -33,7 +33,7 @@ SALVAGE_EFFORT = "low"
 
 
 class Budget:
-    """Tool-call allowance of one run; every agent draws from the same pool."""
+    """Thread-safe allowance; AgentTeam gives each member its own instance."""
 
     def __init__(self, limit: int):
         self.limit = limit
@@ -42,14 +42,14 @@ class Budget:
 
     def take(self) -> bool:
         with self._lock:
-            if self.used >= self.limit:
+            if self.limit is not None and self.used >= self.limit:
                 return False
             self.used += 1
             return True
 
     def snapshot(self) -> dict:
         with self._lock:
-            return dict(limit=self.limit, used=self.used, remaining=self.limit - self.used)
+            return dict(limit=self.limit, used=self.used, remaining=None if self.limit is None else self.limit - self.used)
 
 
 @dataclass
@@ -65,8 +65,10 @@ class Tool:
     description: str
     parameters: dict
     run: Callable[[dict, "Agent"], Observation]
-    budgeted: bool = False  # draws from the run's shared budget
+    budgeted: bool = False  # draws from the owning agent's configured budget
     concurrent: bool = False  # several calls in one reply may run in parallel
+    preflight: Callable[[dict, "Agent"], Observation | None] | None = None
+    read_only: bool = False  # Explicit trusted capability, never inferred from shell text.
 
     @property
     def schema(self) -> dict:
@@ -149,6 +151,7 @@ class Agent:
             "llm_call",
             agent=self.name,
             context_len=len(self.messages),
+            request_id=getattr(self, "request_id", None),
             usage_role=self.usage_role,
             finish_reason=completion.finish_reason,
             usage=completion.usage,
@@ -193,11 +196,17 @@ class Agent:
             obs = Observation(f"Invalid {name} arguments at {location}: {error.message}. "
                               "Not executed; no domain budget consumed.",
                               {"error": True, "error_kind": "invalid_arguments", "budget_charged": False})
+        elif tool.preflight is not None and (denial := tool.preflight(args, self)) is not None:
+            obs = denial
+            obs.meta['budget_charged'] = False
         elif tool.budgeted and not self.budget.take():
             obs = Observation(BUDGET_EXHAUSTED, {"budget_exhausted": True, "budget_charged": False})
         else:
             try:
+                self.active_tool_call_id = call["id"]
                 obs = tool.run(args, self)
+            except ValueError as error:
+                obs = Observation(f"Error executing {name}: {error}", {"error": True, "error_kind": "invalid_arguments"})
             except Exception as error:  # shown to the model like any tool error
                 obs = Observation(f"Error executing {name}: {error}", {"error": True})
             obs.meta["budget_charged"] = tool.budgeted
@@ -217,7 +226,7 @@ class Agent:
     def refuse(self, calls: list[dict], text: str = NOT_EXECUTED) -> None:
         """Answer calls that must not run, keeping the history valid for later calls."""
         for call in calls:
-            obs = self.log_tool(call, None, Observation(text, {"error": True}))
+            obs = self.log_tool(call, None, Observation(text, {"error": True, "error_kind": "action_refused"}))
             self.append(tool_message(call, obs), obs.ref)
 
     def notice(self, reason: str, final_prompt: str) -> dict:

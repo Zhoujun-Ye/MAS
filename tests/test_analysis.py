@@ -91,22 +91,26 @@ def test_cache_groups_explicit_team_roles_not_agent_name_prefixes():
     assert summary["steps"][0]["role"] == "worker"
 
 
-def test_generic_analysis_retains_unknown_and_preserves_outputs(tmp_path):
+def test_analysis_counts_all_started_and_preserves_outputs(tmp_path):
     from scripts.analyze import load_runs, summarize
     from harness.trace import Trace
-    (tmp_path / "results").mkdir()
-    for key, status, success in [("done", "completed", True), ("unfinished", "incomplete", True),
-                                 ("ungraded", "completed", None)]:
-        (tmp_path / "results" / f"{key}.json").write_text(json.dumps(dict(run_id=key, condition="summary", status=status, success=success)))
-        with Trace(tmp_path / "traces" / f"{key}.jsonl", key) as trace:
+    for key, status, failure, success in [
+        ("done", "completed", None, True), ("unfinished", "incomplete", "agent_failure", None),
+        ("error", "error", "infrastructure_error", None), ("ungraded", "completed", None, None)]:
+        folder = tmp_path / key
+        folder.mkdir()
+        (folder / "manifest.json").write_text(json.dumps(dict(scheduler="controlled", communication_policy={})))
+        (folder / "result.json").write_text(json.dumps(dict(status=status, failure_class=failure)))
+        if success is not None:
+            (folder / "grade.json").write_text(json.dumps(dict(correct=success)))
+        with Trace(folder / "trace.jsonl", key) as trace:
             trace.emit("run_start")
-            trace.emit("final", agent="leader")
             trace.emit("run_end", status=status)
     before = {p: p.read_bytes() for p in tmp_path.rglob("*") if p.is_file()}
     runs, traces = load_runs(tmp_path)
-    row = summarize(runs)["conditions"]["summary"]
-    assert row["graded"] == 1 and row["ungraded"] == 2 and row["incomplete"] == 1
-    assert row["success_rate"] is None and row["graded_success_rate"] == 1 and row["semantic_loss"] is None
-    assert row["grading_coverage"] == 0.5 and row["confirmed_success_fraction"] == 0.5
-    assert row["estimated_cost_usd"] is None
+    row = next(iter(summarize(runs)["conditions"].values()))
+    assert row["runs"] == 4 and row["agent_failures"] == 1 and row["infrastructure_errors"] == 1
+    assert row["success_rate"] == 0.25 and row["success_rate_upper_bound"] == 0.75
+    assert row["graded"] == 2 and row["ungraded"] == 2 and row["ci95"] is None
+    assert row["estimated_cost_usd"] is None and row["semantic_loss"] is None
     assert before == {p: p.read_bytes() for p in tmp_path.rglob("*") if p.is_file()}

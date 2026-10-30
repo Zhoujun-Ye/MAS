@@ -1,40 +1,118 @@
-# Common Completion Protocol v4
+# Submission and Completion Protocol
 
-This protocol applies to all handoff forms. Existing traces, grades and status
-labels are never changed retrospectively.
+Runtime owns lifecycle, submission state and finalization. Information Harness
+owns the sender-policy boundary, not the authority to declare verified success.
 
-- A worker explicitly calls `finish_assignment(report, evidence_ids)` or emits
-  a tool-free final report. The harness records completion and sends one report.
-- `send_message` requires an explicit `requires_reply` boolean. Findings, corrections and
-  acknowledgements are delivered and appended, but do not restart an idle worker.
-  A concrete request with `requires_reply=true` reopens the recipient's assignment.
-  All messages to the Leader wake it, including late corrections.
-- Ordinary finalization waits for unfinished assignments and explicit pending
-  requests, not for unrelated informational inboxes to become empty.
-- The common total model-call cap includes encoders and a configurable reserve
-  (default one call). Work/encoding cannot consume the reserve. On reaching it,
-  the Leader receives its already encoded inbox and is asked to submit without
-  more tools, retaining its existing context and model settings.
-- Unencoded pending intents and other workers' private observations are never
-  forwarded during finalization. This avoids a hidden Full Context fallback.
-- Finalization tool calls are refused, not executed. Any format retry uses only
-  the remaining reserve. Invalid/empty output remains incomplete. Provider,
-  context and output-limit errors are not disguised as valid final answers.
-- Submitted answers have `termination=workers_completed` or `budget_finalization`
-  and list unfinished roles. Completion is not correctness; grade independently
-  and report budget-finalized outcomes separately.
+## Three Independent States
 
-BCP preflight extension: the message-count cap also enters bounded finalization,
-labelled `message_limit_finalization`, rather than discarding an otherwise
-submittable answer. It uses at most the reserved number of calls, still inside
-the total cap; it does not forward any unencoded message or raise a budget.
+- Agent lifecycle: idle, running, waiting, failed, terminated. Termination does
+  not imply that its assignment was submitted or correct. Shutdown is traced.
+- Worker assignment: working, blocked, submitted; completed is evaluator-only.
+  Each assignment has a revision and, after submission, a submission_id.
+- Verification: not_run, passed, failed, error. Only a trusted evaluator can
+  change this field; agent reports and status tools cannot do so.
 
-The scheduler, protocol, reserve and prompts are frozen across conditions.
-This does not implement adaptive communication learning, automatic fact repair,
-or a global shared notebook. A mistaken `requires_reply` choice is observable
-model behavior, not silently corrected by the runtime.
+The leader coordinates; it is not a required worker submission. There is no
+general dependency DAG: CooperBench requires both worker revisions followed by
+external merge and tests.
 
-Only workers receive `finish_assignment`; roles see append-only shared budget
-and grant state. Invalid arguments are rejected before domain-budget reservation;
-requests cannot silently default to FYI. Schemas and prompts stay stable per
-role across forms. Offline regression coverage is not a paid efficacy result.
+## Submission and Reopening
+
+Only explicit submit_assignment captures an immutable snapshot through the
+adapter's submission_hook. Code submissions must select implementation paths;
+an empty list explicitly submits an empty patch. Without a hook, only the report
+is frozen (report-only-v1); this is not a coding submission. Snapshot I/O runs in
+the owning turn outside the shared-state lock. Failed capture does not submit.
+
+After capture, the runtime records the version and digest and sends a fixed
+metadata-only task_submitted notification to the leader. Status delivery does
+not consume the content-message budget. It cannot carry report text, assignment
+text, patches or evidence. The substantive report goes to the leader and pending
+requesters through the same policy, ACL and budget checks as send_message.
+Thus a snapshot may be recorded even if its report exhausts the message budget.
+
+Every incoming message wakes its recipient but does not invalidate its snapshot.
+A submitted worker can inspect authorized messages/artifacts or send a correction.
+Trusted read-only file tools remain available, including read_file with
+metadata_only=true for SHA-256 checks. These read the current workspace, not the
+immutable submission, and still consume the member's tool allowance. Writes and
+arbitrary terminal commands require update_task(status=working). This invalidates the current submission, increments
+the revision and resets verification. Earlier snapshots remain in the trace.
+update_task(status=blocked) also reopens a submitted revision, but yields.
+Any tool-free worker reply, including an empty reply, only makes the member idle.
+It neither submits nor sends a report. Substantive communication requires an
+explicit send_message or submit_assignment.
+
+Mutating domain tools and terminal commands are denied after submission, including later tools in the same
+assistant turn, without charging the domain budget. Duplicate submissions are
+errors. wait_for_message changes only readiness/lifecycle, not task validity.
+list_tasks exposes only fixed identity, status, revision and verification fields.
+The communication-only leader is not presented as an unfinished worker assignment.
+
+## Finalization and Verification
+
+Normal finalization requires both current worker submissions, no runnable or
+in-flight worker turn, and no queued message/status event. A message arriving
+during a model call must enter a later input before normal finalization. This is
+an operational quiescence check, not a claim that all important facts were sent.
+Both schedulers reawaken the leader when the last blocker yields and all workers
+are submitted. This also handles a deferred final answer without a new message.
+Messages appended at a quota boundary but never included in a request still block
+normal finalization; context append is not consumption.
+
+Budget finalization reserves a bounded leader answer without tools and joins
+in-flight work first. It may return a partial answer: status=completed means the
+execution returned a final answer, NOT task success. submission_status is
+submitted only when the submission/quiescence gate holds, otherwise incomplete.
+verification.status remains separate. Deadlock, missing explicit submissions,
+member budget exhaustion preventing completion, and context/output overflow are
+agent failures. All started attempts remain in the success-rate denominator.
+Infrastructure failures and external interruptions are reported separately, never
+silently removed. Unknown grades remain visible; confirmed success / all started
+is a conservative rate until grading is complete.
+
+After workers have joined, non-submitted revisions receive a terminal snapshot.
+For member-level context/model/token exhaustion, capture occurs when that member
+halts, while its peers may continue. Final cleanup reuses that snapshot.
+This does NOT set submitted=true or rescue the primary failure. CooperBench can
+merge/test these frozen partial artifacts diagnostically. Snapshot errors are
+recorded, not grounds to drop the attempt. Existing valid explicit snapshots
+remain the evaluation source. The in-process success verifier still requires a
+normal complete submission set.
+
+A trusted in-process verifier receives detached frozen snapshots, not agent
+claims. record_verification(role, submission_id, status) is a host-only API that
+rejects stale versions; only passed marks that assignment completed. A joint
+verification result does not automatically assert each individual task passed.
+CooperBench instead grades after execution: grade.json binds the joint verdict
+to both exact explicit/terminal snapshot IDs/digests. code_correct and
+verification describe the code tests; correct remains false for an agent-failed
+run even if its terminal code happens to pass. The original result is immutable.
+
+## Independent Budgets
+
+Each member has an independent domain-tool quota. Optional cumulative-token,
+model-call, message and evidence-read caps remain available for diagnostics;
+the authorized rerun sets all of these to null. Refusing one member's tool/message
+does not charge its peers. Exhausting a member's model/token allowance halts that
+member; runnable peers continue. A task wall-clock deadline stops new work and
+refuses late actions. The manifest pins limits; result.json records member_usage.
+Provider receipts still meter tokens and cost without imposing a cumulative-token
+stop. When explicitly configured in diagnostics, an over-limit response has its
+tools refused. Per-response output/context safety bounds remain unchanged.
+No independent communication-round cap is imposed.
+
+Local/provider context overflow stops only that member. Output truncation refuses
+all actions from the incomplete reply and appends a recovery notice; one consecutive
+recovery turn is allowed under the same budgets. A second consecutive truncated
+reply halts that member. A normal response resets the recovery counter. This is
+distinct from provider transport retries, which remain disabled. Shared deadline
+and infrastructure errors still stop the team. State is appended only when changed.
+Both schedulers explicitly report rejected premature leader finals and then wait
+for events rather than polling for another answer.
+
+Controlled scheduling and async execution share this contract. Shutdown waits
+for in-flight provider/tool/snapshot operations; it cannot forcibly cancel remote
+requests or undo tool side effects. Adapter-managed background processes are
+outside this join guarantee; native environment validation must address them.
+No paid run or native benchmark evaluation is authorized by this protocol.

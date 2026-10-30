@@ -11,9 +11,9 @@ from harness.trace import Trace, read_trace, validate
 
 def reply():
     return json.dumps(dict(members=[
-        dict(role="researcher", assignment="Read inventory and send exact quantities to solver."),
-        dict(role="solver", assignment="Compute feasibility from researcher evidence; report to leader."),
-        dict(role="leader", assignment="Coordinate and submit the supported decision."),
+        dict(role="researcher", template="researcher", assignment="Read inventory and send exact quantities to solver."),
+        dict(role="solver", template="solver", assignment="Compute feasibility from researcher evidence; report to leader."),
+        dict(role="leader", template="leader", assignment="Coordinate and submit the supported decision."),
     ]))
 
 

@@ -1,84 +1,63 @@
-# Hard Boundaries and Controlled Information Access
+# Runtime and Information Harness Boundaries
 
-The generic architecture is Leader decomposition -> independent workers ->
-Information Harness -> authorized Shared Workspace -> Leader synthesis.
-BCP supplies public requests, domain tools and grading, not its own architecture.
-TravelPlanner source and launchers are retired; historical outputs stay unchanged.
+Each member has its own append-only context. Public metadata, fixed role prompts
+and private assignments are initialized independently. No member inherits the
+leader's full conversation. A shared filesystem is not a shared model context.
 
 ## Ownership
 
-- `harness/planning.py`: one tool-less Leader planning call using public input and
-  the fixed capability/tool catalogue. It produces concrete assignments and
-  persists the TeamSpec and planning cost once, before communication conditions.
-  The planning and execution phases use the same Leader capability template;
-  execution starts from the frozen plan, not an unlogged planner conversation.
-- `harness/pool.py`: fixed role templates and capability bindings. Leader has no
-  domain capabilities. Selection never creates role prompts or grants tools.
-- `harness/agent_team.py`: independent append-only conversations/tool histories,
-  queued direct peer messages, controlled encoders, completion and finalization.
-  Nonempty Leader domain grants are rejected, even from a custom adapter.
-- `harness/information.py`: SharedWorkspace stores immutable evidence, artifacts,
-  private memory notes and state revisions. InformationHarness mediates ACLs,
-  reads, searches, integrity verification and workspace recovery.
+| Component | Owns | Must not do |
+| --- | --- | --- |
+| Runtime (agent_team.py) | Scheduling, budgets, permissions, verbatim mailbox transport, lifecycle, submission versions, finalization | Choose or rewrite substantive message content |
+| Information Harness (information.py) | Frozen sender instructions, outgoing-message validation, explicit evidence/artifact access | Change scheduling, roles, permissions, budgets, completion rules or evaluator |
+| Benchmark adapter | Private inputs/workspaces, immutable code snapshots, protected merge/tests | Leak hidden tests/gold or treat a report as a tested solution |
 
-## Hard Boundary
+CommunicationPolicy is an immutable versioned instruction artifact, included in
+the control digest and each sender's stable system prefix. It guides the sender's
+choice of content, recipients and explicit references. prepare_message is the
+single validation boundary for send_message and explicit submission reports.
+Tool-free worker replies yield without sending or submitting. Runtime delivers the resulting text verbatim.
+This is not an executable plugin, an additional LLM encoder, or a guarantee of
+semantic compliance. A policy updater is not implemented.
 
-Domain observations are initially readable only by their producer. The public
-task and frozen assignments are shared; private observations and memory are not.
-No model receives a global workspace dump or another agent's live history.
-Leader may communicate and inspect explicitly granted workspace records, but
-cannot invoke any domain tool, including by hallucinating a tool call.
+Status events and list_tasks expose a fixed metadata projection only. They do
+not carry free-form progress reports, results, assignment text or automatic
+evidence summaries. Full snapshots live in evaluator/trace storage and are never
+silently appended to the leader's context. See completion-protocol.md.
+Identical team_state is not repeatedly appended. Protocol denials (missing grants,
+frozen writes, invalid arguments) and ordinary nonzero command observations are
+separate from execution failures in review packets.
 
-`publish_artifact` creates a private record. `previous` appends an owner-only
-revision without overwriting the old one or inheriting its recipient grants.
-Explicit `artifact_ids` in send/finish requests select revisions to share.
-A bare worker completion does not automatically share its private artifacts.
-Evidence uses the existing evidence IDs and observation provenance events.
+## Explicit Attachments
 
-Summary/Structured deliver encoded text, not original-record read grants.
-Document Retrieval/Adaptive grant only explicitly selected records to the named
-recipient. Adaptive searches only that recipient's authorized records. Full
-Context materializes the sender snapshot at an explicit send boundary; it is
-not unrestricted access to every participant or to the underlying workspace.
-Artifact reads, verification and recovery consume the shared read budget.
-All new tools/schemas, roles and isolation version enter the frozen control digest.
-Old plans and manifests must not be reused for this architecture.
+Tool observations and published artifacts are private by default. Selecting
+evidence_ids or artifact_ids grants access to those exact immutable records.
+A reference is not a read: read_evidence/read_artifact materializes it.
+Recipients may forward granted references, not unrelated records. New artifact
+revisions require new explicit grants. Publication alone never broadcasts.
+The invariant access checks are infrastructure, not an RSI-mutable policy.
+Missing grants return an actionable attachment instruction and a typed protocol
+error. Send receipts enumerate selected attachments. There is no implicit grant
+from a quoted artifact ID and no automatic private-context sharing.
 
-## Verification and Recovery
+## Domain Execution and Evaluation
 
-Records carry owner, kind, immutable ID, previous revision and content digest.
-`verify_artifact` checks integrity and recorded origin, not whether the content
-is true. Incorrect claims remain possible and are not silently corrected.
-`recover_artifact` rematerializes an authorized exact revision; it cannot recover
-another agent's private context or grant access by guessing an ID.
-`InformationHarness.recover` rebuilds records and ACLs from workspace trace
-events with digest checks. It does not resume conversations, replay domain
-actions or launch paid inference. Traces are trusted local audit artifacts, not
-cryptographically signed proof against a malicious filesystem owner.
+CooperBench workers have separate feature descriptions and repository containers.
+Hidden tests and gold patches are evaluator-only. ContainerWorkspace exposes
+read_file, write_file and terminal inside externally provisioned containers; it
+never runs model commands on the host or provisions containers itself. The caller
+owns mounts, credentials, network/resource isolation and background-process control.
 
-## Evidence Limits
+The adapter captures explicitly selected implementation files against the pinned
+base. Tests/scratch paths are excluded and the worker index is not changed.
+Agent-failed runs retain terminal snapshots for diagnosis and count as failures. Final exports
+come from the frozen snapshot, never a fresh end-of-run workspace read. grade.py
+checks snapshot IDs, content digests, exported patches, base and official image
+identity before invoking the pinned merger/tests in a fresh evaluator sandbox.
+Tool output and message bodies are raw text with short metadata headers, not
+nested JSON strings. Trace storage may use JSON without changing model-visible
+text. Offline contract tests and native baseline/gold checks are separate gates;
+only graded paid attempts establish observed Agent Team task outcomes.
 
-The enforced asymmetry is between domain-tool workers and a tool-less deciding
-Leader. Workers may share domain tools; neither disjoint corpora nor a single
-agent capacity bottleneck is claimed. Dependency and completion requirements
-are in Leader assignments, not an executable DAG. Schema validation does not
-certify decomposition quality. This is model/tool-boundary isolation, not an OS
-sandbox for untrusted adapter Python or arbitrary shell/filesystem tools.
-
-Wrong-value propagation, coordination-budget exhaustion and distributed evidence
-coverage remain hypotheses requiring decision-time traces and controlled tests.
-The runtime does not label a failed answer as information loss automatically.
-
-## Offline Verification (2026-10-29)
-
-On the standalone server, `pytest -q` passed 84 tests. Coverage includes generic
-planning/reuse, forbidden Leader grants and forged calls, all five communication
-forms, direct peer artifact delivery, unauthorized reads, immutable revisions,
-corruption detection and workspace/ACL recovery without cross-condition reuse.
-
-BCP native BM25 integration completed six scripted Leader plans and 24 scripted
-team runs (six questions, four forms), with matching per-task control digests
-across forms and valid traces. No paid calls or model-quality measurements.
-Server evidence: `/home/zhoujunye/MAS-information/outputs/browsecomp_plus/hard-isolation-offline-20261029-02`.
-Verified source digest: `9d33d1daa544d6f4`. Real-model decomposition quality,
-semantic verification and causal information-loss effects remain untested.
+Receipts establish what was sent, delivered and included in a model request, not
+truth, attention or causal use. Policy changes cannot alter the delivery ledger.

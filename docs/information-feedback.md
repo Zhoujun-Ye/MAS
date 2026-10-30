@@ -1,72 +1,75 @@
-# Information-level Feedback
+# Information Selection, Availability and Delay
 
-The feedback unit is a **decision requiring a fact with qualifiers**, not an
-entire failed task and not a cited document id. Independent labels must record
-the required fact, original observation/event, owner, intended recipient,
-decision call, relevant sender/recipient quotes, uncertainty and reviewer.
+Information-specific diagnosis uses a decision requiring a specific fact and
+qualifiers, not merely a failed task or missing citation. The broader study also
+examines coordination, misuse, delay and overhead (docs/experiment1.md). The current hypothesis is: even with timely delivery,
+agents may choose the wrong content to send and cause collaboration failure.
+This is not established by the runtime or offline tests.
 
-## Evidence Ladder
+## Operational Evidence
 
-1. Acquisition: did an executable tool actually return the needed correct fact?
-2. Sharing: was it intentionally sent to the relevant recipient?
-3. Transport fidelity: did encoding preserve the value, qualifier and intent?
-4. Availability: was the message included in a model request before the decision?
-5. Retrieval: for references, was original text returned by a successful read
-   and subsequently included in a model input? A grant/ID is not a read.
-6. Use and action: was the decision consistent with available evidence, and did
-   the requested tool operation execute successfully?
+Every trace event has an ordered run-local t, UTC ts and monotonic_ns. Wall-clock
+timestamps are for inspection; within-run latency uses the monotonic clock.
+These fields never enter model prompts.
 
-Items 2/3/5 are the primary communication-policy targets. Delivery/scheduling
-errors are substrate bugs, not evidence that a learned policy is needed.
-Bad initial decomposition, inconsistent task/scorer specifications, acquisition
-failures, reasoning after arrival, and execution failures remain separate.
+- evidence records the returned observation and source_tool_call_id.
+- peer_queued records sending, recipient, exact text and explicit evidence IDs.
+- peer_mailbox records immediate delivery to the recipient mailbox.
+- peer_delivery records append to the recipient context at a safe boundary.
+- model_input records the immutable input boundary before provider execution.
+- peer_consumed links each newly included message to that request_id.
+- llm_call records the returned completion and usage, with the same request_id.
+- policy_message binds each accepted outgoing message to the frozen policy.
+- task_status and agent_state describe operational changes, not discovered facts.
+- submission_snapshot freezes a version for grading; it is not a message to the leader.
 
-`analysis/information.py` reconstructs decision-time inputs and correlates
-queued/encoded/delivered/model-input receipts. It excludes the final answer from
-its own input, future evidence and encoder contexts from worker knowledge.
-Receipt evidence is deterministic. Semantic arrival, truth, correct use and
-causal effect are deliberately NOT inferred from receipts or success/failure.
-The `attribution` helper requires reviewed semantic fields and an explicitly
-decision-relevant fact; missing data stays
-unknown. It is a rule mapping for annotations, not an automatic semantic judge.
-An available partial clue plus an incorrect final answer is not sufficient to
-label post-arrival reasoning failure: require reviewed information sufficiency
-or specific misuse of the fact. Otherwise use `available_but_failure_unresolved`.
+Consumed means included in an attempted model request, NOT read, understood,
+accepted by the provider or used correctly. Failed requests remain provider
+errors. A message arriving during a request cannot affect that request.
+Provider retries use the same input. Request-start, not response-end, is the
+decision cutoff. Never append to an in-flight context.
 
-Structured packets also include `excerpt_checks`: whether the claimed verbatim
-text occurs in an earlier cited tool observation. Unresolved IDs, absent excerpts
-and non-exact excerpts remain distinct. A mismatch may be formatting/paraphrase;
-an exact match does not prove the claim or causal use. Semantic support stays
-unknown until reviewed. Never count these flags as a semantic loss rate.
-Document/tool-call IDs resolve only to earlier recorded observation windows.
-JSON escapes are decoded, separate windows never joined, and failed tools excluded.
-No hidden document read repairs provenance. Transport status distinguishes queued,
-encoded, delivered and included in a model input; FYI non-reactivation is not
-automatically a bug.
+message_lifecycle exposes sender, receiver, message_id, source_tool_call_ids,
+sent_at, delivered_at, consumed_at, request_id and monotonic durations.
+Plural provenance permits multiple sources. Empty references mean unknown
+provenance, not absence of relevant knowledge. A reference does not prove
+semantic relevance; inspect exact tool output and sender input.
 
-`scripts/feedback.py OUTPUT --report-dir NEW_DIRECTORY` creates independent review
-packets without paid calls. Complete and incomplete trajectories are distinguished.
-The existing legacy loss-judge entry point is not used for these annotations.
+At each decision distinguish:
+1. Not acquired: no reviewed supporting observation in the sender's earlier input.
+2. Acquired but not selected: reviewed relevant content was available, but absent
+   from what was sent. An empty message log alone cannot establish this.
+3. Sent but unavailable: transport pending, mailbox waiting for the next step,
+   or sent after this decision. Keep these timing cases out of selection-loss labels.
+4. Included but not used correctly: requires semantic review of sufficiency/use.
 
-## Before Policy Updates
+Later lifecycle receipts remain visible, labelled relative to the chosen cutoff;
+future evidence is excluded from decision-time context and source analysis.
 
-Build a reviewed set of positive and negative cases. In particular include
-facts that arrived but were misused, tool failures, and task-specification
-mismatches so a detector cannot label every failure as communication loss.
-Report unknown cases and precision/recall against independent review. A suggested
-policy change must reference the observed edge and failure category; one failure
-does not authorize a general prompt rewrite.
+## Controlled Motivation
 
-Annotate only **decision-relevant** facts, with the task constraint/decision that
-requires them. Do not count every omitted search row as loss. Keep three claims
-separate: an edge omitted a fact; the fact was unavailable at the decision through
-all paths; restoring the fact changes the outcome. Redundant direct tool reads
-can erase the second effect even when the first is real. Model-input inclusion
-does not reveal attention or establish correct use; verbal reasoning alone is
-not causal proof. State/version and the artifact reviewed also matter: approval
-of draft v1 does not validate a modified final v2.
+Freeze pool, TeamSpec, tools/permissions, model, budgets, scheduler and transport.
+The exploratory driver defaults to async, with autonomous when/whom/content.
+Controlled serial execution is only an explicit diagnostic setting. Do not pool them or
+let RSI change scheduling, architecture, assignments, permissions or budgets.
+Candidate Harness mechanisms will be selected after observing failure modes.
+No updater is implemented or authorized here.
 
-Test a candidate on disjoint tasks with the same roles, tools and model. For
-causality compare missing-fact restoration with unchanged-context repeat and a
-matched irrelevant/control supplement, charging all calls. No updater or paid
-judge is launched by this module. Runtime adaptation is not cross-task learning.
+Immediate mailbox delivery does not guarantee availability before an already
+running decision. Primary selection-loss cases require reviewing all relevant
+messages and ruling out timing, acquisition, environment and permission failures.
+Report delayed/unknown cases separately, without silently dropping hard tasks.
+Even this selection is descriptive, not causal proof: restoring a supported
+missing fact must be compared at a frozen decision against unchanged-input
+repeats and matched controls. Such replay and paid tests are not implemented.
+
+Use scripts/feedback.py to export review packets. Keep semantic and causal
+attribution unknown until independently reviewed. Code-test failure alone is
+not evidence of information loss.
+
+For CooperBench, packets default to all worker model-input boundaries, not the
+leader's unevaluated final text. --agent and --call-t restrict the review target.
+Both analysis and feedback read per-attempt manifest.json/result.json/trace.jsonl
+directories. All started attempts remain visible; deadlock and resource-induced
+incompleteness are agent failures. Terminal code tests are diagnostic and cannot
+retroactively remove those failures. Infrastructure/unknown cases are separate.

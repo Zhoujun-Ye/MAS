@@ -4,12 +4,13 @@ Receipts establish availability in a model input, not attention, truth or causal
 use. Semantic annotations remain unknown until independently reviewed.
 """
 import json
-import re
 
 from harness.trace import contexts
 
 
 def observation_id(event):
+    if event.get('evidence_id'):
+        return event['evidence_id']
     try:
         value = json.loads(event.get("observation", ""))
         return value.get("evidence_id") if isinstance(value, dict) else None
@@ -40,76 +41,56 @@ def observed_fragments(text):
     return fragments
 
 
-def excerpt_checks(events, cutoff):
-    """Compare claimed verbatim excerpts with earlier cited observations.
+def message_lifecycle(events, cutoff=None):
+    """Operational receipts only. Consumed means request input, not understanding.
 
-    A mismatch can be formatting or paraphrase, not necessarily a false fact.
-    Exact matches establish text provenance only, never decision relevance.
+    Keep later receipts visible but label availability at the chosen decision.
+    Monotonic durations are valid only inside this run/process.
     """
-    evidence, aliases, checks = {}, {}, []
-
-    def register(alias, key, fragments):
-        aliases.setdefault(alias, {})[key] = fragments
-
+    rows = {}
+    by_t = {event["t"]: event for event in events}
+    stages = {"peer_queued": "sent", "peer_mailbox": "delivered", "peer_consumed": "consumed"}
     for event in events:
-        if event["t"] > cutoff:
+        stage = stages.get(event["type"])
+        if stage is None:
             continue
-        if event["type"] == "evidence":
-            key = event["evidence_id"]
-            evidence[key] = event
-            fragments = observed_fragments(event["text"])
-            register(key, key, [event["text"]] + [text for _, text in fragments])
-            for docid in {doc for doc, _ in fragments if doc is not None}:
-                register(docid, key, [text for doc, text in fragments if doc == docid])
-        if event["type"] == "tool_call":
-            key = observation_id(event)
-            if event.get("error") and key in evidence:
-                evidence.pop(key)
-                for alias in list(aliases):
-                    aliases[alias].pop(key, None)
-                    if not aliases[alias]:
-                        del aliases[alias]
-            if key in evidence:
-                for alias in (event.get("call_id"), event.get("obs_id")):
-                    if alias:
-                        register(alias, key, aliases[key][key])
-        if event["type"] != "peer_handoff" or event.get("form") != "structured":
-            continue
-        try:
-            record = json.loads(event["payload"])
-        except (ValueError, TypeError):
-            continue
-        if not isinstance(record, dict) or not isinstance(record.get("key_facts"), list):
-            continue
-        for index, fact in enumerate(record["key_facts"]):
-            if not isinstance(fact, dict):
-                continue
-            source, quote = fact.get("source"), fact.get("verbatim")
-            ids = re.findall(r"[\w-]+", source) if isinstance(source, str) else []
-            ids = [key for key in ids if key.lower() not in {"docid", "tool", "call", "id", "source", "evidence"}]
-            candidates = {}
-            for alias in ids:
-                for key, fragments in aliases.get(alias, {}).items():
-                    candidates.setdefault(key, []).extend(fragments)
-            matches = [key for key, fragments in candidates.items() if isinstance(quote, str) and quote.strip()
-                       and any(quote in text for text in fragments)]
-            checks.append(dict(message_id=event["message_id"], fact_index=index,
-                               handoff_t=event["t"], cited_observation_events={k: evidence[k]["t"] for k in candidates},
-                               cited_observation_owners={k: evidence[k].get("owner") for k in candidates},
-                               unresolved_source_tokens=[k for k in ids if k not in aliases],
-                               excerpt_check=("not_provided" if not isinstance(quote, str) or not quote.strip()
-                                              else "source_unresolved" if not candidates
-                                              else "exact_source_substring" if matches
-                                              else "not_exact_source_substring"),
-                               exact_excerpt_matches=matches, semantic_support=None))
-    return checks
+        key = event["message_id"]
+        row = rows.setdefault(key, dict(message_id=key, sender=event.get("sender"),
+            receiver=event.get("recipient"), source_tool_call_ids=[],
+            sent_at=None, delivered_at=None, consumed_at=None))
+        if event.get("source_tool_call_ids") is not None:
+            row["source_tool_call_ids"] = event["source_tool_call_ids"]
+        row[stage + "_at"] = event.get("ts")
+        row[stage + "_t"] = event["t"]
+        row[stage + "_ns"] = event.get("monotonic_ns")
+        if stage == "consumed":
+            row["request_id"] = event["request_id"]
+            row["consumption_receipt_t"] = event["t"]
+            boundary = by_t[event["request_id"]]
+            row["consumed_t"] = boundary["t"]
+            row["consumed_at"] = boundary.get("ts")
+            row["consumed_ns"] = boundary.get("monotonic_ns")
+    for row in rows.values():
+        for a, b in (("sent", "delivered"), ("delivered", "consumed")):
+            start, end = row.get(a + "_ns"), row.get(b + "_ns")
+            row[a + "_to_" + b + "_ns"] = end - start if start is not None and end is not None else None
+        if cutoff is not None:
+            arrived = lambda stage: row.get(stage + "_t", cutoff + 1) <= cutoff
+            row["at_decision"] = ("in_model_input" if arrived("consumed") else
+                "mailbox_waiting_for_next_step" if arrived("delivered") else
+                "transport_pending" if arrived("sent") else "sent_after_decision")
+    return list(rows.values())
 
 
 def decision_case(events, agent=None, call_t=None):
     final = next((e for e in reversed(events) if e["type"] == "final"), None)
     if agent is None:
-        agent = final["agent"] if final else "leader"
-    calls = [e for e in events if e["type"] == "llm_call" and e["agent"] == agent
+        members = next((e['control']['team']['members'] for e in events if e['type'] == 'team_spec'), [])
+        workers = {m['role'] for m in members if m.get('template', m['role']) != 'leader'}
+        last_worker = next((e['agent'] for e in reversed(events)
+                            if e['type'] == 'model_input' and e['agent'] in workers), None)
+        agent = last_worker or (final['agent'] if final else 'leader')
+    calls = [e for e in events if e["type"] == "model_input" and e["agent"] == agent
              and (final is None or e["t"] < final["t"])]
     call = next((e for e in calls if e["t"] == call_t), None) if call_t is not None else (calls[-1] if calls else None)
     if call is None:
@@ -123,50 +104,63 @@ def decision_case(events, agent=None, call_t=None):
     selected = next((e["control"]["team"]["members"] for e in events if e["type"] == "team_spec"), [])
     workers = {m["role"] for m in selected}
     if not workers:
-        workers = {e.get("agent") for e in before if e["type"] == "agent_start" and e.get("usage_role") != "handoff"}
+        workers = {e.get("agent") for e in before if e["type"] == "agent_start"}
     deliveries = {e["message_id"]: e for e in before if e["type"] == "peer_delivery"}
     queued = {e["message_id"]: e for e in before if e["type"] == "peer_queued"}
-    encoded = {e["message_id"]: e for e in before if e["type"] == "peer_handoff"}
+    packets = {e["message_id"]: e for e in before if e["type"] == "peer_handoff"}
     transport = []
     for key, event in queued.items():
-        delivery, packet = deliveries.get(key), encoded.get(key)
-        consumed = next((e for e in before if delivery and e["type"] == "llm_call"
+        delivery, packet = deliveries.get(key), packets.get(key)
+        consumed = next((e for e in before if delivery and e["type"] == "model_input"
                          and e["agent"] == delivery["recipient"] and e["t"] > delivery["t"]
                          and e["context_len"] >= delivery["context_len"]), None)
         transport.append(dict(message_id=key, sender=event["sender"], recipient=event["recipient"],
-                              queued_t=event["t"], encoded_t=packet["t"] if packet else None,
+                              queued_t=event["t"], sent_t=packet["t"] if packet else None,
                               delivered_t=delivery["t"] if delivery else None,
                               model_input_t=consumed["t"] if consumed else None,
                               requires_reply=event.get("requires_reply", False),
                               transport_status=("included_in_model_input" if consumed else
                                                 "delivered_without_later_model_call" if delivery else
-                                                "encoded_not_delivered" if packet else "queued_not_encoded"),
+                                                "sent_not_delivered" if packet else "queued_not_sent"),
                               evidence_grants=packet.get("evidence_ids", []) if packet else [],
+                              requested_evidence_ids=event.get("evidence_ids", []),
+                              requested_artifact_ids=event.get("artifact_ids", []),
+                              verbatim_transport=packet.get("payload") == event.get("intent") if packet else None,
+                              artifact_grants=packet.get("artifact_ids", []) if packet else [],
                               semantic_arrival=None, correct_use=None))
     reads = []
     for event in before:
-        if event["type"] != "tool_call" or event.get("tool") not in ("read_evidence", "request_evidence"):
+        if event["type"] != "tool_call" or event.get("tool") not in (
+                "read_evidence", "read_artifact"):
             continue
         # A successful response plus inclusion in a subsequent request is a read
         # receipt. Merely naming an id or attempting a denied read is not one.
         returned = []
         if event.get("communication") and not event.get("error") and not event.get("communication_limit"):
-            if event["tool"] == "read_evidence":
+            if event["tool"] in ("read_evidence", "read_artifact", "recover_artifact"):
                 returned = [event["args"]["id"]]
             else:
                 value = json.loads(event["observation"])
                 returned = [r["id"] for r in value] if isinstance(value, list) else []
         message = next((e for e in before if e["type"] == "message" and e.get("agent") == event["agent"]
                         and e["message"].get("tool_call_id") == event.get("call_id")), None)
-        consumed = next((e for e in before if message and e["type"] == "llm_call" and e["agent"] == event["agent"]
+        consumed = next((e for e in before if message and e["type"] == "model_input" and e["agent"] == event["agent"]
                          and e["t"] > message["t"] and e["context_len"] > message["idx"]), None)
-        reads.append(dict(tool_event_t=event["t"], agent=event["agent"], returned_evidence_ids=returned,
+        reads.append(dict(tool_event_t=event["t"], agent=event["agent"], tool=event["tool"],
+                          returned_evidence_ids=[key for key in returned if key.startswith("e")],
+                          returned_artifact_ids=[key for key in returned if key.startswith("a")],
                           model_input_t=consumed["t"] if consumed else None))
-    return dict(decider=agent, decision_call_t=cutoff, decision_input=inputs,
+    protocol_kinds = {'submission_frozen', 'artifact_not_granted', 'evidence_not_granted',
+                      'invalid_arguments', 'permission_denied', 'action_refused'}
+    return dict(message_lifecycle=message_lifecycle(events, cutoff), decider=agent, decision_call_t=cutoff, decision_input=inputs,
                 worker_contexts={k: v for k, v in history.items() if k in workers and k != agent},
                 primary_evidence=source, transport=transport, reads=reads,
-                excerpt_checks=excerpt_checks(events, cutoff),
-                tool_failures=[e for e in before if e["type"] == "tool_call" and (e.get("error") or e.get("budget_exhausted"))],
+                tool_failures=[e for e in before if e["type"] == "tool_call" and e.get("error")
+                               and e.get('error_kind') not in protocol_kinds],
+                protocol_failures=[e for e in before if e['type'] == 'tool_call' and e.get('error_kind') in protocol_kinds],
+                command_nonzero_outcomes=[e for e in before if e['type'] == 'tool_call'
+                                         and e.get('exit_code') not in (None, 0) and not e.get('error')],
+                resource_denials=[e for e in before if e['type'] == 'tool_call' and e.get('budget_exhausted')],
                 resource_finalizations=[e for e in before if e["type"] == "finalization_start"],
                 semantic_attribution="unknown", causal_attribution="not_tested")
 

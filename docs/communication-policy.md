@@ -1,136 +1,96 @@
-# Information Exchange and Communication-policy Evolution
+# Communication Policy and Research Scope
 
-The fixed pool, bounded peer runtime and five static handoff forms now exist.
-This document's richer message kinds, supersession/deduplication, causal replay
-and updater remain a research design. No real-model efficacy result is claimed.
+Only direct-message Agent Team execution is supported. There is no encoder,
+summary transport or alternative information channel. The current implementation
+has a fixed neutral free-collaboration prompt; agents choose when, whom and what
+to communicate. Policy learning and causal replay are not implemented.
 
-## Research contract
+## Fixed Runtime, Mutable Policy Artifact
 
-With a fixed capability pool and a frozen per-task TeamSpec, test whether agents
-fail to deliver decision-relevant local findings, whether this causes errors,
-and whether reusable communication-policy updates improve held-out outcomes at
-controlled total cost. Task-adaptive team selection is NOT self-evolution.
+Runtime fixes the team, domain permissions, allowed communication graph, tool
+schemas, scheduler, budgets, lifecycle and submission/verification contract.
+The benchmark fixes private tasks, workspaces, snapshots and evaluation.
+Information Harness maintains invariant ACLs and the outgoing-message boundary.
+These mechanisms are not update targets.
 
-Runtime asking, sending or choosing an excerpt is task-time adaptation. A policy
-update creates a persistent version used on subsequent tasks based on permitted
-historical feedback. Do not claim recursive improvement of the updater itself;
-the operational RSI object here is the agents' reusable communication strategy.
+CommunicationPolicy contains only version and instructions. Its digest is part
+of the run's control digest; instructions enter each sender's stable prompt.
+A future updater may replace this artifact BETWEEN collection batches, not
+during an episode. It cannot execute privileged hooks or change Runtime.
 
-## Fixed substrate versus learnable behavior
+Within permitted opportunities, sender instructions may guide:
+- Which locally available facts and qualifiers to share.
+- Which allowed recipient needs them and how to express uncertainty.
+- Which authorized references to attach or read.
+- When to ask for missing information or send a correction rather than repeat.
 
-| Fixed substrate | Candidate policy decisions |
-| --- | --- |
-| Pool prompts, capabilities and permission profiles | Which local discoveries are worth sharing |
-| TeamSpec, roles, initial assignments and allowed graph | Which allowed recipient needs a finding |
-| Message schema, evidence ACL and scheduler | Whether/when to send proactively or ask |
-| Model, context safety and resource limits | Which qualifiers/evidence to include in an encoding |
-| Evaluator, task split and scoring rules | When a delivered message is insufficient; whether to read/request evidence |
-| Routing policy and initial composition | When to suppress redundant notices or issue a correction |
+These are agent decisions under a fixed event-driven execution mechanism, not
+changes to scheduling, event triggers, task allocation or tool permissions.
+Task-adaptive decisions are not themselves cross-task self-improvement.
 
-Policy cannot expand the allowed graph, change domain access, alter roles,
-increase budgets, edit grading or read hidden contexts. Choice of a permitted
-recipient changes actual message traffic, not permission to communicate.
+## One Content Boundary
 
-## Message contract
+All substantive outgoing paths use InformationHarness.prepare_message:
+send_message and explicit submit_assignment reports. Tool-free replies only yield.
+It validates sender/recipient, text and reference permissions, then returns the
+exact content. Runtime transports it unchanged. There is no additional model
+call and no inspection of hidden teammate context. Semantic policy compliance
+must be measured, not inferred from passing this structural validation.
 
-The proposed stable envelope includes sender, recipient, message kind, payload,
-evidence references and an optional reply/supersession reference. Kinds cover
-discovery, request, reply, conflict, correction and completion. The payload can
-carry facts, qualifiers, uncertainty, state/version, an explicit question and
-next-action dependencies. These are communication records, not new role prompts.
+Structured envelopes remain in the trace. Model-visible messages have a short
+identity/reference header followed by the exact unescaped payload; newlines,
+quotes and Unicode are preserved. There are no incoming_handoff, handoff_form
+or context_id prompt fields. Free-form text is not
+forced into a fact schema. No message kinds, semantic deduplication, supersession
+graph or general task dependency system are implemented.
 
-Use stable task-local message/evidence identifiers. Keep timestamps, random run
-ids, storage paths and tracing metadata outside model-visible prompts. An evidence
-reference is not a delivered fact; count available, delivered, read and used
-states separately. Access only evidence allowed by the explicit communication
-edge/protocol, not an unrestricted global observation database.
+Automatic submission/status notifications use a fixed metadata whitelist.
+They cannot carry summaries, patches, findings or free-text status explanations.
+Substantive reports consume the same content-message budget as explicit sends.
+References grant exact versions, not implicit reads or whole-context access.
+Delivery/read/input receipts remain invariant and cannot be edited by policy.
 
-Send only queues delivery; receipt does not assert agreement. Deliver at safe
-context boundaries and log exact recipient inputs. Requests have bounded waits
-and explicit unresolved status, not recursive agent invocation. Route unresolved
-conflicts to the leader without making the leader relay every ordinary peer message.
+## Observation Before Intervention
 
-Deduplication must account for recipient, factual content, qualifiers and state
-version, not just matching words. Never suppress a new recipient's first notice,
-a failed-delivery retry, a correction or a superseding tool result. An invariant
-delivery ledger belongs to the harness; semantic choice to omit a redundant
-message belongs to policy and is auditable.
+The current question is which collaboration failures actually occur under free
+communication: loss, delay, misuse, coordination or overhead. Do not choose the
+evolution target before collecting evidence. Freeze each task's TeamSpec,
+assignments, tools, model, budgets, evaluation and scheduler across policy arms.
+CooperBench uses its fixed two-worker plus leader adaptation. The primary pilot uses fixed async scheduling. Serial scheduling is available
+for diagnosis, not pooled with the async pilot. Neither architecture selection nor async scheduling is RSI. Later candidate
+mechanisms may include confirmations, protocol/state synchronization or proactive
+notifications, not just content selection; their design follows observed failures.
 
-## Two axes, not one ambiguous ablation
+1. Motivation: characterize missing acquisition, insufficient selection, delayed
+   availability, post-arrival reasoning and environment/merge failures. Review
+   semantic facts and qualifiers, not merely missing references. Unknown remains
+   unknown; timing receipts and code-test failure alone are not causal evidence.
+2. Causal checks: restore a supported missing fact at a frozen decision boundary,
+   compare unchanged-context repetition and matched controls, and replicate under
+   fixed budgets. Do not infer causality from full-context scores alone.
+3. Policy updates: only after a recoverable problem is established, propose
+   reusable policy versions using approved training-task feedback. Keep the
+   updater outside runtime and hidden evaluation data outside agent inputs.
 
-The five initial forms (Full Context, Summary, Structured, Document Retrieval,
-Adaptive) are STATIC communication baselines. Adaptive is a task-conditioned
-policy; its label alone does not imply evolution. Keep composition and the
-allowed graph fixed for every paired comparison. Retrieval permissions and
-read costs are explicitly part of the treatment.
+Keep each candidate fixed through its collection/validation batch. Compare with
+a simple fixed policy, a carefully specified fixed policy, task-time adaptation,
+a one-shot revision and compute-matched static tuning. Split related task families
+to limit leakage. Select on held-out validation, then freeze before final test.
+Preregister acceptance on task quality and total cost with uncertainty, not just
+semantic-loss scores. Preserve candidates, parents and rejection reasons.
 
-For end-to-end motivation, sender/recipient/timing decisions may diverge under
-different communication policies. This measures a policy effect, not pure
-serialization loss. To isolate encoding, replay the same frozen sender snapshot,
-recipient, message boundary and downstream starting state, changing only the
-encoding/access treatment. Prespecify whether additional reads are allowed in
-that replay and charge them; otherwise a retrieval condition has changed too.
+Count training, feedback, judging and validation costs separately from inference.
+No held-out transfer, no rescue from supported fact restoration, or gains matched
+by a simple fixed policy are evidence against the evolution hypothesis. Do not
+claim recursive improvement of the updater or efficacy from offline fixtures.
 
-Do not compare an evolved Adaptive policy to an unevolved Summary policy and
-attribute the whole difference to evolution. Evolution requires comparisons
-within the same substrate and access regime, including an adaptive-but-frozen
-baseline with matched model/budgets.
+## Design References
 
-## Staged study
+- [CooperBench](https://arxiv.org/pdf/2601.13295): file/terminal work, free-form
+  messages at the next step and executable joint evaluation.
+- [Claude Code Agent Teams](https://code.claude.com/docs/en/agent-teams):
+  independent contexts, direct messaging and shared task state.
+- [A2A lifecycle](https://a2a-protocol.org/latest/topics/life-of-a-task/):
+  distinguish messages, task state and artifacts. This is not an A2A wire implementation.
 
-1. Motivation: freeze pool, router, per-task TeamSpec and all communication
-   policy versions. Characterize insufficient sharing, transport loss and
-   coordination errors. Judge semantic facts/qualifiers, not citation presence.
-   Use independent human checks on a sample and keep ambiguous cases unknown.
-2. Causal checks: at matched decision points, compare supported fact restoration,
-   unchanged-context repetition and an appropriate matched control. Preserve
-   tools, budget and stochastic replication rules. Observe whether restoring
-   a missing fact changes the decision, not just whether full context scores higher.
-3. Communication updates: only if earlier stages show a meaningful recoverable
-   problem, generate reusable policy revisions from training-task feedback and
-   compare to frozen and task-adaptive non-evolving baselines on disjoint tasks.
-4. Routing comparison: optionally compare rule routing, LLM routing and fixed
-   teams separately, holding the selected communication policy constant. Include
-   planning/selection costs and solo-task coverage. Do not fold these gains into
-   the communication claim.
-
-## Update and validation protocol
-
-Keep one policy version fixed through a collection batch. Collect traces and
-outcome/constraint, semantic-arrival, redundant-communication, latency and cost
-feedback. Trace labels must distinguish environment/provider errors, insufficient
-task information, poor initial decomposition and missing communication. An opaque
-scalar reward or a self-judged persuasive report is not enough diagnosis.
-
-An offline updater may inspect approved TRAINING feedback and propose a versioned
-prompt/rule artifact. It cannot mutate execution code, scheduler, permissions,
-pool, TeamSpec or benchmark definitions. Runtime inference never sees gold answers;
-any evaluator-derived training signal stays inside the declared training split.
-Separate task identities and related task families to reduce leakage into transfer.
-
-Validate candidate and incumbent on the same held-out validation tasks and frozen
-TeamSpecs. Preregister acceptance criteria: quality improvement at an acceptable
-total cost, or cost reduction under a quality non-inferiority constraint; include
-uncertainty and constraint failures. Do not accept on semantic loss alone if task
-quality worsens. Preserve every candidate, rejection reason and parent version;
-no silent overwrite. Freeze a selected version before the untouched final test.
-
-Policy selection uses validation data, so validation improvement is not final
-test evidence. Count updater/feedback/judge/validation costs separately and report
-both inference-only and training-amortized totals, with the amortization workload
-stated. Do not hide a costly search behind cheap final inference.
-
-## Necessity is falsifiable
-
-Compare: a simple fixed policy, a carefully specified fixed policy, a policy
-that adapts only to the current task, and feedback-updated versions. A one-shot
-revision and a compute-matched static-tuning control test whether repeated
-feedback is doing more than extra prompt engineering. All proposals/tests require
-separate paid-run authorization; none are launched by this design document.
-
-Evidence AGAINST the evolution hypothesis includes: no meaningful transmission
-failures under adequate tasks/plans; fact restoration does not rescue errors;
-a simple fixed policy closes the gap; gains vanish with matched budgets; or
-updates improve seen tasks but not held-out families. In those cases, retain
-the simpler policy or report a negative result. Architecture adaptation and
-cache improvements do not by themselves demonstrate communication self-evolution.
+All paid pilots, replay, feedback and update experiments require separate approval.

@@ -65,3 +65,23 @@ def balance(cfg: ModelConfig) -> dict:
             for item in data.get("balance_infos", [])
         ],
     }
+
+
+def observed_balance(cfg):
+    try:
+        return dict(status='recorded', **balance(cfg))
+    except Exception as error:
+        return dict(status='unavailable', error_type=type(error).__name__)
+
+
+def report(events, pricing, before, after):
+    from decimal import Decimal
+    from .trace import usage_summary
+    delta = {}
+    if before.get('status') == after.get('status') == 'recorded':
+        start = {b['currency']: Decimal(b['total']) for b in before['balances']}
+        end = {b['currency']: Decimal(b['total']) for b in after['balances']}
+        delta = {c: str(start[c] - end[c]) for c in start.keys() & end.keys()}
+    return dict(usage=usage_summary(events), cost_usd_estimate=estimate(events, pricing),
+                balance_before=before, balance_after=after, account_balance_delta=delta,
+                balance_scope='Account-wide delta, not attributable run cost when the key is shared; may include unrelated activity.')

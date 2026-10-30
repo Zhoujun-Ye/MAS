@@ -22,7 +22,7 @@ synthesizes only; assign every domain lookup or verification to an eligible work
 Do not solve the task, guess facts, invent roles or modify tool permissions.
 Every worker receives the complete public request. Avoid redundant copies of
 the same work. Return only JSON with exactly this schema:
-{"members":[{"role":"existing_role","assignment":"specific work"}, ...]}.
+{"members":[{"role":"member_identity","template":"existing_role","assignment":"specific work"}, ...]}.
 Include leader exactly once. No tools, Markdown or extra fields.
 """
 
@@ -43,7 +43,7 @@ def parse_plan(request, text):
         raise ValueError("Invalid plan shape")
     members = value["members"]
     if not 3 <= len(members) <= 4 or any(
-        not isinstance(m, dict) or set(m) != {"role", "assignment"}
+        not isinstance(m, dict) or set(m) != {"role", "template", "assignment"}
         or not all(isinstance(v, str) for v in m.values()) for m in members
     ):
         raise ValueError("Plan must contain leader and 2-3 fixed workers")

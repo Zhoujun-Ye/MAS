@@ -30,6 +30,9 @@ class FakeRetriever:
     def get_document(self, docid: str) -> dict | None:
         return {"docid": docid, "text": DOCS[docid]} if docid in DOCS else None
 
+    def search_ids(self, query, k):
+        return [{key: hit[key] for key in ('docid', 'score')} for hit in self.search(query, k)]
+
 
 ROLES = (
     ("You are the coordinator of a general-purpose", "lead"),

@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "mas-information"
 version = "0.1.0"
-description = "Motivation study: information lost between isolated agent contexts"
+description = "Agent Team collaboration diagnosis with isolated contexts and CooperBench"
 requires-python = ">=3.12,<3.14"
 # Native benchmark dependencies are optional; admission is a separate research gate.
 dependencies = [
