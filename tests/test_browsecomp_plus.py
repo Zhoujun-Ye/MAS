@@ -4,7 +4,8 @@ from types import SimpleNamespace
 import pytest
 
 from fakes import FakeRetriever
-from benchmarks.browsecomp_plus.adapter import (CorpusTools, public_task, parse_plan,
+from harness.planning import parse_plan
+from benchmarks.browsecomp_plus.adapter import (CorpusTools, public_task,
     select_sample, valid_final, exact_grade)
 
 

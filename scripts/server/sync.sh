@@ -6,6 +6,20 @@ cd "$(dirname "$0")/../.."
 HOST="${SERVER:-zhoujunye@10.123.4.30}"
 REMOTE="${REMOTE_DIR:-/home/zhoujunye/MAS-information}"
 ssh -o BatchMode=yes "$HOST" "mkdir -p '$REMOTE'"
+if (( $# )); then
+  # Explicit source-only mode for a narrow change; never sync runtime data.
+  for path in "$@"; do
+    case "$path" in
+      *..*|/*|*assets/*|*upstream/*|*__pycache__*|*.pyc) echo "Refusing $path" >&2; exit 1 ;;
+      harness/*.py|benchmarks/*.py|benchmarks/README.md|analysis/*.py|scripts/*.py|scripts/*.sh|tests/*.py|docs/*.md|AGENTS.md|README.md|pyproject.toml) ;;
+      *) echo "Not a scoped source path: $path" >&2; exit 1 ;;
+    esac
+    [[ -f "$path" && ! -L "$path" ]] || { echo "Not a regular source file: $path" >&2; exit 1; }
+  done
+  rsync -azR -e "ssh -o BatchMode=yes" "$@" "$HOST:$REMOTE/"
+  echo "synced scoped files to $HOST:$REMOTE"
+  exit 0
+fi
 rsync -az -e "ssh -o BatchMode=yes" \
   --exclude '__pycache__' --exclude '*.pyc' --exclude 'upstream/' --exclude 'assets/' \
   AGENTS.md README.md pyproject.toml .gitignore .env.example \

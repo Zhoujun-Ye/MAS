@@ -23,8 +23,11 @@ The replacement is `harness/agent_team.py`:
 queued peer delivery, persistent contexts, round-robin wake-up, leader synthesis,
 five boundary encodings and per-recipient evidence ACLs. `harness/pool.py` supplies
 immutable selections and capability bindings. The graph is all selected peers;
-TravelPlanner uses a fixed rule profile (three workers plus Leader), not an LLM
-planner. General LLM routing and richer dependency graphs remain future work.
+Leader decomposition and frozen-plan persistence are generic in `harness/planning.py`.
+Leader has no domain tools; the runtime rejects attempts to grant them.
+The Information Harness mediates private evidence, artifacts, memory and state
+through a versioned, authorized workspace. See [hard boundaries](information-harness.md).
+TravelPlanner is retired. Richer executable dependency graphs remain future work.
 
 ## Three separate layers
 

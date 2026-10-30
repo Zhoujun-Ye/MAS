@@ -27,28 +27,27 @@ self-evolution; team architecture/Blueprint search is outside this study.
   automatically. Historical comparisons describe removed implementations.
 - Generic agent/client/trace/accounting/cache infrastructure remains. Explicit
   telemetry now separates leader, worker and handoff calls.
-- TravelPlanner has an active **candidate adapter**, pinned native data/tools,
-  direct-JSON native scoring and an unpaid five-arm integration driver.
-  Its 60 three-day/single-destination validation tasks are not approved main-study
-  evidence. A six-task/four-form paid pilot is complete: 18 correct, 2 incorrect,
-  4 incomplete; Full Context excluded by request. This does not establish main-study
-  headroom, a handoff ranking or causal information loss.
-  LLM selection, semantic-loss judging, causal replay and the updater are pending.
+- Generic Leader decomposition and frozen-plan persistence live in
+  `harness/planning.py`; Leader has no domain tools. `harness/information.py`
+  provides private-by-default evidence, artifacts, memory/state revisions, ACLs
+  and integrity-checked workspace recovery. Shared storage is not shared context.
+- BCP adapts this generic architecture. TravelPlanner source, launchers, optional
+  dependencies and tests are retired; historical evidence and outputs remain.
+  Semantic-loss judging, causal replay and the updater are still pending.
 
 ## Design
 
 - [Architecture audit and cache-aware target](docs/leader-led-team.md)
+- [Information Harness and hard boundaries](docs/information-harness.md)
 - [Information exchange and evolution protocol](docs/communication-policy.md)
 - [Benchmark screening and admission gates](docs/experiment1.md)
 - [Benchmark directory status](benchmarks/README.md)
 - [Historical engineering evidence](docs/engineering.md)
-- [Paid four-form pilot and reviewed failure cases](docs/paid-pilot-20261029-03.md)
 - [Decision-level information feedback](docs/information-feedback.md)
 - [Common completion protocol](docs/completion-protocol.md)
-- [BCP team pilot: frozen plans and tool adaptation](docs/bcp-team-pilot.md)
+- [BCP tool adaptation and evaluation](docs/bcp-adaptation.md)
 
-Current candidate: short TravelPlanner tool-use tasks; DSBench remains deferred.
-See [adapter and server evidence](docs/travelplanner-adaptation.md). Offline
+Current candidate: BCP; DSBench remains deferred. TravelPlanner is retired. Offline
 fixture success is not evidence of model success, non-saturation or cache savings.
 
 Motivation freezes one selected TeamSpec per task across five handoff forms;
@@ -64,7 +63,7 @@ Tests run on the server after process inspection and scoped source sync:
 scripts/server/sync.sh
 scripts/server/remote.sh '.venv/bin/python -m pytest -q'
 # On the server, after pinned data preparation; use a new output directory:
-.venv/bin/python scripts/travelplanner/offline.py --output outputs/travelplanner/NEW_OFFLINE_RUN
+.venv/bin/python scripts/browsecomp_plus/offline.py --output outputs/browsecomp_plus/NEW_OFFLINE_RUN
 ```
 
 `scripts/server/setup.sh` installs core dependencies only. The explicit

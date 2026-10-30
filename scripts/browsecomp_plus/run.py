@@ -12,15 +12,14 @@ import threading
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 from benchmarks.browsecomp_plus.adapter import (ROOT as BENCH, BM25, CorpusTools, FORMS, LIMITS,
-    OUTPUT, PLAN_SYSTEM, task_rows, public_task, planning_input, parse_plan, valid_final, exact_grade)
-from harness.agent import Agent
+    OUTPUT, TOOL_CAPABILITIES, task_rows, public_task, valid_final, exact_grade)
 from harness.agent_team import AgentTeam
 from harness.config import load_config, load_env, source_digest, digest
 from harness.llm import ChatClient, ModelConfig
-from harness.pool import Member, TeamSpec, bind_permissions
-from harness.runner import RunSpec, prepare_output, record_balance, run_batch, write_json
-from harness.trace import Trace, read_trace, usage_summary, validate
-from harness.accounting import estimate
+from harness.pool import bind_permissions
+from harness.planning import PLAN_SYSTEM, frozen_plan
+from harness.runner import RunSpec, prepare_output, record_balance, run_batch
+from harness.trace import read_trace, validate
 
 
 def concurrency_value(value):
@@ -28,50 +27,6 @@ def concurrency_value(value):
     if not 1 <= value <= 16:
         raise argparse.ArgumentTypeError('Experiment concurrency must be between 1 and 16')
     return value
-
-
-def frozen_plan(row, cfg, directory, stopping, pricing):
-    task_id = str(row['query_id'])
-    path = directory / f'{task_id}.json'
-    request = public_task(row)
-    if path.exists():
-        record = json.loads(path.read_text())
-        plan = TeamSpec(record['plan']['task_digest'], tuple(Member(**m) for m in record['plan']['members']),
-                        record['plan']['selector'])
-        plan.validate_task(request)
-        if record['plan_digest'] != plan.digest:
-            raise ValueError('Saved plan digest mismatch')
-        return plan
-    trace_path = directory / f'{task_id}.jsonl'
-    if trace_path.exists():
-        raise RuntimeError('Prior planning attempt has no saved plan; stop instead of silently adding paid planning calls')
-    if stopping.is_set():
-        raise RuntimeError('Interrupted before planning')
-    client = ChatClient(cfg)
-    try:
-        with Trace(trace_path, f'plan_{task_id}') as trace:
-            trace.emit('run_start', task_id=task_id, phase='planning')
-            agent = Agent('leader_planner', client, trace, PLAN_SYSTEM, usage_role='planning')
-            agent.append(dict(role='user', content=planning_input(request)))
-            try:
-                reply = agent.call(tool_choice='none')
-                if reply.finish_reason == 'length' or reply.message.get('tool_calls'):
-                    agent.refuse(reply.message.get('tool_calls') or [])
-                    raise ValueError('Invalid or truncated plan; no paid repair authorized')
-                plan = parse_plan(request, reply.message.get('content') or '')
-                trace.emit('final', agent=agent.name, content=reply.message['content'])
-                trace.emit('run_end', status='completed')
-            except Exception as error:
-                trace.emit('error', message=str(error))
-                trace.emit('run_end', status='error')
-                raise
-        events = read_trace(trace_path)
-        write_json(path, dict(plan=plan.payload(), plan_digest=plan.digest, usage=usage_summary(events),
-                              cost_usd_estimate=estimate(events, pricing)))
-        print(json.dumps(dict(planned=task_id, roles=[m.role for m in plan.members], plan_digest=plan.digest)), flush=True)
-        return plan
-    finally:
-        client._http.close()
 
 
 def main():
@@ -105,7 +60,8 @@ def main():
     phase = 'planning' if args.plan_only else 'execution'
     record_balance(args.output, cfg, phase + '_start')
     try:
-        plans = {k: frozen_plan(rows[k], cfg, args.output / 'plans', stopping, config['pricing']) for k in ids}
+        plans = {k: frozen_plan(k, public_task(rows[k]), cfg, args.output / 'plans', stopping,
+                                config['pricing'], TOOL_CAPABILITIES) for k in ids}
         if args.plan_only:
             print(json.dumps(dict(plans_saved=len(plans), team_runs_started=0)), flush=True)
             return
@@ -124,7 +80,7 @@ def main():
             client = ChatClient(cfg)
             try:
                 team = AgentTeam(plan, spec.condition, client, trace, tools,
-                                 bind_permissions(plan, {t.name: 'search' for t in tools}),
+                                 bind_permissions(plan, TOOL_CAPABILITIES),
                                  final_validator=valid_final, final_contract=OUTPUT,
                                  should_stop=lambda: stopping.is_set() or bool(corpus.errors), **LIMITS)
                 result = team.run_task(public_task(rows[spec.task_id]))

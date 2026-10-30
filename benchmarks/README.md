@@ -1,16 +1,14 @@
 # Benchmark Admission
 
 There is **no validated main-study benchmark**. The user has selected BCP for
-the next bounded pilot: six official test questions, four forms, six shared
-Leader plans. A new Agent-Team adapter reuses the retained official corpus/index
-read-only; it does not restore the retired star/relay runtime. TravelPlanner
-remains an engineering regression candidate. BFCL, ToolHop and tau2 stay retired.
+candidate study. A new Agent-Team adapter reuses the retained official corpus/index
+read-only; it does not restore the retired star/relay runtime. TravelPlanner,
+BFCL, ToolHop and tau2 are retired. TravelPlanner source, entry points and tests
+are removed; historical assets and outputs are preserved.
 
-See [screening and evidence gaps](../docs/experiment1.md). Short TravelPlanner
-tool-use tasks and bounded DSBench analysis tasks are candidates only; neither
-has verified current-backbone headroom or cost under the proposed team. Being
-listed here does not authorize paid experiment execution. The user authorized
-the TravelPlanner data preparation and unpaid tests on 2026-10-29.
+See [screening and evidence gaps](../docs/experiment1.md). Being listed here does
+not authorize paid execution. BCP adapts the generic planning and Information
+Harness interfaces; it does not define its own isolation architecture.
 
-See [exact adaptation, pins and limitations](../docs/travelplanner-adaptation.md).
-See [BCP selection, authorization, tools and evaluation](../docs/bcp-team-pilot.md).
+See [historical TravelPlanner adaptation](../docs/travelplanner-adaptation.md).
+See [BCP tools and evaluation](../docs/bcp-adaptation.md).

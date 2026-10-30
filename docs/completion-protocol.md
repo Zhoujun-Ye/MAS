@@ -1,7 +1,7 @@
 # Common Completion Protocol v4
 
-This is a new protocol for all handoff forms, not a retrospective repair of
-TravelPlanner pilot 03. Existing traces, grades and status labels are unchanged.
+This protocol applies to all handoff forms. Existing traces, grades and status
+labels are never changed retrospectively.
 
 - A worker explicitly calls `finish_assignment(report, evidence_ids)` or emits
   a tool-free final report. The harness records completion and sends one report.
@@ -34,21 +34,7 @@ This does not implement adaptive communication learning, automatic fact repair,
 or a global shared notebook. A mistaken `requires_reply` choice is observable
 model behavior, not silently corrected by the runtime.
 
-Reinspection of pilot 03 found all three Adaptive runs' latest Leader drafts
-(tasks 60/61/120, events 389/279/424) pass native plus supplemental grading.
-They were blocked from submission and remain incomplete in the original study.
-The earlier report had only verified the first two. This motivates fixing the
-common protocol before the newly authorized BCP pilot, not crediting old drafts.
-
-Server regression after the protocol change: 51 passed, exit 0 (2026-10-29).
-Coverage includes all five forms, request versus informational reactivation,
-reserved-call accounting, refusal of tools during finalization, and no raw
-pending-report bypass. This was the pre-BCP v3 check.
-
-The completed BCP pilot exercised v3: 24/24 submitted, including two reserved
-finalizations. Its recovered interface errors motivated v4: only workers receive
-`finish_assignment`; roles see append-only shared budget/grant state; invalid
-arguments are rejected before domain-budget reservation; requests cannot silently
-default to FYI. Schemas/prompts stay stable per role across forms. See the
-[results and repair boundaries](bcp-pilot-results-20261029.md). V4 has offline
-regression coverage, not a paid efficacy result.
+Only workers receive `finish_assignment`; roles see append-only shared budget
+and grant state. Invalid arguments are rejected before domain-budget reservation;
+requests cannot silently default to FYI. Schemas and prompts stay stable per
+role across forms. Offline regression coverage is not a paid efficacy result.

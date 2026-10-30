@@ -1,5 +1,8 @@
 # TravelPlanner Candidate Adaptation
 
+Retired on 2026-10-29 at the user's request. This file records historical
+adaptation evidence only; source, launchers and tests are no longer active.
+
 Prepared 2026-10-29. Status: **offline integration verified, main-study admission
 pending**. The latest user requirements supersede the original PDF's retired
 BCP/tau2 selection and its treatment of Full Context as a performance upper bound.

@@ -141,6 +141,86 @@ def test_capability_binding_does_not_grant_execution_to_reviewer():
     permissions = bind_permissions(spec, {"inspect": "read", "mutate": "execute"})
     assert permissions["reviewer"] == ("inspect",)
     assert permissions["executor"] == ("inspect", "mutate")
+    assert permissions["leader"] == ()
+
+
+def test_harness_rejects_leader_domain_grant(tmp_path):
+    task, team, trace = build(tmp_path, "summary")
+    with pytest.raises(ValueError, match="communication-only"):
+        AgentTeam(team.spec, "summary", team.client, trace, list(team.domain.values()),
+                  {"researcher": ["stock"], "reviewer": [], "leader": ["stock"]})
+    trace.close()
+
+
+@pytest.mark.parametrize("form", FORMS)
+def test_workspace_through_real_tool_loop_and_direct_peer_delivery(tmp_path, form):
+    def respond(messages, tools, choice):
+        if messages[0]["content"].startswith("You are a message encoder"):
+            return encoded(messages, "A workspace artifact was sent.")
+        role = messages[0]["content"].split("Reusable role: ")[1].split(".")[0]
+        count = sum(m["role"] == "assistant" for m in messages)
+        if role == "researcher":
+            if count == 0:
+                return dict(calls=[("publish_artifact", dict(kind="artifact", title="Calculation", content="PRIVATE_VALUE=17"))])
+            if count == 1:
+                return dict(calls=[("send_message", dict(recipient="reviewer", content="Verify this result",
+                                                         artifact_ids=["a1"], requires_reply=True))])
+            return dict(content="Finished research")
+        if role == "reviewer":
+            state = json.loads(messages[-1]["content"])["team_state"]
+            already_read = any(call["function"]["name"] == "read_artifact"
+                               for m in messages for call in m.get("tool_calls", []))
+            if state["available_artifact_ids"] and not already_read:
+                return dict(calls=[("read_artifact", dict(id="a1"))])
+            if form in ("summary", "structured"):
+                assert "PRIVATE_VALUE=17" not in str(messages)
+            return dict(content="Checked available information")
+        assert "publish_artifact" in tools and "stock" not in tools
+        assert "a1" not in json.loads(messages[-1]["content"])["team_state"]["available_artifact_ids"]
+        return dict(content="Final decision")
+    task, team, trace = build(tmp_path, form, ScriptedClient(respond), max_calls=48)
+    result = team.run_task(task)
+    trace.emit("run_end", status=result["status"])
+    trace.close()
+    assert result["status"] == "completed"
+    assert result["termination"] == "workers_completed"
+    assert validate(read_trace(trace.path)) == []
+    assert ("a1" in team.access["reviewer"]) == (form in ("document_retrieval", "adaptive"))
+
+
+def test_forged_leader_tool_call_cannot_retrieve(tmp_path):
+    task, team, trace = build(tmp_path, "summary")
+    team.run_task(task)
+    leader = team.agents["leader"]
+    used = team.budget.used
+    obs = leader.run_tool(dict(id="forged", function=dict(name="stock", arguments="{}")))
+    assert obs.meta["error"] and team.budget.used == used
+    obs = team.domain_tool(team.domain["stock"]).run({}, leader)
+    assert obs.meta["error_kind"] == "permission_denied"
+    trace.close()
+
+
+@pytest.mark.parametrize("form", FORMS)
+def test_artifact_delivery_has_no_workspace_backdoor(tmp_path, form):
+    task, team, trace = build(tmp_path, form)
+    team.run_task(task)
+    researcher, leader = team.agents["researcher"], team.agents["leader"]
+    artifact = json.loads(researcher.tools["publish_artifact"].run(
+        dict(kind="memory", title="Private note", content="PRIVATE_ARTIFACT"), researcher).text)
+    assert "PRIVATE_ARTIFACT" not in str(leader.messages)
+    for tool in ("read_artifact", "verify_artifact", "recover_artifact"):
+        obs = leader.run_tool(dict(id=tool, function=dict(name=tool, arguments=json.dumps(dict(id=artifact["id"])))))
+        assert obs.meta["error"] and "PRIVATE_ARTIFACT" not in obs.text
+    team.queue("researcher", "leader", "Share note", [], artifact_ids=[artifact["id"]])
+    team.deliver()
+    if form in ("adaptive", "document_retrieval"):
+        for name in ("read_artifact", "recover_artifact"):
+            assert "PRIVATE_ARTIFACT" in leader.tools[name].run(dict(id=artifact["id"]), leader).text
+        checked = json.loads(leader.tools["verify_artifact"].run(dict(id=artifact["id"]), leader).text)
+        assert checked["semantic_correctness"] == "not_verified"
+    else:
+        assert artifact["id"] not in team.access["leader"]
+    trace.close()
 
 
 def test_context_overflow_is_incomplete_without_truncation(tmp_path):

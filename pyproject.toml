@@ -16,7 +16,6 @@ dependencies = [
 
 [project.optional-dependencies]
 test = ["pytest>=8"]
-travelplanner = ["pandas>=2.0,<3", "numpy>=1.26,<3", "requests>=2.31", "tqdm>=4.66"]
 
 [tool.setuptools.packages.find]
 include = ["harness*", "benchmarks*", "analysis*"]

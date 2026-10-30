@@ -8,8 +8,6 @@ import threading
 import unicodedata
 
 from harness.agent import Observation, Tool
-from harness.config import digest
-from harness.pool import Member, POOL, TeamSpec
 
 ROOT = Path(__file__).resolve().parent
 INDEX = Path('/home/zhoujunye/agent-team/.cache/browsecomp-plus/bm25')
@@ -32,14 +30,7 @@ locate a literal phrase. Missing search hits do not establish nonexistence.
 Communicate exact identifiers, dates, qualifiers, unresolved contradictions and
 source docids. Distinguish a candidate from a verified answer. Do not repeatedly
 confirm unchanged findings; finish your assignment when its useful work is done.'''
-PLAN_SYSTEM = '''You are the Leader planning a bounded research team, not solving
-the question. Use only the public request. Do not guess an answer. Select 2 or 3
-complementary workers from the supplied fixed role pool plus leader. Assign
-specific clue groups, independent verification and concrete information that
-must be exchanged. Roles and domain permissions cannot be changed. Every worker
-gets the full question. Avoid three copies of the same search. Return only JSON:
-{"members":[{"role":"existing_role","assignment":"specific work"}, ...]}.
-Include leader exactly once. No tools, Markdown, invented roles or extra fields.'''
+TOOL_CAPABILITIES = {'search': 'search', 'open_document': 'read', 'find_in_document': 'read'}
 
 
 def public_task(row):
@@ -60,26 +51,6 @@ def select_sample(rows, excluded):
     candidates = [r for r in rows if 150 <= len(r['query']) <= 1600 and str(r['query_id']) not in excluded]
     return sorted(candidates, key=lambda r: hashlib.sha256(
         ('bcp-team-20261029:' + str(r['query_id'])).encode()).hexdigest())[:6]
-
-
-def planning_input(request):
-    return json.dumps(dict(request=request, roles={k: v.responsibility for k, v in POOL.items() if 'search' in v.capabilities},
-                           tools=['search', 'open_document', 'find_in_document']), ensure_ascii=False)
-
-
-def parse_plan(request, text):
-    from harness.communication import parse_payload
-    value = parse_payload(text)
-    if not isinstance(value, dict) or set(value) != {'members'} or not isinstance(value['members'], list):
-        raise ValueError('Invalid plan shape')
-    members = value['members']
-    if not 3 <= len(members) <= 4 or any(not isinstance(m, dict) or set(m) != {'role', 'assignment'}
-                                       or not all(isinstance(v, str) for v in m.values()) for m in members):
-        raise ValueError('Plan must contain leader and 2-3 fixed workers')
-    plan = TeamSpec(digest(request), tuple(Member(**m) for m in members), selector='leader-once-v1')
-    if any('search' not in POOL[m.role].capabilities for m in plan.members):
-        raise ValueError('Selected worker lacks research-tool capability')
-    return plan
 
 
 def valid_final(text):

@@ -44,12 +44,13 @@ comparisons are separate; do not change both factors and attribute gains to one.
    sizes and token use. Task days, schema counts and prose length are only
    proxies. Do not truncate long tasks into artificial coordination failures.
 
-No benchmark has passed all three gates. A TravelPlanner candidate adapter and
-unpaid server integration tests were added; no paid calls were made.
+No benchmark has passed all three gates. TravelPlanner is now retired; the
+discussion below is historical screening, not an active implementation plan.
+BCP uses the generic hard-boundary architecture in `information-harness.md`.
 
 ## Revised shortlist
 
-### TravelPlanner: adapted candidate, not yet admitted
+### TravelPlanner: retired, historical screening only
 
 The two-stage setting uses executable local database tools for flights, lodging,
 restaurants and attractions, followed by constrained planning. It plausibly

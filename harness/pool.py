@@ -24,7 +24,13 @@ findings and explicitly mark missing verification rather than ask peers to searc
 Evidence IDs (e1, e2, ...) refer to observations, not document IDs. Only IDs listed
 in your available_evidence_ids may be granted in evidence_ids. A quoted ID in prose
 is not an access grant. You may still report quoted findings and document IDs in
-message content with evidence_ids=[]; do not invent or silently substitute grants."""
+message content with evidence_ids=[]; do not invent or silently substitute grants.
+publish_artifact stores private artifacts, memory notes or state revisions. Storage
+does not broadcast context. Share artifact_ids explicitly in messages or completion
+reports; peers can read granted originals only when the handoff condition permits.
+Revisions are immutable and require a new grant. Read, search, verify and recover
+go through workspace tools; verification checks integrity, not factual truth.
+Memory is task-local, never another agent's private conversation or prior tasks."""
 
 
 @dataclass(frozen=True)
@@ -47,7 +53,10 @@ POOL = MappingProxyType({r.name: r for r in (
     Role("constraint_analyst", "Track feasibility, dependencies, budgets and conflicting constraints.", ("read", "search", "compute")),
     Role("executor", "Carry out explicitly assigned operations and report exact resulting state.", ("read", "search", "execute")),
     Role("synthesizer", "Reconcile cross-source findings into a coherent supported result.", ("read", "search")),
-    Role("leader", "Coordinate the selected team, resolve disagreements and produce the final result.", ("read", "search", "compute")),
+    Role("leader", "Decompose the public task into complementary worker assignments, coordinate the selected team, "
+         "resolve disagreements and produce the final result from communicated evidence. "
+         "You have no domain tools or direct access to workers' private observations. "
+         "Request missing verification from workers instead of retrieving it yourself.", ()),
 )})
 
 
