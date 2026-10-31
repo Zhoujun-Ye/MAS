@@ -1,5 +1,11 @@
 # CooperBench Agent Team: Collaboration Diagnosis
 
+Current lite100 result: **71/100 passed**, **100/100 protocol completed**.
+Use the [current report](docs/lite100-results-20261030.md) and server scoreboard
+`outputs/cooperbench/lite100-current/summary.json`. This includes explicitly
+authorized benchmark clarifications; historical segments are audit evidence,
+not alternative current results.
+
 CooperBench is the sole benchmark selected for this study. Old benchmark
 adapters, launchers, tests and screening documents have been removed.
 Other projects' resources are never modified. Historical experiment outputs

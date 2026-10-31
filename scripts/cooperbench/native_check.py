@@ -58,17 +58,8 @@ def check(pair, dataset, module):
         try:
             base = sb.exec('git', '-C', '/workspace/repo', 'rev-parse', 'HEAD').stdout_read().strip()
             module._write_patch(sb, 'tests.patch', (task / f'feature{feature}/tests.patch').read_text())
-            if pair.repo == 'go_chi_task':
-                # Upstream set -e exits at TEST_OUTPUT=$(go test ...) before echo
-                # on failure. Trace the unchanged runner to retain that evidence.
-                result = sb.exec('bash', '-x', '/usr/local/bin/runner.sh', 'tests.patch')
-                output = result.stdout_read()
-                parsed = module._parse_results(output)
-                baseline = dict(passed=result.returncode == 0 and parsed['passed'] > 0,
-                                exit_code=result.returncode, tests_passed=parsed['passed'],
-                                tests_failed=parsed['failed'], output=output, diagnostic_shell_trace=True)
-            else:
-                baseline = module._run_tests(sb, 'tests.patch', '', base)
+            # The shared Docker backend retains Go runner failure diagnostics.
+            baseline = module._run_tests(sb, 'tests.patch', '', base)
         finally:
             sb.terminate()
         gold = module.run_patch_test(pair.repo, pair.task_id, feature,

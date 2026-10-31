@@ -71,10 +71,10 @@ already-frozen artifact without requesting a new agent solution.
 - New setup evidence: outputs/setup/repair-20261031-01/.
 - Completed paid repair output: outputs/cooperbench/repair-20261031-01/.
 
-The effective revised summary must include both authorized paid replacements
-regardless of their outcomes, not only improvements. It must preserve the
-original 69/100 alongside the revised mixed-profile result and account for added
-calls/cost. Original indices other than 7, 8 and 27 remain unchanged.
+The effective summary includes both authorized paid replacements regardless of
+outcome. The current result is 71/100; the original 69/100 is retained only in
+this history and audit receipts, not as a parallel current scoreboard. Added
+calls/cost remain accounted for. Indices other than 7, 8 and 27 are unchanged.
 
 Completed outcome: index27 passed; index7's compression feature passed but its
 cache-statistics feature failed with an expected miss count of one versus zero.

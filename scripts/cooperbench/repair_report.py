@@ -25,14 +25,10 @@ def read_run(folder, grade_path):
     return manifest, result, grade
 
 
-def main():
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--original', type=Path, action='append', required=True)
-    parser.add_argument('--replacement', nargs=3, action='append', default=[], metavar=('INDEX', 'RUN', 'GRADE'))
-    parser.add_argument('--output', type=Path, required=True)
-    args = parser.parse_args()
+def build_report(originals, replacements):
     rows = {}
-    for batch in args.original:
+    identities = set()
+    for batch in originals:
         for folder in batch.iterdir():
             if not folder.is_dir() or not folder.name.isdigit():
                 continue
@@ -40,6 +36,10 @@ def main():
             if index in rows:
                 raise ValueError('Overlapping original indices')
             manifest, result, grade = read_run(folder, folder / 'grade.json')
+            identity = json.dumps(manifest['pair'], sort_keys=True)
+            if identity in identities:
+                raise ValueError('Duplicate original pair')
+            identities.add(identity)
             rows[index] = dict(index=index, pair=manifest['pair'],
                 original_correct=grade['correct'], effective_correct=grade['correct'],
                 original_grade=receipt(folder / 'grade.json'), effective_grade=receipt(folder / 'grade.json'),
@@ -48,7 +48,7 @@ def main():
     if set(rows) != set(range(100)):
         raise ValueError('Require all 100 unique original pairs')
     changed = set()
-    for index, folder, path in args.replacement:
+    for index, folder, path in replacements:
         index, folder, path = int(index), Path(folder), Path(path)
         if index in changed or index not in rows:
             raise ValueError('Invalid or duplicate replacement')
@@ -59,11 +59,22 @@ def main():
             protocol_completed=result['status'] == 'completed',
             profile=manifest.get('benchmark_inputs', {}).get('profile', 'official'))
         changed.add(index)
-    report = dict(label='user-authorized-revised-mixed-profile-scoreboard',
+    passed = sum(r['effective_correct'] is True for r in rows.values())
+    return dict(label='user-authorized-revised-mixed-profile-scoreboard',
+        passed=passed, failed=len(rows) - passed,
         original_passed=sum(r['original_correct'] is True for r in rows.values()),
-        effective_passed=sum(r['effective_correct'] is True for r in rows.values()),
+        effective_passed=passed,
         total=len(rows), protocol_completed=sum(r['protocol_completed'] for r in rows.values()),
         replaced_indices=sorted(changed), rows=[rows[i] for i in sorted(rows)])
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--original', type=Path, action='append', required=True)
+    parser.add_argument('--replacement', nargs=3, action='append', default=[], metavar=('INDEX', 'RUN', 'GRADE'))
+    parser.add_argument('--output', type=Path, required=True)
+    args = parser.parse_args()
+    report = build_report(args.original, args.replacement)
     args.output.parent.mkdir(parents=True, exist_ok=True)
     with args.output.open('x') as output:
         json.dump(report, output, indent=2)
