@@ -42,12 +42,6 @@ def load_config(*paths: str | Path) -> dict:
     return merged
 
 
-def resolve(path: str | Path) -> Path:
-    """Project-relative paths resolve against the repository root."""
-    path = Path(path)
-    return path if path.is_absolute() else ROOT / path
-
-
 def canonical(obj) -> str:
     return json.dumps(obj, sort_keys=True, ensure_ascii=False, separators=(",", ":"))
 

@@ -16,7 +16,7 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 from benchmarks.cooperbench.adapter import REVISION, verify_checkout, Pair, LIMITS, MEMBER_LIMITS, load_submitted_patches
 from benchmarks.cooperbench.native import DockerBackend, BACKEND_VERSION, BUILD_WHEELS
-from benchmarks.cooperbench.selection import load_selection, all_task_pairs, lite
+from benchmarks.cooperbench.selection import load_selection, all_task_pairs, lite, validate_expansion
 from benchmarks.cooperbench.isolation import prepare_worker, ISOLATION_VERSION
 from benchmarks.cooperbench.environment import resolve
 from harness.config import source_digest, load_config, load_env, canonical
@@ -169,23 +169,27 @@ def main():
     authorization = parser.add_mutually_exclusive_group(required=True)
     authorization.add_argument('--authorized-twenty-paid-pairs-once', action='store_true')
     authorization.add_argument('--authorized-lite-100-paid-pairs-once', action='store_true')
+    authorization.add_argument('--authorized-new-100-paid-pairs-once', action='store_true')
     authorization.add_argument('--authorized-repair-paid-pairs', type=int)
     args = parser.parse_args()
     pairs = load_selection(args.selection)
     repairing = args.authorized_repair_paid_pairs is not None
-    expected = args.authorized_repair_paid_pairs if repairing else (100 if args.authorized_lite_100_paid_pairs_once else 20)
+    expanding = args.authorized_new_100_paid_pairs_once
+    expected = args.authorized_repair_paid_pairs if repairing else (100 if args.authorized_lite_100_paid_pairs_once or expanding else 20)
     if repairing and (expected <= 0 or args.continue_batch or args.reuse_run):
         raise ValueError('Repair authorization must be positive and cannot mix with continuation/reuse')
     if args.repair_source and not repairing:
         raise ValueError('Repair sources require explicit repair authorization')
     repairs = repair_sources(args.repair_source, pairs) if repairing else {}
-    profile = 'clarified-v1' if repairing else 'official'
+    profile = 'clarified-v1' if repairing or expanding else 'official'
+    if expanding and args.reuse_run:
+        raise ValueError('New pairs cannot reuse old runs')
     if len(pairs) != expected:
         raise ValueError('Selection size differs from authorization')
-    if not repairing and expected == 100:
+    if not repairing and not expanding and expected == 100:
         validate_lite_selection(json.loads(args.selection.read_text()), verify_checkout(), args.reuse_run)
     if args.continue_batch and (expected != 100 or args.reuse_run):
-        raise ValueError('Continuation applies only to the fresh lite study')
+        raise ValueError('Continuation applies only to a once-only 100-pair study')
     lock_path = ROOT / '.cache/cooperbench-paid-batch.lock'
     lock_path.parent.mkdir(parents=True, exist_ok=True)
     lock = lock_path.open('a')
@@ -199,6 +203,13 @@ def main():
     model = replace(ModelConfig(**config['agent_model']), timeout=300, retries=0,
                     max_tokens=65536, context_window=1_000_000)
     skipped, continued = prior_attempts(args.continue_batch, pairs, json.loads(args.selection.read_text()))
+    if expanding:
+        validate_expansion(json.loads(args.selection.read_text()), verify_checkout(), ROOT / 'outputs/cooperbench',
+                           {pairs[i].key for i in skipped})
+        for folder in args.continue_batch:
+            previous = json.loads((folder / 'pilot-manifest.json').read_text())
+            if previous.get('benchmark_profile') != profile:
+                raise ValueError('Continuation benchmark profile changed')
     reused = {}
     for source, grade_path in args.reuse_run:
         source, grade_path = Path(source).resolve(), Path(grade_path).resolve()

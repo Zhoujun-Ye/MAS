@@ -36,16 +36,18 @@ A submitted worker can inspect authorized messages/artifacts or send a correctio
 Trusted read-only file tools remain available, including read_file with
 metadata_only=true for SHA-256 checks. These read the current workspace, not the
 immutable submission, and still consume the member's tool allowance. Writes and
-arbitrary terminal commands require update_task(status=working). This invalidates the current submission, increments
+arbitrary terminal commands automatically reopen the assignment before execution.
+This invalidates the current submission, increments
 the revision and resets verification. Earlier snapshots remain in the trace.
 update_task(status=blocked) also reopens a submitted revision, but yields.
-Any tool-free worker reply, including an empty reply, only makes the member idle.
-It neither submits nor sends a report. Substantive communication requires an
-explicit send_message or submit_assignment.
+Any tool-free worker reply makes the member idle without submitting. Nonempty
+replies are forwarded verbatim to the leader through the same outgoing-message
+validation boundary; empty replies only yield.
 
-Mutating domain tools and terminal commands are denied after submission, including later tools in the same
-assistant turn, without charging the domain budget. Duplicate submissions are
-errors. wait_for_message changes only readiness/lifecycle, not task validity.
+Mutating domain tools and terminal commands reopen even when they follow a
+submission in the same assistant turn; the new revision requires a new explicit
+submission. Duplicate submissions are errors. wait_for_message changes only
+readiness/lifecycle, not task validity.
 list_tasks exposes only fixed identity, status, revision and verification fields.
 The communication-only leader is not presented as an unfinished worker assignment.
 

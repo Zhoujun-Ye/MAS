@@ -65,6 +65,8 @@ No result is implied by successful setup or a model's completion report.
 - [Lite 100 execution contract](docs/lite100-20261030.md)
 - [Lite 100 results](docs/lite100-results-20261030.md)
 - [Failure audit](docs/lite100-error-analysis-20261030.md)
+- [Collaboration attribution](docs/lite100-collaboration-attribution.md)
+- [Additional 100-pair study](docs/new100-20261031.md)
 
 Paid authorization is run-specific. The completed lite100 study superseded the
 earlier twenty-pair scope; its authorization does not extend to new paid runs

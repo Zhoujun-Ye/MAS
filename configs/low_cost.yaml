@@ -1,4 +1,0 @@
-# Optional NEW study arm only: apply to every condition and role, never resume
-# phase 0 with this overlay. Lower effort is a hypothesis, not measured savings.
-agent_model:
-  reasoning_effort: low

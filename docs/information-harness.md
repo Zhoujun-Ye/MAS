@@ -15,8 +15,9 @@ leader's full conversation. A shared filesystem is not a shared model context.
 CommunicationPolicy is an immutable versioned instruction artifact, included in
 the control digest and each sender's stable system prefix. It guides the sender's
 choice of content, recipients and explicit references. prepare_message is the
-single validation boundary for send_message and explicit submission reports.
-Tool-free worker replies yield without sending or submitting. Runtime delivers the resulting text verbatim.
+single validation boundary for send_message, explicit submission reports and
+nonempty worker idle replies forwarded to the leader. Idle replies never submit.
+Runtime delivers the resulting text verbatim.
 This is not an executable plugin, an additional LLM encoder, or a guarantee of
 semantic compliance. A policy updater is not implemented.
 

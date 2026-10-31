@@ -17,7 +17,7 @@ loss as the only target. See `docs/experiment1.md` and `docs/communication-polic
 - `harness/`: benchmark-agnostic MAS harness. `llm.py` (DeepSeek client),
   `trace.py` (JSONL run log and integrity checks), `agent.py` (one context and
   its tool loop), `agent_team.py` (fixed team and message scheduling), `runner.py`
-  (batch, resume, error classes), `accounting.py` (cost estimates, balance).
+  (bounded batch dispatch and atomic JSON persistence), `accounting.py` (cost estimates, balance).
 - `benchmarks/cooperbench/`: the sole benchmark adapter, pinned official source
   and data under ignored `upstream/`. Use private feature assignments, isolated
   worker repositories and evaluator-only hidden tests/gold patches.

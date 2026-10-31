@@ -1,11 +1,11 @@
 import json
+import threading
 from datetime import datetime, timezone
 
 import pytest
 
 from harness import accounting
-from harness.llm import ProviderError
-from harness.runner import RunSpec, prepare_output, run_batch
+from harness.runner import bounded_jobs, write_json
 from harness.trace import Trace, read_trace, validate
 
 PRICING = {
@@ -15,52 +15,41 @@ PRICING = {
 }
 
 
-def test_runner_keeps_errors_apart_and_reruns_them(tmp_path):
-    spec = RunSpec("bcp", "7", "C1", 0)
-    prepare_output(tmp_path, {"setup": 1})
-    with pytest.raises(RuntimeError):
-        prepare_output(tmp_path, {"setup": 2})
-
-    def failing(spec, trace):
-        raise ProviderError("http_400", "missing reasoning_content", 400)
-
-    assert run_batch([spec], failing, tmp_path, 1) == {"error": 1}
-    result = json.loads((tmp_path / "results" / f"{spec.run_id}.json").read_text())
-    assert result["error"]["http_status"] == 400 and not result["error"]["fatal"]
-
-    def succeeding(spec, trace):
-        trace.emit("final", agent="lead")
-        return {"status": "completed"}
-
-    assert run_batch([spec], succeeding, tmp_path, 1) == {"completed": 1}
-    assert len(list((tmp_path / "traces" / "attempts").glob("*.jsonl"))) == 1
-    assert run_batch([spec], succeeding, tmp_path, 1) == {}  # finished runs are kept
+def test_write_json_creates_parents_and_atomically_replaces(tmp_path):
+    path = tmp_path / "nested" / "record.json"
+    write_json(path, {"revision": 1})
+    assert json.loads(path.read_text()) == {"revision": 1}
+    write_json(path, {"revision": 2})
+    assert json.loads(path.read_text()) == {"revision": 2}
+    assert not path.with_suffix(".json.tmp").exists()
 
 
-def test_context_overflow_is_incomplete_not_rerun(tmp_path):
-    spec = RunSpec("bcp", "7", "C3", 0)
-
-    def overflowing(spec, trace):
-        raise ProviderError("context_length", "maximum context length exceeded", 400)
-
-    assert run_batch([spec], overflowing, tmp_path, 1) == {"incomplete": 1}
-    assert run_batch([spec], overflowing, tmp_path, 1) == {}
+@pytest.mark.parametrize("concurrency", [0, -1])
+def test_bounded_jobs_rejects_nonpositive_concurrency(concurrency):
+    with pytest.raises(ValueError, match="Concurrency must be positive"):
+        list(bounded_jobs([], lambda x: x, concurrency, lambda result: False))
 
 
-def test_fatal_provider_error_stops_the_batch(tmp_path):
-    specs = [RunSpec("bcp", str(i), "C0", 0) for i in range(4)]
-
-    def no_balance(spec, trace):
-        raise ProviderError("http_402", "Insufficient Balance", 402)
-
-    statuses = run_batch(specs, no_balance, tmp_path, 1)
-    assert statuses == {"error": 1, "skipped": 3}
+def test_bounded_jobs_does_not_dispatch_after_stop():
+    stop = threading.Event()
+    stop.set()
+    started = []
+    assert list(bounded_jobs(range(3), started.append, 1, lambda result: False, stop)) == []
+    assert started == []
 
 
-def test_run_ids_are_file_safe():
-    assert RunSpec("bcp", "769", "C1", 0).run_id == "bcp_q769_C1_r0"
-    run_id = RunSpec("telecom", "[mobile_data]airplane|on", "C0", 2).run_id
-    assert run_id.startswith("telecom_qmobile-data-airplane-on-") and run_id.endswith("_C0_r2")
+def test_bounded_jobs_stops_and_propagates_worker_exception():
+    stop = threading.Event()
+    started = []
+
+    def worker(item):
+        started.append(item)
+        raise RuntimeError("worker failed")
+
+    with pytest.raises(RuntimeError, match="worker failed"):
+        list(bounded_jobs(range(3), worker, 1, lambda result: False, stop))
+    assert stop.is_set()
+    assert started == [0]
 
 
 def test_peak_hours_and_cost():

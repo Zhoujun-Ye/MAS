@@ -5,6 +5,7 @@ from concurrent.futures import ThreadPoolExecutor
 import json
 import hashlib
 import fcntl
+import re
 from pathlib import Path
 import sys
 import uuid
@@ -32,13 +33,30 @@ def cache_key(pair, environment, fingerprint):
         fingerprint=fingerprint, revision=REVISION, backend=BACKEND_VERSION), sort_keys=True).encode()).hexdigest()
 
 
+def baseline_failure_evidence(result):
+    """Recognize an actual test assertion, not an arbitrary nonzero process."""
+    if result.get('error') or result.get('passed') is True:
+        return None
+    if result.get('tests_failed', 0) > 0:
+        return dict(kind='parsed-test-failure')
+    output = re.sub(r'\x1b\[[0-9;]*m', '', result.get('output', result.get('test_output', '')))
+    # Jest can terminate on an unhandled asynchronous expectation before its
+    # summary reporter runs. Preserve raw counts and require a test-source frame.
+    assertion = re.search(r'^JestAssertionError: expect\([^\n]+', output, re.M)
+    source = re.search(r'^\s+at expect \((/workspace/repo/[^\n]*?(?:__tests__/|\.test\.)[^\n]*?:\d+:\d+)\)', output, re.M)
+    if (result.get('exit_code') == 1 and assertion and source
+            and 'Received promise rejected instead of resolved' in output):
+        return dict(kind='unhandled-jest-expectation', assertion=assertion.group(0), test_source=source.group(1))
+    return None
+
+
 def reusable(row, pair, environment, fingerprint):
     return (row.get('pair') == pair.key and row.get('validation_fingerprint') == fingerprint
             and row.get('gate_passed') is True
             and all(row.get(k) == v for k, v in environment.items())
             and len(row.get('features', [])) == 2
             and [r.get('feature') for r in row['features']] == list(pair.features)
-            and all(r.get('gate_passed') is True and r['baseline'].get('tests_failed', 0) > 0
+            and all(r.get('gate_passed') is True and baseline_failure_evidence(r['baseline'])
                     and r['gold'].get('passed') is True and not r['gold'].get('error') for r in row['features'])
             and row.get('gold_joint', {}).get('both_passed') is True
             and not row.get('gold_joint', {}).get('error'))
@@ -64,8 +82,10 @@ def check(pair, dataset, module):
             sb.terminate()
         gold = module.run_patch_test(pair.repo, pair.task_id, feature,
                                     agent_patch=task / f'feature{feature}/feature.patch', dataset_dir=dataset, timeout=1800)
-        passed = baseline['tests_failed'] > 0 and gold['passed'] and not gold.get('error')
-        rows.append(dict(feature=feature, baseline=baseline, gold=gold, gate_passed=passed))
+        failure_evidence = baseline_failure_evidence(baseline)
+        passed = bool(failure_evidence and gold['passed'] and not gold.get('error'))
+        rows.append(dict(feature=feature, baseline=baseline, baseline_failure_evidence=failure_evidence,
+                         gold=gold, gate_passed=passed))
     combined = task / 'combined.patch'
     joint = (module.test_merged(pair.repo, pair.task_id, *pair.features, patch1=combined, patch2=combined,
                                dataset_dir=dataset, timeout=1800) if combined.exists() else

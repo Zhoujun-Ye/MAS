@@ -1,10 +1,5 @@
 # Fixed Agent Team Architecture
 
-Current lite100 changes supersede the older lifecycle details below: see
-[Fresh Lite Study](lite100-20261030.md). Worker idle replies notify the leader;
-mutating domain tools automatically reopen, and explicit source patch transfers
-avoid model-mediated copying. Submission remains explicit and immutable.
-
 Fixed capability templates and permission profiles define the pool. Member
 identity is distinct from template, so multiple members may share coder. A once-only
 Leader plan selects members and assignments for each task; this is not RSI.
@@ -43,7 +38,7 @@ Agent lifecycle, versioned task submission and verification are distinct.
 Normal finalization requires frozen worker submissions, no active/runnable worker
 and no queued content/status event. A received message wakes a submitted worker
 without reopening it; trusted read-only checks remain available, while writes
-and shell execution require explicit reopening. Budget
+and shell execution automatically reopen the assignment. Budget
 finalization can produce an incomplete submission set, never implicit success.
 Both schedulers retry a deferred final when the last submitted worker becomes
 idle. Agent-caused incomplete runs count as failures and retain terminal artifacts.

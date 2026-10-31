@@ -36,7 +36,8 @@ Task-adaptive decisions are not themselves cross-task self-improvement.
 ## One Content Boundary
 
 All substantive outgoing paths use InformationHarness.prepare_message:
-send_message and explicit submit_assignment reports. Tool-free replies only yield.
+send_message, explicit submit_assignment reports and nonempty worker idle replies
+forwarded to the leader. Tool-free replies yield without submitting.
 It validates sender/recipient, text and reference permissions, then returns the
 exact content. Runtime transports it unchanged. There is no additional model
 call and no inspection of hidden teammate context. Semantic policy compliance
