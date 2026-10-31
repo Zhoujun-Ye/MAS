@@ -16,7 +16,7 @@ import re
 import threading
 import time
 import traceback
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import ThreadPoolExecutor, as_completed, wait, FIRST_COMPLETED
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Callable
@@ -25,6 +25,39 @@ from . import accounting
 from .config import digest, source_digest
 from .llm import ModelConfig, ProviderError
 from .trace import Trace, read_trace, tool_counts, usage_summary
+
+
+def bounded_jobs(items, worker, concurrency, stop_on, stop_event=None):
+    """Dispatch only an active window; stop new work and drain in-flight jobs."""
+    if concurrency < 1:
+        raise ValueError('Concurrency must be positive')
+    stop = stop_event if stop_event is not None else threading.Event()
+    iterator = iter(items)
+    def guarded(item):
+        try:
+            result = worker(item)
+        except BaseException:
+            stop.set()
+            raise
+        if stop_on(result):
+            stop.set()
+        return result
+    with ThreadPoolExecutor(max_workers=concurrency) as pool:
+        pending = set()
+        exhausted = False
+        while pending or not exhausted:
+            while not stop.is_set() and not exhausted and len(pending) < concurrency:
+                try:
+                    item = next(iterator)
+                except StopIteration:
+                    exhausted = True
+                    break
+                pending.add(pool.submit(guarded, item))
+            if not pending:
+                break
+            done, pending = wait(pending, return_when=FIRST_COMPLETED)
+            for future in done:
+                yield future.result()
 
 
 @dataclass(frozen=True)

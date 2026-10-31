@@ -35,6 +35,8 @@ class ModelConfig:
     temperature: float | None = None  # sent only with thinking disabled
     timeout: float = 900.0
     retries: int = 3  # transport failures, 429 and 5xx only
+    context_window: int | None = None
+    context_margin: int = 8192
 
 
 class ProviderError(RuntimeError):

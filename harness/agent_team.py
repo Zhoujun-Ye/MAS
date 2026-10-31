@@ -53,7 +53,8 @@ class AgentTeam:
                  finalization_reserve=1, domain_policy=None, verifier=None, scheduler="async", member_inputs=None,
                  communication_policy=None, submission_hook=None, member_limits=None,
                  token_budget=None, time_limit_seconds=None):
-        if form != "agent_team" or min(v for v in (tool_budget, max_calls, max_messages, max_reads, max_input_chars) if v is not None) <= 0:
+        if form != "agent_team" or any(v is not None and v <= 0 for v in
+                                      (tool_budget, max_calls, max_messages, max_reads, max_input_chars)):
             raise ValueError("Invalid handoff form or limits")
         if scheduler not in ("async", "controlled"):
             raise ValueError("Unknown scheduler")
@@ -103,7 +104,7 @@ class AgentTeam:
             raise ValueError("Limits must name selected members")
         for limits in self.member_limits.values():
             if (set(limits) != set(defaults) or any(v is not None and (type(v) is not int or v < 0) for v in limits.values())
-                    or limits['max_calls'] == 0 or limits['tool_budget'] is None):
+                    or limits['max_calls'] == 0):
                 raise ValueError("Invalid member limits")
         self.budgets = {n: Budget(l['tool_budget']) for n, l in self.member_limits.items()}
         self.read_budgets = {n: Budget(l['max_reads']) for n, l in self.member_limits.items()}
@@ -139,6 +140,7 @@ class AgentTeam:
                             state_delivery='on-change-v1', output_recovery='one-consecutive-retry-v1',
                             domain_read_only={n: self.domain[n].read_only for n in sorted(self.domain)},
                             communication="verbatim-mailbox-v1",
+                            idle_reports='forward-to-leader-v1', reopening='automatic-before-domain-mutation-v1',
                             artifact_transport="explicit-grant-v1",
                             communication_schemas={n: [t.schema for t in self.communication_tools(n)]
                                                    for n in sorted(names)} if len(names) > 1 else {},
@@ -190,6 +192,10 @@ class AgentTeam:
         self.calls_by_member[agent.name] += 1
         if agent.max_input_chars is not None and len(json.dumps([agent.messages, agent.schemas], ensure_ascii=False)) > agent.max_input_chars:
             raise MemberLimit(agent.name, "context_length")
+        capacity = agent.input_capacity()
+        if capacity['remaining_tokens'] is not None and capacity['remaining_tokens'] < 0:
+            self.trace.emit('input_capacity', agent=agent.name, **capacity)
+            raise MemberLimit(agent.name, 'context_length')
         request_id = self.trace.emit("model_input", agent=agent.name, context_len=len(agent.messages),
                                      message_ids=list(self.awaiting_input[agent.name]))
         for message_id in self.awaiting_input[agent.name]:
@@ -233,9 +239,6 @@ class AgentTeam:
         def preflight(args, agent):
             if self.stopping.is_set() or self.should_stop() or self.time_expired():
                 return Observation("Team is stopping; tool not executed.", {"error": True, "error_kind": "interrupted"})
-            if self.submitted.get(agent.name) and not original.read_only:
-                return Observation("Assignment submitted. Read-only file tools remain available; reopen with update_task(status=working) before writes or terminal commands.",
-                                   {"error": True, "error_kind": "submission_frozen"})
             if original.name not in self.permissions.get(agent.name, ()):
                 return Observation("Domain tool access denied.", {"error": True, "error_kind": "permission_denied"})
             return original.preflight(args, agent) if original.preflight else None
@@ -243,6 +246,9 @@ class AgentTeam:
         def run(args, agent):
             if (denied := preflight(args, agent)) is not None:
                 return denied
+            with self.lock:
+                if self.submitted.get(agent.name) and not original.read_only:
+                    self.update_task(agent.name, 'working')
             obs = original.run(args, agent)
             if obs.meta.get("error"):
                 return obs  # Failed calls are diagnostics, not source evidence.
@@ -514,6 +520,9 @@ class AgentTeam:
     def worker_report(self, agent, content):
         with self.lock:
             self.ready[agent.name] = False
+            if content and content.strip():
+                self.queue(agent.name, self.final_role, content, [])
+            self.status_event('member_idle', agent.name)
         self.set_agent_state(agent.name, "idle")
 
     def runnable(self, role):

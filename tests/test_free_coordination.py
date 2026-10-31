@@ -32,8 +32,8 @@ def test_free_exchange_has_no_message_or_model_round_cap(tmp_path):
 def test_cooperbench_keeps_tool_and_time_limits_without_token_cap():
     from benchmarks.cooperbench.adapter import LIMITS, MEMBER_LIMITS
     assert LIMITS['token_budget'] is None
-    assert LIMITS['time_limit_seconds'] == 1200
-    assert MEMBER_LIMITS['worker_a']['tool_budget'] == MEMBER_LIMITS['worker_b']['tool_budget'] == 100
+    assert LIMITS['time_limit_seconds'] == 7200
+    assert MEMBER_LIMITS['worker_a']['tool_budget'] is MEMBER_LIMITS['worker_b']['tool_budget'] is None
     assert MEMBER_LIMITS['leader']['tool_budget'] == 0
 
 

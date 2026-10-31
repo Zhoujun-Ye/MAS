@@ -56,6 +56,10 @@ No result is implied by successful setup or a model's completion report.
 - [Decision-time evidence and delay](docs/information-feedback.md)
 - [Completion protocol](docs/completion-protocol.md)
 - [Study validation gates](docs/experiment1.md)
+- [Lite 100 execution contract](docs/lite100-20261030.md)
+- [Lite 100 results](docs/lite100-results-20261030.md)
+- [Failure audit](docs/lite100-error-analysis-20261030.md)
 
-Paid authorization is run-specific; the bounded three-pair pilot is specified
-in docs/experiment1.md. It does not authorize automatic expansion or retries.
+Paid authorization is run-specific. The completed lite100 study superseded the
+earlier twenty-pair scope; its authorization does not extend to new paid runs
+or retries. Original run evidence remains immutable on the server.

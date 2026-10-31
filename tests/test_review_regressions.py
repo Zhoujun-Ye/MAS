@@ -38,12 +38,14 @@ def test_deferred_final_recovers_when_worker_only_waits(tmp_path, scheduler):
 
 @pytest.mark.parametrize('text', ['', 'I will inspect the tests', 'Done'])
 @pytest.mark.parametrize('scheduler', ['controlled', 'async'])
-def test_tool_free_worker_is_idle_not_submission_or_message(tmp_path, text, scheduler):
+def test_tool_free_worker_notifies_leader_without_submission(tmp_path, text, scheduler):
     task, team, trace = build(tmp_path, 'agent_team', ScriptedClient(lambda *a: dict(content=text)), scheduler=scheduler)
     result = team.run_task(task)
     assert result['status'] == 'incomplete' and result['failure_class'] == 'agent_failure'
-    assert not team.submissions and team.sent == 0
-    assert team.calls_by_member['leader'] == 1  # Startup turn, not idle polling.
+    assert not team.submissions
+    assert team.sent == (2 if text else 0)
+    assert any(e['type'] == 'task_status' and e['event'] == 'member_idle'
+               for e in read_trace(trace.path))
     trace.close()
 
 
@@ -241,6 +243,7 @@ def test_runner_persists_accounting_on_provider_failure(tmp_path, monkeypatch):
             return json.dumps([dict(Id=r, Image='image', Mounts=[], HostConfig=dict(NetworkMode='none')) for r in ('a', 'b')])
         return json.dumps([dict(Id='image')])
     monkeypatch.setattr(run.subprocess, 'check_output', inspect)
+    monkeypatch.setattr(run, 'resolve', lambda image: dict(image_id='image', source_image_id='image', provisioning=None))
     class Workspace:
         def __init__(self, *a, **kw):
             pass

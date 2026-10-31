@@ -56,7 +56,7 @@ def digest(obj) -> str:
     return hashlib.sha256(canonical(obj).encode("utf-8")).hexdigest()[:16]
 
 
-SOURCE_PACKAGES = ("harness", "benchmarks", "analysis")
+SOURCE_PACKAGES = ("harness", "benchmarks", "analysis", "scripts", "configs")
 NOT_SOURCE = {"upstream", "assets", "__pycache__"}  # pinned checkouts and prepared inputs
 
 
@@ -66,7 +66,7 @@ def source_digest() -> str:
     for package in SOURCE_PACKAGES:
         for folder, dirs, files in os.walk(ROOT / package):
             dirs[:] = [d for d in dirs if d not in NOT_SOURCE]
-            paths += [Path(folder) / name for name in files if name.endswith(".py")]
+            paths += [Path(folder) / name for name in files if name.endswith((".py", ".yaml", ".json"))]
     h = hashlib.sha256()
     for path in sorted(paths):
         h.update(str(path.relative_to(ROOT)).encode())

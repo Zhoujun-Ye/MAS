@@ -127,6 +127,7 @@ class Agent:
         self.max_turns = max_turns
         self.messages: list[dict] = []
         self.last_prompt_tokens = 0
+        self.last_input_length = 0
         trace.emit(
             "agent_start",
             agent=name,
@@ -145,8 +146,14 @@ class Agent:
         """One LLM call on the full history; the reply is appended verbatim."""
         if self.max_input_chars is not None and len(json.dumps([self.messages, self.schemas], ensure_ascii=False)) > self.max_input_chars:
             raise ProviderError("context_length", "Configured input character safety limit exceeded")
+        capacity = self.input_capacity()
+        self.trace.emit('input_capacity', agent=self.name, **capacity)
+        if capacity['remaining_tokens'] is not None and capacity['remaining_tokens'] < 0:
+            raise ProviderError('context_length', 'Input plus reserved output exceeds configured context capacity; no history was removed')
+        input_length = len(self.messages)
         completion = self.client.complete(self.messages, self.schemas or None, tool_choice, effort)
         self.last_prompt_tokens = completion.usage["prompt_tokens"]
+        self.last_input_length = input_length
         self.trace.emit(
             "llm_call",
             agent=self.name,
@@ -166,6 +173,27 @@ class Agent:
         )
         self.append(completion.message)
         return completion
+
+    def input_capacity(self):
+        """Conservative incremental estimate, not a tokenizer or cumulative quota.
+
+        Anchor an unchanged input prefix to its provider token receipt. Charge
+        every UTF-8 byte of subsequently appended messages as a token, plus
+        framing margin. Initial requests include all tool schemas. History and
+        reasoning are never summarized, removed or silently clipped.
+        """
+        start = self.last_input_length if self.last_prompt_tokens > 0 else 0
+        added = self.messages[start:]
+        encoded = json.dumps(added, ensure_ascii=False).encode('utf-8')
+        estimate = (self.last_prompt_tokens if start else 0) + len(encoded) + 128 * len(added)
+        if not start:
+            estimate += len(json.dumps(self.schemas, ensure_ascii=False).encode('utf-8'))
+        cfg = self.client.cfg
+        window = getattr(cfg, 'context_window', None)
+        margin = getattr(cfg, 'context_margin', 8192)
+        return dict(method='receipt-prefix-plus-utf8-v1', estimated_input_tokens=estimate,
+                    context_window=window, reserved_output_tokens=cfg.max_tokens, margin_tokens=margin,
+                    remaining_tokens=None if window is None else window - cfg.max_tokens - margin - estimate)
 
     def log_tool(self, call: dict, args, obs: Observation) -> Observation:
         if obs.ref is None:

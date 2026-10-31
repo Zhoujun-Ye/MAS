@@ -89,7 +89,7 @@ def test_private_features_and_workspace_routing(tmp_path, scheduler):
     assert result['status'] == 'completed'
     assert result['submission_status'] == 'submitted'
     assert team.templates == {'worker_a': 'coder', 'worker_b': 'coder', 'leader': 'leader'}
-    assert team.permissions['worker_a'] == team.permissions['worker_b'] == ('read_file',)
+    assert team.permissions['worker_a'] == team.permissions['worker_b'] == ('import_files', 'read_file', 'share_files')
     assert team.member_limits['worker_a'] == team.member_limits['worker_b']
     assert sorted(called) == [('worker_a', 'worker_a'), ('worker_b', 'worker_b')]
     assert validate(read_trace(trace.path)) == []
@@ -121,7 +121,8 @@ def test_terminal_patches_can_be_evaluated_without_rescuing_primary_failure(tmp_
     from benchmarks.cooperbench.adapter import REVISION, WORKERS
     from scripts.cooperbench.grade import evaluate_output
     manifest = dict(upstream_revision=REVISION, pair=dict(repo='sample_task', task_id=0, features=[1, 2]),
-                    image_id='image', submission_contract='immutable-snapshot-v1', bases=dict.fromkeys(WORKERS, 'base'))
+                    image_id='image', environment=dict(image_id='image', source_image_id='official', runtime_env={}),
+                    submission_contract='immutable-snapshot-v1', bases=dict.fromkeys(WORKERS, 'base'))
     result = dict(status='incomplete', failure_class='agent_failure', evaluation_snapshots={})
     for role in WORKERS:
         artifact = dict(patch='partial', base='base')
@@ -132,8 +133,11 @@ def test_terminal_patches_can_be_evaluated_without_rescuing_primary_failure(tmp_
     (tmp_path / 'manifest.json').write_text(json.dumps(manifest))
     (tmp_path / 'result.json').write_text(json.dumps(result))
     evaluator = lambda **kwargs: dict(merge=dict(status='clean'), both_passed=True)
-    graded = evaluate_output(tmp_path, tmp_path, lambda _: 'image', evaluator)
+    graded = evaluate_output(tmp_path, tmp_path, lambda _: manifest['environment'], evaluator)
     assert graded['correct'] is False and graded['code_correct'] is True
     assert graded['verification'] == 'passed'
-    corrupted = evaluate_output(tmp_path, tmp_path, lambda _: 'different-image', evaluator)
+    corrupted = evaluate_output(tmp_path, tmp_path, lambda _: dict(manifest['environment'], image_id='different-image'), evaluator)
     assert corrupted['status'] == 'error' and corrupted['correct'] is False
+    changed_profile = evaluate_output(tmp_path, tmp_path,
+        lambda _: dict(manifest['environment'], runtime_env={'changed': 'yes'}), evaluator)
+    assert changed_profile['status'] == 'error'

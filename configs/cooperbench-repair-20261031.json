@@ -1,0 +1,9 @@
+{
+  "revision": "63b9d44d9f39a02fccf5bf0052db48a917a011fd",
+  "selection": "user-authorized-confirmed-errata-repair-v1",
+  "original_indices": [7, 27],
+  "pairs": [
+    {"repo": "dspy_task", "task_id": 8394, "features": [4, 5]},
+    {"repo": "openai_tiktoken_task", "task_id": 0, "features": [2, 9]}
+  ]
+}

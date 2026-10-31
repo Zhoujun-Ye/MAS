@@ -1,5 +1,10 @@
 # Communication Policy and Research Scope
 
+The fresh lite100 setup is documented in [Fresh Lite Study](lite100-20261030.md).
+It additionally forwards worker idle replies through the same message boundary
+and offers explicitly granted, byte-exact source patch transfers. No strategy
+or integration algorithm is imposed on agents.
+
 Only direct-message Agent Team execution is supported. There is no encoder,
 summary transport or alternative information channel. The current implementation
 has a fixed neutral free-collaboration prompt; agents choose when, whom and what

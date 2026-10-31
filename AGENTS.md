@@ -64,8 +64,13 @@ loss as the only target. See `docs/experiment1.md` and `docs/communication-polic
   correctness; evaluator verdicts must bind to the exact current artifacts.
   Only explicit submission counts. CooperBench workers share a coder template,
   not identity or budgets. Keep per-member quotas and source-only snapshot rules fixed.
+- Shared Team behavior belongs in harness/, not in a benchmark-specific prompt
+  or scheduler. Adapters supply task/evaluation facts and domain tools; do not
+  add repository-specific coordination strategies to the runtime.
 - Read-only file/hash checks do not invalidate a submission; writes and terminal
-  execution still require reopening. Context/output exhaustion is member-local.
+  execution automatically reopen and require a new explicit submission.
+  See docs/lite100-20261030.md for the newly authorized study and superseding limits.
+  Context/output exhaustion is member-local.
   Distinguish ordinary nonzero command observations, execution failures and
   protocol denials in analysis. Tool-output and snapshot-export limits are separate.
 - Prompts, budgets and model settings are frozen per output directory (the

@@ -18,6 +18,8 @@ from harness.trace import Trace, read_trace
 from harness.accounting import observed_balance, report as cost_report
 from benchmarks.cooperbench.snapshot import checked, capture
 from benchmarks.cooperbench.isolation import verify_worker, ISOLATION_VERSION
+from benchmarks.cooperbench.environment import resolve
+from benchmarks.cooperbench.errata import PROFILES, input_receipt
 
 TOOL_OUTPUT_LIMIT = 30_000
 SNAPSHOT_OUTPUT_LIMIT = 2_000_000
@@ -31,20 +33,23 @@ def main():
     parser.add_argument('--containers', nargs=2, required=True)
     parser.add_argument('--output', type=Path, required=True)
     parser.add_argument('--scheduler', choices=['controlled', 'async'], default='async')
+    parser.add_argument('--benchmark-profile', choices=PROFILES, default='official')
     parser.add_argument('--authorized-one-paid-pair', action='store_true', required=True)
     args = parser.parse_args()
     pair = Pair(args.repo, args.task, tuple(args.features))
     dataset = verify_checkout()
-    pair.private_inputs(dataset)
+    inputs = pair.private_inputs(dataset, args.benchmark_profile)
     inspected = json.loads(subprocess.check_output(['docker', 'inspect', *args.containers], text=True))
     if len(inspected) != 2 or len({c['Id'] for c in inspected}) != 2:
         raise ValueError('Two distinct containers required')
     if len({c['Image'] for c in inspected}) != 1 or any(c['Mounts'] or c['HostConfig']['NetworkMode'] != 'none' for c in inspected):
         raise ValueError('Require the same image, no host mounts and network=none')
-    expected_image = json.loads(subprocess.check_output(['docker', 'image', 'inspect', pair.image], text=True))[0]['Id']
+    environment = resolve(pair.image)
+    expected_image = environment['image_id']
     if any(c['Image'] != expected_image for c in inspected):
-        raise ValueError('Worker containers must use the selected official task image')
-    workspaces = {role: ContainerWorkspace(c['Id'], '/workspace/repo', output_limit=TOOL_OUTPUT_LIMIT)
+        raise ValueError('Worker containers must use the verified runtime image for the selected official task')
+    workspaces = {role: ContainerWorkspace(c['Id'], '/workspace/repo', output_limit=TOOL_OUTPUT_LIMIT,
+                                         archive_dir=args.output / 'tool_outputs' / role, timeout=120)
                   for role, c in zip(WORKERS, inspected)}
     snapshot_workspaces = {role: ContainerWorkspace(c['Id'], '/workspace/repo', output_limit=SNAPSHOT_OUTPUT_LIMIT)
                            for role, c in zip(WORKERS, inspected)}
@@ -53,14 +58,16 @@ def main():
         raise ValueError('Both repositories must start clean at the same base commit')
     isolation = {r: verify_worker(w, bases[r]) for r, w in workspaces.items()}
     config = load_config(ROOT / 'configs/base.yaml')
-    cfg = replace(ModelConfig(**config['agent_model']), timeout=120, retries=0)
+    cfg = replace(ModelConfig(**config['agent_model']), timeout=300, retries=0,
+                  max_tokens=65536, context_window=1_000_000)
     args.output.mkdir(parents=True, exist_ok=False)
     manifest = dict(pair=asdict(pair), upstream_revision=REVISION, source=source_digest(),
+        benchmark_inputs=input_receipt(inputs, args.benchmark_profile),
         scheduler=args.scheduler, limits=LIMITS, member_limits=MEMBER_LIMITS, pricing=config["pricing"], model=asdict(cfg), bases=bases,
         communication_policy=CommunicationPolicy().manifest, submission_contract='immutable-snapshot-v1',
         workspace_isolation=ISOLATION_VERSION, worker_preflight=isolation,
         tool_output_limit=TOOL_OUTPUT_LIMIT, snapshot_output_limit=SNAPSHOT_OUTPUT_LIMIT,
-        image_id=inspected[0]['Image'], setting='leader-led-adaptation')
+        image_id=inspected[0]['Image'], environment=environment, setting='leader-led-adaptation')
     (args.output / 'manifest.json').write_text(json.dumps(manifest, indent=2))
     load_env()
     client = ChatClient(cfg)
@@ -73,6 +80,7 @@ def main():
                 def snapshot(role, revision, paths):
                     return capture(snapshot_workspaces[role], bases[role], paths)
                 team = make_team(pair, dataset, workspaces, client, trace, scheduler=args.scheduler,
+                                 benchmark_profile=args.benchmark_profile,
                                  submission_hook=snapshot)
                 result = team.run_task(pair.request)
                 for role in WORKERS:

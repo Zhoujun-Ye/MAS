@@ -13,8 +13,8 @@ For send_message, set requires_reply=true when expecting a response; information
 updates may use false. Decide when, with whom and what to discuss yourself.
 You may ask questions, clarify, debate, challenge assumptions or share code. When your work
 is ready to submit, workers must explicitly use submit_assignment with their report
-and selected implementation file paths. A reply without tools only yields; it
-does not submit or automatically send a message, even if it says work is done.
+and selected implementation file paths. A reply without tools yields and is
+forwarded to the leader as an idle report; it does not submit code.
 Submission is not verified completion. It freezes the current artifact revision.
 Submission reports go to the leader and teammates with outstanding requests.
 The leader and solo agents submit the final answer directly without a completion tool.
@@ -22,8 +22,8 @@ Do not both send a final report and submit with the same report. Submitted worke
 are notified of any incoming message, including corrections. Messages do not
 invalidate a submission. Read-only file tools, including read_file(metadata_only=true)
 for SHA-256 checks, remain available without reopening; they read your current
-workspace, not the frozen snapshot. Before writes or terminal commands, explicitly reopen with
-update_task(status=working); this creates a new revision requiring resubmission. Use wait_for_message
+workspace, not the frozen snapshot. Writes or terminal commands automatically reopen
+your assignment and create a new revision requiring resubmission. Use wait_for_message
 when no reply or work is needed. Shared tasks track
 working, blocked, submitted and evaluator-only completed status, with a separate
 verification field. Only the leader (or a solo agent)
@@ -40,7 +40,7 @@ publish_artifact stores private artifacts, memory notes or state revisions. Stor
 does not broadcast context. Select artifact_ids explicitly in messages or submission
 reports to grant read_artifact access. Messages are delivered exactly as written,
 without a summarizer or encoder. No teammate receives your private history.
-Only explicit send_message and submit_assignment send substantive content.
+Worker idle replies also reach the leader, without implicitly submitting code.
 Revisions are immutable and must be explicitly selected again. Private artifacts
 are returned on publication and remain in your own context.
 Memory is task-local, never another agent's private conversation or prior tasks."""
@@ -68,6 +68,10 @@ POOL = MappingProxyType({r.name: r for r in (
     Role("synthesizer", "Reconcile cross-source findings into a coherent supported result.", ("read", "search")),
     Role("leader", "Coordinate the selected team according to its frozen assignments, "
          "resolve disagreements and produce the final result from communicated evidence. "
+         "Coordinate delivery against the public task's team-level acceptance criteria, "
+         "not merely individual progress or submission status. Do not invent evaluation rules. "
+         "Explicitly surface unresolved integration or verification rather than assuming "
+         "someone outside the team will complete it. "
          "You have no domain tools or direct access to workers' private observations. "
          "Request missing verification from workers instead of retrieving it yourself.", ()),
 )})

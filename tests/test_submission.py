@@ -16,18 +16,18 @@ def submit_policy(messages, tools, choice):
 
 
 @pytest.mark.parametrize('scheduler', ['controlled', 'async'])
-def test_submit_freezes_domain_tools_even_in_same_turn(tmp_path, scheduler):
+def test_mutating_tool_automatically_reopens_submission(tmp_path, scheduler):
     def policy(messages, tools, choice):
         reply = submit_policy(messages, tools, choice)
-        if 'stock' in tools:
+        if 'stock' in tools and not any(m['role'] == 'assistant' for m in messages):
             reply['calls'].append(('stock', {}))
         return reply
     task, team, trace = build(tmp_path, 'agent_team', ScriptedClient(policy), scheduler=scheduler)
     result = team.run_task(task)
     assert result['submission_status'] == 'submitted'
     assert result['verification']['status'] == 'not_run'
-    assert sum(b.used for b in team.budgets.values()) == 0 and not team.evidence
-    assert 'Assignment submitted.' in str(team.agents['researcher'].messages)
+    assert sum(b.used for b in team.budgets.values()) == 1 and team.evidence
+    assert team.tasks['researcher']['revision'] == 2
     assert set(team.agent_states.values()) == {'terminated'}
     assert team.tasks['researcher']['status'] == 'submitted'
     trace.close()
