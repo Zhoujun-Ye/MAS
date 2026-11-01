@@ -1,4 +1,4 @@
-"""Paired tests and intervals (guide §6): McNemar, bootstrap CI, pass^k, oracle."""
+"""Paired tests and intervals: McNemar, bootstrap CI, pass^k, oracle."""
 
 from __future__ import annotations
 
@@ -36,7 +36,7 @@ def pass_hat_k(trials: dict[str, list[bool]], k: int) -> float | None:
 
 
 def oracle(success: dict[str, dict[str, bool]], conditions: list[str]) -> dict:
-    """Per-task best of ``conditions`` against the best single condition (guide P4)."""
+    """Per-task best of ``conditions`` against the best single condition."""
     tasks = sorted(set.intersection(*(set(success[c]) for c in conditions)))
     if not tasks:
         return {"n": 0}
@@ -53,7 +53,7 @@ def oracle(success: dict[str, dict[str, bool]], conditions: list[str]) -> dict:
 
 
 def cohen_kappa(first: list[str], second: list[str]) -> float | None:
-    """Agreement of two annotators on the same items (guide §5.3)."""
+    """Agreement of two annotators on the same items."""
     if len(first) != len(second) or not first:
         return None
     n = len(first)

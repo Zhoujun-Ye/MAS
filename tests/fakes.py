@@ -73,16 +73,18 @@ class ScriptedClient:
         self.policy = policy
         self.requests: list[tuple[list[dict], list[str], str | None]] = []
         self.efforts: list[str | None] = []
+        self.response_formats: list[dict | None] = []
         self._ids = itertools.count(1)
         self._lock = threading.Lock()
 
-    def complete(self, messages, tools=None, tool_choice=None, effort=None) -> Completion:
+    def complete(self, messages, tools=None, tool_choice=None, effort=None, *, response_format=None) -> Completion:
         if tools:
             check_reasoning_passback(messages)
         names = [tool["function"]["name"] for tool in tools or []]
         with self._lock:
             self.requests.append(([dict(m) for m in messages], names, tool_choice))
             self.efforts.append(effort)
+            self.response_formats.append(dict(response_format) if response_format is not None else None)
         reply = self.policy(messages, names, tool_choice)
         message = {
             "role": "assistant",

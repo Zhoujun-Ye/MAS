@@ -14,9 +14,9 @@ import time
 from datetime import datetime, timezone
 from pathlib import Path
 
-# Event field holding the text that a message may reference.
+# boundary_msg is read-only compatibility for immutable retired peer-team traces.
 TEXT_FIELDS = {"tool_call": "observation", "boundary_msg": "content"}
-ID_FIELDS = {"tool_call": ("obs_id", "o"), "boundary_msg": ("msg_id", "m")}
+ID_FIELDS = {"tool_call": ("obs_id", "o")}
 USAGE_KEYS = (
     "prompt_tokens",
     "completion_tokens",
@@ -92,7 +92,8 @@ def llm_inputs(events: list[dict], agent: str) -> list[list[dict]]:
     return [
         history[: event["context_len"]]
         for event in events
-        if event["type"] == "llm_call" and event["agent"] == agent
+        if event.get("agent") == agent and (event["type"] == "llm_attempt" or
+            event["type"] == "llm_call" and "attempt_id" not in event)
     ]
 
 
@@ -100,19 +101,34 @@ def usage_summary(events: list[dict]) -> dict:
     """Token totals overall and per agent, plus the largest single context."""
 
     def empty() -> dict:
-        return {"llm_calls": 0, "max_prompt_tokens": 0, **{key: 0 for key in USAGE_KEYS}}
+        return {"llm_calls": 0, "attempted_calls": 0, "succeeded_calls": 0, "failed_calls": 0,
+                "unknown_usage_calls": 0, "max_prompt_tokens": 0, **{key: 0 for key in USAGE_KEYS}}
 
     total, agents = empty(), {}
     for event in events:
-        if event["type"] != "llm_call":
+        if event["type"] not in {"llm_attempt", "llm_call", "llm_error"}:
             continue
         for bucket in (total, agents.setdefault(event["agent"], empty())):
-            bucket["llm_calls"] += 1
+            kind = event["type"]
+            if kind == "llm_attempt" or kind == "llm_call" and "attempt_id" not in event:
+                bucket["llm_calls"] += 1
+                bucket["attempted_calls"] += 1
+                bucket["unknown_usage_calls"] += 1
+            if kind == "llm_error":
+                bucket["failed_calls"] += 1
+            if kind != "llm_call":
+                continue
+            bucket["succeeded_calls"] += 1
+            if not event.get("usage_available", True):
+                continue
+            bucket["unknown_usage_calls"] -= 1
             for key in USAGE_KEYS:
                 bucket[key] += event["usage"].get(key, 0)
             bucket["max_prompt_tokens"] = max(
                 bucket["max_prompt_tokens"], event["usage"].get("prompt_tokens", 0)
             )
+    for bucket in (total, *agents.values()):
+        bucket["usage_complete"] = bucket["unknown_usage_calls"] == 0
     return {"total": total, "agents": agents}
 
 
@@ -144,7 +160,7 @@ def validate(events: list[dict], require_reasoning: bool = True) -> list[str]:
             if event["idx"] != logged.get(agent, 0):
                 problems.append(f"{agent}: message index gap at t={event['t']}")
             logged[agent] = event["idx"] + 1
-        elif event["type"] == "llm_call" and event["context_len"] > logged.get(agent, 0):
+        elif event["type"] in {"llm_call", "llm_attempt"} and event["context_len"] > logged.get(agent, 0):
             problems.append(f"{agent}: llm_call at t={event['t']} sent unlogged messages")
     for agent, history in contexts(events).items():
         open_calls: set[str] = set()

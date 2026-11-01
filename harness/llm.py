@@ -34,7 +34,7 @@ class ModelConfig:
     max_tokens: int = 32768
     temperature: float | None = None  # sent only with thinking disabled
     timeout: float = 900.0
-    retries: int = 3  # transport failures, 429 and 5xx only
+    retries: int = 0  # retries require explicit run authorization
     context_window: int | None = None
     context_margin: int = 8192
 
@@ -108,8 +108,10 @@ class ChatClient:
             transport=transport,
         )
 
-    def request_body(self, messages, tools=None, tool_choice=None, effort=None) -> dict:
+    def request_body(self, messages, tools=None, tool_choice=None, effort=None, *, response_format=None) -> dict:
         cfg = self.cfg
+        if cfg.thinking == "enabled" and (tool_choice == "required" or isinstance(tool_choice, dict)):
+            raise ValueError("DeepSeek thinking mode does not support required or named tool_choice")
         body = {
             "model": cfg.model,
             "messages": messages,
@@ -125,14 +127,19 @@ class ChatClient:
             body["tools"] = tools
             if tool_choice:
                 body["tool_choice"] = tool_choice
+        if response_format is not None:
+            if response_format not in ({"type": "json_object"}, {"type": "text"}):
+                raise ValueError("Unsupported response_format")
+            body["response_format"] = dict(response_format)
         return body
 
-    def complete(self, messages, tools=None, tool_choice=None, effort=None) -> Completion:
+    def complete(self, messages, tools=None, tool_choice=None, effort=None, *, timeout=None, response_format=None) -> Completion:
         """``effort`` overrides the configured reasoning effort for this request only."""
         if tools and self.cfg.thinking == "enabled":
             check_reasoning_passback(messages)
         start = time.monotonic()
-        data = self._post(self.request_body(messages, tools, tool_choice, effort))
+        data = self._post(self.request_body(messages, tools, tool_choice, effort,
+                                          response_format=response_format), timeout=timeout)
         latency = time.monotonic() - start
         try:
             choice = data["choices"][0]
@@ -157,10 +164,11 @@ class ChatClient:
             fingerprint=data.get("system_fingerprint"),
         )
 
-    def _post(self, body: dict) -> dict:
+    def _post(self, body: dict, *, timeout=None) -> dict:
         for attempt in range(self.cfg.retries + 1):
             try:
-                response = self._http.post("/chat/completions", json=body)
+                options = {} if timeout is None else {"timeout": timeout}
+                response = self._http.post("/chat/completions", json=body, **options)
             except httpx.TransportError as error:
                 failure = ProviderError("transport", repr(error))
             else:

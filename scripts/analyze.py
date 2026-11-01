@@ -1,8 +1,8 @@
 """Read per-attempt output directories without benchmark code or model calls.
 
 Never regrade answers or infer semantic loss. Reports go to a fresh directory.
-Historical P1-P4 thresholds are preserved in analysis/criteria.py, but are not
-automatically applied to a new team experiment.
+This reader expects historical scheduler-based manifests, not Leader-Subagent
+session outputs. It does not apply study-specific success criteria.
 """
 import argparse
 import json

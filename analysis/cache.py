@@ -34,13 +34,15 @@ def steps(events: list[dict]) -> list[dict]:
     """Every pair of consecutive LLM calls of the same agent, with what the hit covered."""
     calls: dict[str, list[dict]] = {}
     for event in events:
-        if event["type"] == "llm_call":
+        if event["type"] == "llm_call" and event.get("usage_available", True):
             calls.setdefault(event["agent"], []).append(event)
     rows = []
     for agent, sequence in calls.items():
         for before, after in zip(sequence, sequence[1:]):
             prompt, output = before["usage"]["prompt_tokens"], before["usage"]["completion_tokens"]
             hit = after["usage"]["cache_hit_tokens"]
+            if prompt <= 0 or after["usage"]["prompt_tokens"] <= 0:
+                continue
             if _covers(hit, prompt + output):
                 kind = "prompt+output"
             elif _covers(hit, prompt):
@@ -67,7 +69,7 @@ def summarize(runs: list[tuple[str, list[dict]]]) -> dict:
     for condition, events in runs:
         seen: set[str] = set()
         for event in events:
-            if event["type"] != "llm_call":
+            if event["type"] != "llm_call" or not event.get("usage_available", True):
                 continue
             position = "later" if event["agent"] in seen else "first"
             seen.add(event["agent"])

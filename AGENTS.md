@@ -1,96 +1,57 @@
 # Project Instructions
 
-Exploratory study of collaboration failures between isolated agent contexts. The
-historical experiment design is `MAS传输损失验证实验指南.pdf` (2026-10-28);
-section numbers in legacy comments refer to it. The current Leader-led Agent
-Team target and benchmark admission gates are in `docs/leader-led-team.md` and
-`docs/experiment1.md`. CooperBench is the selected benchmark; native environment
-validation and real-model headroom remain separate empirical gates.
-The target uses fixed capability templates and task-adaptive member selection;
-do not generate new role prompts/permissions per task or treat selection as RSI.
-Motivation freezes each task's TeamSpec across communication conditions. Future
-feedback informs which Harness mechanism to study; do not preselect information
-loss as the only target. See `docs/experiment1.md` and `docs/communication-policy.md`.
+Target a benchmark-independent Leader-led Agent Team: the Leader assigns tasks
+and maintains team state, Workers communicate directly, key progress/risks/results
+reach the Leader, and communication is retained. See `docs/agent-team-design.md`
+for the proposed protocol; it is not implemented yet. `docs/leader-subagent.md`
+describes the existing foreground runtime, which remains the comparison reference.
+Use fixed capability templates and task-adaptive membership/delegation, not generated
+role permissions, fixed peer teams, or RSI. Independent contexts are context management,
+not strict information isolation. Shared workspaces are allowed through tool grants.
+Use bounded parallel execution. No fork or automatic full-task injection: initial
+Worker contexts contain the leader's local brief/context and fixed shared project
+instructions. Subsequent peer messages are explicit, logged context additions.
+Runtime status describes lifecycle, never correctness or the absence of past errors.
+Keep error history and infra_affected separate; recoverable errors must not poison
+later reports. Shared-workspace audit intervals are not exclusive write attribution.
 
-## Directory Responsibilities
+## Ownership
 
-- `harness/`: benchmark-agnostic MAS harness. `llm.py` (DeepSeek client),
-  `trace.py` (JSONL run log and integrity checks), `agent.py` (one context and
-  its tool loop), `agent_team.py` (fixed team and message scheduling), `runner.py`
-  (bounded batch dispatch and atomic JSON persistence), `accounting.py` (cost estimates, balance).
-- `benchmarks/cooperbench/`: the sole benchmark adapter, pinned official source
-  and data under ignored `upstream/`. Use private feature assignments, isolated
-  worker repositories and evaluator-only hidden tests/gold patches.
-- `harness/planning.py`: generic once-only Leader decomposition and frozen plans.
-  `harness/information.py`: frozen sender policy and authorized evidence/artifact
-  workspace; all substantive outgoing reports use the same validation boundary.
-  Leader has no domain tools; sharing storage never shares all contexts.
-- `analysis/`: statistics, preregistered P1-P4 criteria, prompt-cache reuse,
-  loss-type judge. No benchmark-specific code.
-- `scripts/<benchmark>/`: prepare/run/grade entry points; `scripts/analyze.py`
-  summarizes any output directory; `scripts/server/`: sync, remote, setup.
-- `docs/`: engineering notes and measured harness behaviour.
-- `outputs/<benchmark>/<run>/` (ignored): manifests, traces, results, grades,
-  balances and summaries. Never rewrite them; failed attempts stay under
-  `traces/attempts/`.
+- `harness/subagents.py`: leader delegation, child identity/resume and limits.
+- `harness/agent.py`: append-only context, validation and tool execution.
+- `harness/llm.py`, `trace.py`, `accounting.py`, `runner.py`: shared infrastructure.
+- Adapters supply domain tools/evaluation; orchestration belongs in `harness/`.
+- `analysis/` retains cache/statistics utilities and historical run readers, not
+  study-specific criteria or retired peer-team attribution tools.
+- CooperBench is retired. Server evidence and source archives are documented in
+  `docs/archive.md`; do not restore it as an active dependency.
 
 ## Server Operations
 
-- Local: `/Users/zhoujun/Desktop/MAS-information`. Standalone server (not HPC):
-  `zhoujunye@10.123.4.30:22`, `/home/zhoujunye/MAS-information`. Key login
-  works; `scripts/server/ssh.exp` is the password fallback.
-- Run tests and experiments on the server, not locally. Inspect live processes
-  and CPU ownership first; the `agent-team` project shares the machine.
-- Sync scoped source only with `scripts/server/sync.sh`: never credentials,
-  environments, caches, benchmark checkouts, assets, outputs or `--delete`.
-- `.env` stays ignored and mode 0600; never print or commit credentials. The
-  server's key comes from its own `agent-team/.env` (copied by setup.sh).
-- Package installs on the server use the Tsinghua PyPI mirror (pypi.org stalls).
-- Never modify files, images or shared resources belonging to `/home/zhoujunye/agent-team`.
-- CooperBench uses local Docker only; cloud backends are not authorized. Do not
-  provision images/containers or install the full upstream dependency stack implicitly.
-- Official worker images retain future Git history. Before model access, require
-  base-history-only-v1 sanitation and independent run.py verification (refs,
-  reflogs, unreachable objects, alternate stores and /patches). A clean HEAD alone
-  is not admission. Keep new run evidence immutable unless the user explicitly
-  requests deletion; never carry historical scores into a fresh study.
+- Local `/Users/zhoujun/Desktop/MAS-information`; server
+  `zhoujunye@10.123.4.30:22`, `/home/zhoujunye/MAS-information`.
+- Run tests and experiments on the server, not locally. Inspect live processes and
+  CPU ownership first. Never modify `/home/zhoujunye/agent-team` or its resources.
+- Use `scripts/server/sync.sh` for scoped source only. Never sync credentials,
+  environments, caches, checkouts, assets, archives or outputs; never `--delete`.
+- `.env` stays ignored and mode 0600. Never print or commit credentials.
+- Installs use the Tsinghua PyPI mirror. Do not provision environments, Docker or
+  cloud resources implicitly. Preserve historical images/assets and immutable runs.
+- Deploy, launch jobs and clean server files only within user authorization.
 
-## Necessary Constraints
+## Runtime And Evidence
 
-- No paid run (agents, judge or user simulator) without explicit authorization
-  for that run and its size. Offline tests use scripted models only.
-- Runtime owns scheduling, transport, permissions and task state. Information
-  Harness policy cannot mutate them. Submission is an immutable version, not
-  correctness; evaluator verdicts must bind to the exact current artifacts.
-  Only explicit submission counts. CooperBench workers share a coder template,
-  not identity or budgets. Keep per-member quotas and source-only snapshot rules fixed.
-- Shared Team behavior belongs in harness/, not in a benchmark-specific prompt
-  or scheduler. Adapters supply task/evaluation facts and domain tools; do not
-  add repository-specific coordination strategies to the runtime.
-- Read-only file/hash checks do not invalidate a submission; writes and terminal
-  execution automatically reopen and require a new explicit submission.
-  See docs/lite100-20261030.md for the newly authorized study and superseding limits.
-  Context/output exhaustion is member-local.
-  Distinguish ordinary nonzero command observations, execution failures and
-  protocol denials in analysis. Tool-output and snapshot-export limits are separate.
-- Prompts, budgets and model settings are frozen per output directory (the
-  manifest digest refuses changes). Never tune role/domain prompts per condition;
-  declared policy comparisons may vary only the frozen CommunicationPolicy.
-  Report prompt lengths. Use a new output directory for a new setup.
-- All conditions share model settings, initial plan, roster/roles, domain-tool
-  permissions, allowed communication graph, scheduler policy and budgets.
-  The exploratory pilot uses fixed async scheduling and autonomous communication.
-  Controlled scheduling is diagnostic only, not the current primary condition.
-- Keep every agent context append-only and pass `reasoning_content` back
-  verbatim; never inject timestamps, trace ids or other volatile text into
-  model-visible prompts. These keep DeepSeek's prefix cache effective.
-- Provider errors (any 400 included) are recorded, never scored as
-  model failures; context overflow, deadlock and agent quota exhaustion are
-  incomplete agent failures in the all-started denominator. Provider/infrastructure
-  errors remain separate. Paid reruns require new authorization; the pilot has no
-  automatic retries. Key/balance errors stop further paid calls. Never drop
-  incomplete attempts to improve a policy score.
-- Report cache reuse token-weighted per condition and role, with estimated and
-  actual (balance) cost. Prefer off-peak hours for large runs (half price).
-- Pass criteria (guide §7) are fixed in `analysis/criteria.py` before any run;
-  do not change thresholds after seeing results.
+- No paid agents, judges, simulators or retries without run-specific authorization
+  and size. Offline tests use scripted clients; paid settings require retries=0.
+- Templates and permissions are fixed per session. Children cannot grant tools to
+  themselves. A shell grant is neither a read-only permission nor a security sandbox.
+- Keep histories append-only and reasoning_content verbatim. Do not inject volatile
+  timestamps or trace IDs into prompts. Resume retains child history and tool budget.
+- Runtime owns scheduling, transport, permissions, budgets and lifecycle. Distinguish
+  partial work, tool errors, provider errors and independently verified success.
+- Key/balance errors stop further calls. Context/output exhaustion is incomplete
+  work. Never omit failed attempts to improve scores; evidence is immutable.
+- A final report is not an evaluator verdict. New studies must freeze settings and
+  bind evaluation to exact artifacts. Historical results do not establish new gains.
+- Report prompt lengths, token-weighted cache reuse by role, estimated/actual costs,
+  and unverified behavior. Do not claim causality from implementation or smoke tests.

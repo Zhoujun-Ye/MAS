@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "mas-information"
 version = "0.1.0"
-description = "Agent Team collaboration diagnosis with isolated contexts and CooperBench"
+description = "Leader-subagent orchestration with task-scoped contexts and tool grants"
 requires-python = ">=3.12,<3.14"
 # Native benchmark dependencies are optional; admission is a separate research gate.
 dependencies = [

@@ -70,7 +70,7 @@ def test_validate_flags_broken_logs(tmp_path):
         trace.emit("message", agent="a", idx=1, message={"role": "assistant", "content": "", "tool_calls": [call]})
         trace.emit("message", agent="a", idx=3, message={"role": "user", "content": "next"})
         trace.emit("llm_call", agent="a", context_len=9, usage={})
-        trace.emit("boundary_msg", direction="down", content="task")
+        trace.emit("boundary_msg", msg_id="legacy-m1", direction="down", content="task")
         trace.emit("run_end", status="completed")
     problems = validate(read_trace(tmp_path / "t.jsonl"))
     joined = "\n".join(problems)

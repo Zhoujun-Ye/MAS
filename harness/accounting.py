@@ -35,11 +35,14 @@ def call_cost(model: str, usage: dict, ts: datetime, pricing: dict) -> float | N
     return factor * tokens / 1_000_000
 
 
-def estimate(events: list[dict], pricing: dict) -> float | None:
+def estimate(events: list[dict], pricing: dict, *, known_only=False) -> float | None:
     """Estimated USD of every LLM call in one trace; None if a model has no price."""
+    from .trace import usage_summary
+    if not known_only and not usage_summary(events)["total"]["usage_complete"]:
+        return None
     total = 0.0
     for event in events:
-        if event["type"] != "llm_call":
+        if event["type"] != "llm_call" or not event.get("usage_available", True):
             continue
         cost = call_cost(event["model"], event["usage"], datetime.fromisoformat(event["ts"]), pricing)
         if cost is None:

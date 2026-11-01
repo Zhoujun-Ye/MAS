@@ -23,6 +23,6 @@ fi
 rsync -az -e "ssh -o BatchMode=yes" \
   --exclude '__pycache__' --exclude '*.pyc' --exclude 'upstream/' --exclude 'assets/' \
   AGENTS.md README.md pyproject.toml .gitignore .env.example \
-  configs harness benchmarks analysis scripts tests docs \
+  harness benchmarks analysis scripts tests docs \
   "$HOST:$REMOTE/"
 echo "synced to $HOST:$REMOTE"

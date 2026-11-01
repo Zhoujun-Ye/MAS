@@ -1,1 +1,1 @@
-"""Statistics, preregistered criteria and loss-type labelling (guide §5-7)."""
+"""Cache accounting, general statistics and historical run readers."""

@@ -16,13 +16,13 @@ dist/
 .mypy_cache/
 .ipynb_checkpoints/
 
-# Benchmark sources pinned by scripts/cooperbench/prepare.py, and inputs written by
-# scripts/<benchmark>/prepare.py. Both are recreated, never edited by hand.
+# Historical checkouts and prepared inputs are not active source.
 benchmarks/*/upstream/
 benchmarks/*/assets/
 
 # Run evidence (traces, results, grades, balances) and logs; kept on the server.
 outputs/
+archives/
 logs/
 .retired_sources/
 *.log

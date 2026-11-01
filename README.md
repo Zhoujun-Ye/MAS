@@ -1,73 +1,62 @@
-# CooperBench Agent Team: Collaboration Diagnosis
+# Leader-Subagent Harness
 
-Current lite100 result: **71/100 passed**, **100/100 protocol completed**.
-Use the [current report](docs/lite100-results-20261030.md) and server scoreboard
-`outputs/cooperbench/lite100-current/summary.json`. This includes explicitly
-authorized benchmark clarifications; historical segments are audit evidence,
-not alternative current results.
+A benchmark-independent leader solves tasks directly or delegates bounded work to
+fixed, capability-limited subagent templates. Children receive selected task context
+and may use permitted tools on shared workspaces. Independent transcripts are not
+strict information isolation or an OS sandbox.
 
-CooperBench is the sole benchmark selected for this study. Old benchmark
-adapters, launchers, tests and screening documents have been removed.
-Other projects' resources are never modified. Historical experiment outputs
-were deleted at the user's request; new runs use fresh output directories.
+## Runtime
 
-## Study Contract
+- `harness/subagents.py`: bounded parallel delegation, in-session resume, tool
+  grants, shared session budgets and infrastructure-impact reporting.
+- `harness/single_agent.py`: single-context mode using the same loop, all approved
+  domain tools and full own history, without delegation.
+- `harness/agent.py`: append-only context, schema validation and tool dispatch.
+- `harness/llm.py`, `trace.py`, `accounting.py`, `runner.py`: retained infrastructure.
+- `harness/execution.py`: optional container tools; no automatic provisioning.
+- `harness/workspace_audit.py`: trace-only file/hash snapshots for Git workspaces.
+- `analysis/`: cache accounting, general statistics and historical run readers;
+  `scripts/analyze.py` expects old scheduler-based manifests, not new sessions.
 
-Fixed capability templates, assignments, domain permissions and scheduler;
-independent append-only contexts; verbatim peer messages; shared task status.
-Observe free collaboration before selecting Harness mechanisms for evolution.
-Information loss, delay, misuse, coordination failures and overhead are distinct
-but potentially co-occurring diagnoses. No efficacy or causality claim follows from setup.
+See [architecture](docs/leader-subagent.md) and [historical evidence](docs/archive.md).
 
-The CooperBench adaptation uses worker_a + worker_b (both coder templates) + a communication-only leader.
-Each worker sees only its own feature description and its own repository.
-This is a leader-led adaptation, not the paper's original two-peer setting.
-Gold solutions and hidden tests are evaluator-only.
+## Agent Team Design Target
 
-Runtime fixes scheduling, transport, permissions and lifecycle. Information
-Harness supplies a frozen sender policy for every substantive report/message.
-Submitting freezes a version; receiving a message does not reopen it. Verified
-completion requires an evaluator result for the exact submitted artifacts.
-Only submit_assignment submits; a tool-free reply merely yields. Members have
-independent budgets. Failed runs retain terminal code snapshots and remain in the
-all-started denominator; passing diagnostic code tests cannot erase an agent failure.
-Messages and tool output show unescaped raw text, not nested JSON.
+The next design is a [Leader-led Agent Team](docs/agent-team-design.md): the Leader
+assigns tasks and maintains team state; persistent Workers execute and communicate
+directly; key progress, risks and results reach the Leader; communication is retained
+for analysis. The proposal specifies event-driven scheduling, task authority,
+message delivery and a final draining barrier. It is not implemented: the runtime
+and commands below still use foreground delegation, without peer messaging.
 
-## Entry Points
+## KramaBench
 
-- scripts/cooperbench/prepare.py --fetch: pinned source and bundled dataset.
-- scripts/cooperbench/offline.py --output NEW_DIR --scheduler controlled:
-  real public descriptions with scripted agents, no Docker or model calls.
-- scripts/cooperbench/offline.py --output NEW_DIR --scheduler async:
-  the same control-flow check with independent concurrent agent turns.
-- scripts/cooperbench/run.py: one explicitly authorized paid pair in two
-  pre-provisioned isolated containers; no automatic provisioning or expansion.
-- scripts/cooperbench/grade.py: separately authorized local Docker evaluation
-  using the pinned upstream merger and feature tests, with no model judge.
+[KramaBench adapter](docs/kramabench.md) uses a pinned public task catalog and
+eight fixed capability templates for discovery, pipeline implementation, data
+preparation, calculation, result review, requirements, auditing and reproduction.
+The Leader selects templates at runtime; questions and host paths stay out of stable
+role prefixes. Generic inspection/provenance lives in `harness/`, benchmark-specific
+task and response handling in `benchmarks/kramabench/`. Native grading is deliberately
+separate because upstream metrics can invoke paid judges.
 
-Run tests on the server after CPU/process inspection and scoped source sync.
-The exploratory default is async with autonomous communication under fixed
-tool/time allowances, without cumulative-token, message or discussion-round caps.
-All members, including the leader, start runnable. Workers are sanitized and
-independently checked for future Git history before any model call. Native
-baseline/gold gates and server regression tests must pass before paid execution.
-No result is implied by successful setup or a model's completion report.
+Use `mode="single"` or `mode="mas"` for matched task/model/tool/session-budget
+comparisons. The no-paid paired smoke is `scripts/kramabench/offline.py --mode both
+--output outputs/kramabench-single-mas-NEW` (server only). It uses separate fixture
+workspaces; it is not an official evaluation or evidence of MAS superiority.
 
-## Documentation
+## Verification
 
-- [CooperBench setup and evaluation](docs/cooperbench.md)
-- [Architecture](docs/leader-led-team.md)
-- [Information boundaries](docs/information-harness.md)
-- [Communication policy](docs/communication-policy.md)
-- [Decision-time evidence and delay](docs/information-feedback.md)
-- [Completion protocol](docs/completion-protocol.md)
-- [Study validation gates](docs/experiment1.md)
-- [Lite 100 execution contract](docs/lite100-20261030.md)
-- [Lite 100 results](docs/lite100-results-20261030.md)
-- [Failure audit](docs/lite100-error-analysis-20261030.md)
-- [Collaboration attribution](docs/lite100-collaboration-attribution.md)
-- [Additional 100-pair study](docs/new100-20261031.md)
+Run only on the project server, after inspecting processes:
 
-Paid authorization is run-specific. The completed lite100 study superseded the
-earlier twenty-pair scope; its authorization does not extend to new paid runs
-or retries. Original run evidence remains immutable on the server.
+```sh
+scripts/server/sync.sh
+scripts/server/remote.sh '.venv/bin/python -m pytest -q'
+scripts/server/remote.sh '.venv/bin/python scripts/subagent_demo.py --output outputs/subagent-demo-NEW'
+```
+
+The demo uses a scripted model and in-memory evidence, with no paid calls. It is
+not a benchmark. Real adapters must bind authorized tools, record frozen model,
+prompt, source and budget settings, and provide independent outcome evaluation.
+A run-specific KramaBench pilot is retained in the adapter documentation. No
+further paid runs are authorized; current verification uses offline fixtures.
+Historical scores do not transfer.
