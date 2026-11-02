@@ -84,19 +84,3 @@ retired; generic transport, submission, scheduling and budget regressions remain
 
 The cleanup does not authorize any new paid benchmark, judge or retry. A full
 104-task preflight is read-only with respect to data and uses no paid calls.
-
-## Repository Verification
-
-On 2026-11-02, version- and review-named regression modules were renamed by
-behavior, preserving their scenarios and updating their cross-module import.
-See `tests/README.md` for the test layout. An isolated server source copy passed
-279 tests, with 7 opt-in tests skipped. No paid calls, environment provisioning,
-or modifications to the concurrently running benchmark were performed. This is
-offline regression evidence, not a claim that all bugs or runtime issues are gone.
-
-A follow-up cleanup after the batch process exited consolidated duplicate strict
-JSON decoders without changing caller-specific errors or empty-tool-argument
-handling, and removed the retired `configs` directory from source-digest scanning.
-The isolated server regression passed 288 tests, with 7 opt-in tests skipped.
-Run outputs and historical evidence were not edited or deleted; no paid calls
-or benchmark reruns were performed.
