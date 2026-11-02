@@ -30,7 +30,7 @@ def digest(obj) -> str:
     return hashlib.sha256(canonical(obj).encode("utf-8")).hexdigest()[:16]
 
 
-SOURCE_PACKAGES = ("harness", "benchmarks", "analysis", "scripts", "configs")
+SOURCE_PACKAGES = ("harness", "benchmarks", "analysis", "scripts")
 NOT_SOURCE = {"upstream", "assets", "__pycache__"}  # pinned checkouts and prepared inputs
 
 

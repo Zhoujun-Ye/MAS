@@ -93,3 +93,10 @@ See `tests/README.md` for the test layout. An isolated server source copy passed
 279 tests, with 7 opt-in tests skipped. No paid calls, environment provisioning,
 or modifications to the concurrently running benchmark were performed. This is
 offline regression evidence, not a claim that all bugs or runtime issues are gone.
+
+A follow-up cleanup after the batch process exited consolidated duplicate strict
+JSON decoders without changing caller-specific errors or empty-tool-argument
+handling, and removed the retired `configs` directory from source-digest scanning.
+The isolated server regression passed 288 tests, with 7 opt-in tests skipped.
+Run outputs and historical evidence were not edited or deleted; no paid calls
+or benchmark reruns were performed.

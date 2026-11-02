@@ -17,6 +17,7 @@ from typing import Callable
 from jsonschema import Draft202012Validator
 
 from .llm import ChatClient, Completion, ProviderError
+from .json_utils import strict_loads
 from .trace import Trace
 
 BUDGET_EXHAUSTED = (
@@ -297,16 +298,7 @@ def tool_message(call: dict, obs: Observation) -> dict:
 
 
 def parse_tool_arguments(raw):
-    def invalid_constant(value):
-        raise ValueError(f"Non-JSON value: {value}")
-    def unique_keys(pairs):
-        result = {}
-        for key, value in pairs:
-            if key in result:
-                raise ValueError(f"Duplicate argument key: {key}")
-            result[key] = value
-        return result
-    return json.loads(raw or "{}", parse_constant=invalid_constant, object_pairs_hook=unique_keys)
+    return strict_loads(raw or "{}", label="argument")
 
 
 class Agent:

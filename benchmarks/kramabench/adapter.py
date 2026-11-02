@@ -16,6 +16,7 @@ from harness.config import source_digest
 from harness.container_contract import validate_artifact_paths, validate_data_container
 from harness.data_tools import inspection_tools
 from harness.execution import ContainerWorkspace
+from harness.json_utils import strict_loads
 from harness.runner import write_json
 from harness.session import comparison_session, resolve_mode
 from harness.trace import Trace, activation_summary, communication_summary, read_trace, usage_summary, validate
@@ -26,16 +27,7 @@ from .tasks import Task, UPSTREAM_COMMIT
 
 
 def parse_submission(text):
-    def invalid_constant(value):
-        raise ValueError(f"Non-JSON value: {value}")
-    def unique_keys(pairs):
-        result = {}
-        for key, value in pairs:
-            if key in result:
-                raise ValueError(f"Duplicate submission key: {key}")
-            result[key] = value
-        return result
-    result = json.loads(text, parse_constant=invalid_constant, object_pairs_hook=unique_keys)
+    result = strict_loads(text, label="submission")
     if not isinstance(result, dict) or set(result) != {"answer", "pipeline_code", "evidence", "unfinished"}:
         raise ValueError("Expected answer, pipeline_code, evidence and unfinished")
     if (not isinstance(result["pipeline_code"], str) or not isinstance(result["evidence"], str)
