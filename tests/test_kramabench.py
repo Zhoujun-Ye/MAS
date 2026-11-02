@@ -25,64 +25,7 @@ def test_public_tasks_strip_all_reference_fields():
         Task("../escape", "archeology", "q")
 
 
-def test_scripted_full_adapter(tmp_path, monkeypatch):
-    import httpx
-    def forbid(*args, **kwargs):
-        raise AssertionError("No network/model/judge allowed")
-    monkeypatch.setattr(httpx.Client, "send", forbid)
-    response = smoke(tmp_path / "smoke")
-    assert response == {"explanation": {"answer": 4.0}, "pipeline_code": PIPELINE}
-    output = tmp_path / "smoke" / "attempt"
-    events = read_trace(output / "trace.jsonl")
-    assert validate(events) == []
-    histories = contexts(events)
-    assert histories["subagent-1"][0] == histories["subagent-2"][0]
-    for name, history in histories.items():
-        if name != "leader":
-            assert "LEADER_ONLY_SENTINEL" not in json.dumps(history)
-    ends = [e for e in events if e["type"] == "delegation_end"]
-    assert len(ends) == 5 and all(e["status"] == "completed" for e in ends)
-    assert ends[-1]["agent_id"] == ends[-2]["agent_id"]
-    assert sum(e["type"] == "workspace_snapshot" for e in events) == 10
-    report = json.loads((output / "report.json").read_text())
-    assert report["evaluation"] == "not_run" and report["fixture_only"]
-    assert report["usage"]["total"]["llm_calls"] == 15
-    assert json.loads((output / "native_response.json").read_text())["model_output"] == {"answer": 4.0}
-    with pytest.raises(FileExistsError):
-        smoke(tmp_path / "smoke")
 
-
-def test_fixed_grants_and_attempted_escalation(tmp_path):
-    workspace = FixtureWorkspace(tmp_path / "fixture")
-    client = ScriptedClient(lambda *args: {"content": "report"})
-    with Trace(tmp_path / "trace.jsonl", "permissions") as trace:
-        session, manifest = make_session(client, trace, workspace)
-        session._delegate({"template": "data_scout", "task": "local only"}, None)
-        scout = session.children["subagent-1"]
-        assert set(scout.tools) == set(READ_TOOLS)
-        assert all(tool.read_only for tool in scout.tools.values())
-        for denied in ("terminal", "write_file", "delegate"):
-            obs = scout.run_tool({"id": denied, "function": {"name": denied, "arguments": "{}"}})
-            assert obs.meta["error"]
-        assert set(session.leader.tools) == set(ALL_TOOLS) | {"delegate", "submit"}
-        assert manifest["templates"][1]["tools"] == list(ALL_TOOLS)
-        with pytest.raises(ValueError, match="fixed"):
-            make_session(client, trace, workspace, leader_system="override")
-
-
-def test_a0_a2_tools_and_prefix_stability(tmp_path):
-    client = FixtureClient()
-    workspaces = [FixtureWorkspace(tmp_path / str(i)) for i in range(2)]
-    with Trace(tmp_path / "one.jsonl", "one") as trace1, Trace(tmp_path / "two.jsonl", "two") as trace2:
-        first, catalog1 = make_session(client, trace1, workspaces[0])
-        second, catalog2 = make_session(client, trace2, workspaces[1])
-        assert first.leader.messages == second.leader.messages
-        assert first.leader.schemas == second.leader.schemas
-        assert catalog1 == catalog2
-        solo, _ = make_session(client, trace2, workspaces[1], delegated=False)
-        assert set(solo.leader.tools) == set(first.leader.tools) - {"delegate"}
-        assert "Subagents:" not in solo.leader.messages[0]["content"]
-        assert solo.session_budget.snapshot() == first.session_budget.snapshot()
 
 
 @pytest.mark.parametrize("text", ["not JSON", "```json\n{}\n```", "[]", "{}",

@@ -180,3 +180,18 @@ class ContainerWorkspace:
         if result.get("execution_error") or result["exit_code"] != 0 or result["truncated"]:
             raise RuntimeError("Workspace audit failed or exceeded capture limit")
         return json.loads(result["output"])
+
+    def export_artifact(self, path, sha256, *, timeout=None):
+        """Read a bounded regular file through the container, matching frozen bytes."""
+        import json
+        import shlex
+        from .artifacts import ARTIFACT_READ_SCRIPT, MAX_ARTIFACT_BYTES, workspace_relative_path
+        path = workspace_relative_path(path, self.workdir)
+        payload = dict(root=self.workdir, path=path, sha256=sha256, max_bytes=MAX_ARTIFACT_BYTES)
+        result = self.execute("python3 -I -c " + shlex.quote(ARTIFACT_READ_SCRIPT), json.dumps(payload),
+                              capture_all=True, timeout=self.timeout if timeout is None else min(self.timeout, timeout))
+        if result.get("execution_error"):
+            raise RuntimeError("Artifact export transport failed: " + str(result.get("error_kind")))
+        if result["exit_code"] != 0 or result["truncated"]:
+            raise ValueError("Cannot export frozen artifact: " + result["output"][-1000:])
+        return json.loads(result["output"])

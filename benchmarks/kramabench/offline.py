@@ -8,12 +8,13 @@ import subprocess
 import sys
 
 from harness.agent import Observation
+from harness.artifacts import ARTIFACT_READ_SCRIPT
 from harness.data_tools import INSPECT_SCRIPT
 from harness.execution import ContainerWorkspace
 from harness.llm import Completion, ModelConfig, normalize_usage
 from harness.catalog import fingerprint
 from harness.runner import write_json
-from harness.subagents import resolve_mode
+from harness.session import resolve_mode
 from .adapter import run_task
 from .tasks import Task
 
@@ -33,11 +34,12 @@ class FixtureWorkspace(ContainerWorkspace):
         super().__init__("fixture-not-a-container", archive_dir=self.root / "retained")
 
     def execute(self, command, stdin=None, **options):
-        if command != "python3 -I -c " + shlex.quote(INSPECT_SCRIPT):
+        scripts = {"python3 -I -c " + shlex.quote(script): script for script in (INSPECT_SCRIPT, ARTIFACT_READ_SCRIPT)}
+        if command not in scripts:
             raise AssertionError("Fixture refuses arbitrary execution")
         payload = json.loads(stdin)
         payload["root"] = str({"/data": self.data, "/workspace": self.work}[payload["root"]])
-        result = subprocess.run([sys.executable, "-I", "-c", INSPECT_SCRIPT], input=json.dumps(payload),
+        result = subprocess.run([sys.executable, "-I", "-c", scripts[command]], input=json.dumps(payload),
                                 text=True, capture_output=True, timeout=5)
         return dict(exit_code=result.returncode, output=result.stdout + result.stderr, truncated=False,
                     execution_error=False, error_kind=None)
@@ -69,9 +71,9 @@ class FixtureWorkspace(ContainerWorkspace):
         return Observation((self.work / "answer.json").read_text())
 
     def audit_snapshot(self, *, timeout=None):
-        from harness.catalog import fingerprint
+        import hashlib
         return {"fixture_only": True, "files": {
-            str(p.relative_to(self.work)): fingerprint(p.read_text())
+            str(p.relative_to(self.work)): {"kind": "file", "sha256": hashlib.sha256(p.read_bytes()).hexdigest()}
             for p in sorted(self.work.rglob("*")) if p.is_file()}}
 
 
@@ -81,30 +83,36 @@ class FixtureClient:
     def complete(self, messages, tools=None, tool_choice=None, effort=None, *, response_format=None):
         names = {tool["function"]["name"] for tool in tools or []}
         calls, content = [], ""
-        if "delegate" in names:
-            reports = [json.loads(m["content"]) for m in messages if m["role"] == "tool"]
-            if not reports:
-                calls = [("delegate", {"template": "data_scout", "task": "Inspect values.csv columns."}),
-                         ("delegate", {"template": "data_scout", "task": "Check available files."})]
-            elif len(reports) == 2:
-                calls = [("delegate", {"template": "pipeline_analyst", "task": "Compute average of value in values.csv; save answer.json and pipeline.py in your exclusively assigned /workspace directory. No other writer runs in this fixture."})]
-            elif len(reports) == 3:
-                calls = [("delegate", {"template": "result_reviewer", "task": "Read answer.json; inspect calculation evidence."})]
-            elif len(reports) == 4:
-                calls = [("delegate", {"template": "result_reviewer", "resume_id": reports[-1]["agent_id"],
-                                       "task": "Recheck that the saved answer is 4."})]
-            else:
-                calls = [("submit", {"answer": 4.0, "pipeline_code": PIPELINE,
+        previous = [c["function"]["name"] for m in messages for c in m.get("tool_calls", [])]
+        if "spawn_worker" in names or names == {"submit"}:
+            if "finish_team" in previous or names == {"submit"}:
+                notices = [json.loads(record["content"]) for message in messages
+                    if message["role"] == "user" and message["content"].startswith("Team inbox")
+                    for record in json.loads(message["content"].split("\n", 1)[1])
+                    if record["sender"] == "runtime" and record["content"].startswith("{")]
+                closing = next(n for n in reversed(notices) if n.get("event") == "team_closed")
+                path = next(p for p, item in closing["state"]["frozen_files"].items()
+                            if p.endswith(".py") and item["submission_status"] == "hash_recorded")
+                calls = [("submit", {"answer": 4.0, "pipeline_path": path,
                     "evidence": "Synthetic fixture: 3 values, average 4; scripted verification only.", "unfinished": []})]
-        elif messages[-1]["role"] == "user":
-            if "terminal" in names:
-                calls = [("terminal", {"command": "fixture_average"})]
-            elif "You review" in messages[0]["content"]:
-                calls = [("read_file", {"path": "/workspace/answer.json"})]
+            elif not previous:
+                calls = [("spawn_worker", {"template": "worker", "task": "Compute average of values.csv using fixture_average."})]
+            elif previous[-1] == "get_team_state":
+                state = json.loads(next(m["content"] for m in reversed(messages) if m["role"] == "tool"))
+                task = state["tasks"][0]
+                if task["status"] == "reported":
+                    calls = [("update_task", dict(task_id=task["task_id"], expected_revision=task["revision"], action="accept", reason="Fixture checked"))]
+                else:
+                    calls = [("wait_event", {"timeout_seconds": 0.02})]
+            elif previous[-1] == "update_task":
+                calls = [("finish_team", {"reason": "Fixture completed"})]
             else:
-                calls = [("inspect_file", {"area": "data", "path": "values.csv"})]
+                calls = [("get_team_state", {})]
+        elif "terminal" not in previous and tool_choice != "none":
+            assert "LEADER_ONLY_SENTINEL" not in json.dumps(messages)
+            calls = [("terminal", {"command": "fixture_average"})]
         else:
-            content = messages[-1]["content"]
+            content = "Average 4; answer.json and pipeline.py."
         message = {"role": "assistant", "content": content, "reasoning_content": "scripted fixture"}
         if calls:
             message["tool_calls"] = [{"id": f"call-{len(messages)}-{i}", "type": "function",
@@ -129,7 +137,7 @@ class SingleFixtureClient:
                 "function": {"name": name, "arguments": json.dumps(args)}}]
         else:
             args = {"answer": json.loads(observations[-1]["content"])["answer"],
-                    "pipeline_code": PIPELINE, "evidence": "Synthetic CSV inspection and fixed fixture computation.",
+                    "pipeline_path": "pipeline.py", "evidence": "Synthetic CSV inspection and fixed fixture computation.",
                     "unfinished": []}
             message["tool_calls"] = [{"id": "single-submit", "type": "function",
                 "function": {"name": "submit", "arguments": json.dumps(args)}}]
@@ -137,26 +145,26 @@ class SingleFixtureClient:
                           normalize_usage({}), 0.0, "scripted")
 
 
-def smoke(output, *, mode="mas"):
+def smoke(output, *, mode="team", leader_mode=None):
     mode = resolve_mode(mode=mode)
     output = Path(output)
     output.mkdir(parents=True, exist_ok=False)
     workspace = FixtureWorkspace(output / "fixture")
     client = SingleFixtureClient() if mode == "single" else FixtureClient()
     return run_task(FIXTURE_TASK, client=client, workspace=workspace, output=output / "attempt",
-                    dataset=workspace.data, mode=mode)
+                    dataset=workspace.data, mode=mode, **({"leader_mode": leader_mode} if leader_mode is not None else {}))
 
 
-def comparison_smoke(output):
+def comparison_smoke(output, *, leader_mode="coordinator"):
     """Two independent synthetic attempts. Not a paid runner or efficacy study."""
     output = Path(output)
     output.mkdir(parents=True, exist_ok=False)
-    summary = {"fixture_only": True, "evaluation": "not_run", "order": ["single", "mas"], "arms": {}}
+    summary = {"fixture_only": True, "evaluation": "not_run", "order": ["single", "team"], "arms": {}}
     write_json(output / "comparison.json", summary)
     contracts = []
     try:
         for mode in summary["order"]:
-            response = smoke(output / mode, mode=mode)
+            response = smoke(output / mode, mode=mode, leader_mode=leader_mode if mode == "team" else "full")
             attempt = output / mode / "attempt"
             manifest = json.loads((attempt / "manifest.json").read_text())
             report = json.loads((attempt / "report.json").read_text())

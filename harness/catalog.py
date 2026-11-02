@@ -1,8 +1,23 @@
 """Serializable frozen capability catalog for run provenance, not prompt mutation."""
 
-from dataclasses import asdict
+from dataclasses import asdict, dataclass
 import hashlib
 import json
+
+
+@dataclass(frozen=True)
+class CapabilityTemplate:
+    name: str
+    description: str
+    system: str
+    tools: tuple[str, ...] = ()
+    max_turns: int | None = None
+    tool_budget: int | None = None
+
+    def __post_init__(self):
+        object.__setattr__(self, "tools", tuple(self.tools))
+        if not self.name or (self.max_turns is not None and self.max_turns < 2) or (self.tool_budget is not None and self.tool_budget < 0):
+            raise ValueError("Invalid capability template or limits")
 
 
 def fingerprint(value):

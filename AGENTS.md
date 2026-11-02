@@ -3,21 +3,35 @@
 Target a benchmark-independent Leader-led Agent Team: the Leader assigns tasks
 and maintains team state, Workers communicate directly, key progress/risks/results
 reach the Leader, and communication is retained. See `docs/agent-team-design.md`
-for the proposed protocol; it is not implemented yet. `docs/leader-subagent.md`
-describes the existing foreground runtime, which remains the comparison reference.
+for the implemented protocol. Foreground subagents were archived at commit
+`f9c9a4a` and removed from active source; old `mas`/`delegated` flags are rejected.
 Use fixed capability templates and task-adaptive membership/delegation, not generated
 role permissions, fixed peer teams, or RSI. Independent contexts are context management,
 not strict information isolation. Shared workspaces are allowed through tool grants.
 Use bounded parallel execution. No fork or automatic full-task injection: initial
 Worker contexts contain the leader's local brief/context and fixed shared project
 instructions. Subsequent peer messages are explicit, logged context additions.
+All messages may wake idle members with unchanged template grants; there is no
+read-only-after-wakeup variant. The main Team baseline defaults to a coordinator
+Leader with no domain tools, including readers. Full Leader grants require an
+explicit ablation setting. Domain verification belongs to Workers before closure.
+The Leader actively seeks meaningful multi-member decomposition with complementary
+specialists, distinct deliverables and explicit interfaces, not a default single
+end-to-end owner. Do not force duplicate work or a fixed roster to meet a quota.
+Completed handoffs release dependencies without mandatory acceptance. Single and
+Team submit artifact paths under a common frozen-hash/selected-file export contract,
+not inline model-copied code. Freeze records metadata/hashes; only the selected path
+is exported at submit. Closing exposes the frozen file inventory, not file content. Put generic
+domain checklists in shared project instructions, not a root-only prompt.
 Runtime status describes lifecycle, never correctness or the absence of past errors.
 Keep error history and infra_affected separate; recoverable errors must not poison
 later reports. Shared-workspace audit intervals are not exclusive write attribution.
 
 ## Ownership
 
-- `harness/subagents.py`: leader delegation, child identity/resume and limits.
+- `harness/team.py`: task authority, persistent members, scheduling and final drain.
+- `harness/messaging.py`: direct mail, request linkage and delivery receipts.
+- `harness/session.py`: shared session evidence, audits and budgets.
 - `harness/agent.py`: append-only context, validation and tool execution.
 - `harness/llm.py`, `trace.py`, `accounting.py`, `runner.py`: shared infrastructure.
 - Adapters supply domain tools/evaluation; orchestration belongs in `harness/`.

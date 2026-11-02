@@ -1,6 +1,53 @@
 # KramaBench Adapter
 
-## Scope
+## Active Team Runtime
+
+As of 2026-11-01 the active modes are `team` and `single`. The foreground source
+and prior documentation are snapshotted at commit `f9c9a4a`; `mas` and `delegated`
+are rejected rather than silently mapped to Team. The remaining sections below
+record the historical integration and v1-v9 evidence, not current launch settings.
+
+The current [Team protocol](agent-team-design.md) uses fixed `worker`, `explorer`,
+`analyst` and `verifier`
+templates, direct peer mail, persistent contexts, Leader-only task authority and
+a draining barrier before final submission.
+
+The current catalog is `kramabench-team-v4`: Team defaults to a pure coordinator
+with no domain tools, including readers. `--leader-mode full` is only an explicit
+ablation. Explorer has shell with an
+advisory no-write instruction. Every message can wake idle members with original
+grants, and completed handoffs automatically unblock dependencies. Single and
+Team use the same `pipeline_path` frozen-hash/selected-file export contract. Closing
+lists file metadata and hashes; the Leader selects a path without reading/copying code.
+Only that selected path is exported at submit, rejecting changes after freeze.
+The Leader actively seeks useful multi-member specialist decomposition, not a
+default end-to-end owner. Roles and parallelism follow deliverables/dependencies,
+not a mandatory panel. A repeated indefinite wait after a confirmed no-progress
+notice drains the team while preserving final submission.
+Execution verification belongs to Workers before finish. Per-member defaults
+inherit shared ceilings. Generic domain checks are in `PROJECT_CONTEXT` for Single
+and Workers; the task-tuned archeology analysis contract remains inactive.
+See [v4 stability verification](team-stability-v4-20261101.md); the historical sections below
+must not be copied as current roles, prompts, flags or submission settings.
+
+Run offline verification on the server:
+
+```sh
+.venv/bin/python -m pytest -q
+.venv/bin/python scripts/kramabench/offline.py --mode both --output outputs/team-fixture-NEW
+```
+
+The paid runner is `scripts/kramabench/pilot.py --mode team --execute-paid` with
+explicit upstream, existing image and fresh output paths. Run-specific authorization
+is still required. It creates only selected containers, freezes source/input/tool/
+model settings, uses retries=0, retains failures, and invokes no paid judge. Current
+diagnostic ceilings are 64 model calls, 120 domain calls, 1800 execution seconds,
+120 audit seconds, 8 identities, 64 activations and 4 parallel Workers. Message
+activations and their domain usage are reported separately from assigned tasks. Previous
+archeology outputs and reference disagreement are diagnostic evidence, not held-out
+scores or evidence of a Team improvement.
+
+## Historical Scope
 
 This adapter uses our Leader-Subagent runtime, not an upstream agent system.
 Upstream: https://github.com/mitdbg/Kramabench

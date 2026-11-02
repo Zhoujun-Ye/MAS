@@ -2,8 +2,7 @@
 
 Estimates apply the configured price table (USD per million tokens, off-peak)
 and multiply it in DeepSeek's weekday peak hours. They are for planning and
-monitoring; the balance change recorded around a batch is the actual charge,
-less any other use of the same key during that window.
+monitoring; an account-wide balance change is not an attributable run charge.
 """
 
 from __future__ import annotations
@@ -74,7 +73,14 @@ def observed_balance(cfg):
     try:
         return dict(status='recorded', **balance(cfg))
     except Exception as error:
-        return dict(status='unavailable', error_type=type(error).__name__)
+        status = error.response.status_code if isinstance(error, httpx.HTTPStatusError) else None
+        return dict(status='unavailable', error_type=type(error).__name__,
+                    http_status=status, fatal=status in {401, 402, 403})
+
+
+def require_available_balance(observation):
+    if observation.get('fatal') or observation.get('is_available') is False:
+        raise ValueError('Provider key/balance preflight failed; no paid calls admitted')
 
 
 def report(events, pricing, before, after):

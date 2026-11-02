@@ -1,9 +1,9 @@
-# Leader-Subagent Design
+# Archived Leader-Subagent Design
 
-This document describes the implemented foreground baseline. The proposed
-[Leader-led Agent Team](agent-team-design.md) adds direct Worker messaging and
-event-driven scheduling under Leader task authority. That target is not implemented;
-the no-peer-messaging and foreground semantics below still describe current runs.
+Historical foreground baseline, snapshotted at commit `f9c9a4a`. Its implementation
+was removed at the user's request. The active runtime is the
+[Leader-led Agent Team](agent-team-design.md). The semantics and commands below
+describe archived evidence only, not the current runtime.
 
 ## Task And Context Contract
 

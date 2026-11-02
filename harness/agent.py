@@ -2,7 +2,7 @@
 
 An agent's history is append-only: its system prompt, its inputs, its own
 replies (reasoning included) and tool results. Nothing is trimmed or shared;
-information reaches another agent only through an explicit boundary message.
+other contexts receive explicit messages and may also read shared tool artifacts.
 """
 
 from __future__ import annotations
@@ -51,6 +51,10 @@ class SessionLimit(RuntimeError):
     pass
 
 
+class ModelDeferred(RuntimeError):
+    """Drain active workers before the root's reserved final call."""
+
+
 class SessionBudget:
     """Atomic shared ceilings. Already in-flight calls cannot be cancelled."""
 
@@ -60,6 +64,7 @@ class SessionBudget:
         self.model_limit, self.tool_limit = model_calls, tool_calls
         self.model_used = self.tool_used = 0
         self.report_reservations = {"leader"}
+        self.active_workers = set()
         self.limit_events = []
         self.fatal = None
         self.lock = threading.Lock()
@@ -156,20 +161,24 @@ class SessionBudget:
         with self.lock:
             self._check_locked()
 
-    def reserve_report(self, owner):
+    def reserve_report(self, owner, *, require_work=False, protect_root=False):
         with self.lock:
             self._check_locked()
             if owner in self.report_reservations:
                 raise ValueError("Report call already reserved")
-            if self.model_limit - self.model_used <= len(self.report_reservations):
+            needed = 2 if require_work else 1
+            if self.model_limit - self.model_used - len(self.report_reservations) < needed:
                 self._limit_locked("report_reservation_unavailable", owner)
                 return False
             self.report_reservations.add(owner)
+            if protect_root:
+                self.active_workers.add(owner)
             return True
 
     def release_report(self, owner):
         with self.lock:
             self.report_reservations.discard(owner)
+            self.active_workers.discard(owner)
 
     def take_model(self, owner, final=False, preflight=None):
         """Choose final mode and preflight atomically before charging a request.
@@ -183,6 +192,8 @@ class SessionBudget:
             reserved = owner in self.report_reservations
             forced = available <= 0
             use_reservation = reserved and (final or forced)
+            if owner == "leader" and use_reservation and self.active_workers:
+                raise ModelDeferred("Workers must drain before the leader final call")
             if not use_reservation and available <= 0:
                 self._limit_locked("session_model_limit", owner)
                 raise SessionLimit("session_model_limit")
@@ -236,6 +247,7 @@ class Observation:
     text: str
     meta: dict = field(default_factory=dict)
     ref: int | None = None  # trace event that already holds ``text``
+    submission_text: str | None = None  # Runtime export, distinct from model-visible receipt.
 
 
 @dataclass
@@ -248,6 +260,7 @@ class Tool:
     concurrent: bool = False  # several calls in one reply may run in parallel
     preflight: Callable[[dict, "Agent"], Observation | None] | None = None
     read_only: bool = False  # Explicit trusted capability, never inferred from shell text.
+    sole: bool = False  # Yielding controls cannot be mixed with other calls.
 
     @property
     def schema(self) -> dict:
@@ -317,7 +330,7 @@ class Agent:
         self.client = client
         self.session_budget = session_budget
         self.max_concurrent_tools = max_concurrent_tools
-        self.before_tools = None
+        self.tool_gate = None
         self._call_local = threading.local()
         self.last_call_final = False
         self.final_prompt = "Return the final report and identify unfinished work."
@@ -335,17 +348,18 @@ class Agent:
         self.tool_events = []
         self.max_turns = max_turns
         self.messages: list[dict] = []
+        self.invocation_turns = 0
+        self.last_text = ""
         self.last_prompt_tokens = 0
         self.last_input_length = 0
-        system += (f"\nInvocation model-call limit: {max_turns}. "
-                   f"Lifetime budgeted-tool limit: {budget.limit if budget is not None else 'unbounded'}. "
-                   "Limits are ceilings, not targets. The last invocation call is reserved for a final report.")
         trace.emit(
             "agent_start",
             agent=name,
             usage_role=usage_role,
             tools=[schema["function"]["name"] for schema in self.schemas],
             system_chars=len(system),
+            max_turns=max_turns,
+            tool_budget=self.budget.limit if self.budget is not None else None,
         )
         self.append({"role": "system", "content": system})
 
@@ -362,10 +376,10 @@ class Agent:
     def active_tool_call_id(self, value):
         self._call_local.call_id = value
 
-    def call(self, tool_choice: str | None = None, effort: str | None = None) -> Completion:
+    def call(self, tool_choice: str | None = None, effort: str | None = None, *, final_reason=None) -> Completion:
         """One LLM call on the full history; the reply is appended verbatim."""
         self.last_call_final = tool_choice == "none"
-        self.last_final_reason = "turn_limit" if self.last_call_final else None
+        self.last_final_reason = (final_reason or "turn_limit") if self.last_call_final else None
 
         def preflight(forced):
             nonlocal tool_choice
@@ -508,6 +522,11 @@ class Agent:
             obs = Observation(f"Invalid {name} arguments at {location}: {error.message}. "
                               "Not executed; no domain budget consumed.",
                               {"error": True, "error_kind": "invalid_arguments", "budget_charged": False})
+        elif self.tool_gate is not None and (denial := self.tool_gate(tool, args, self)) is not None:
+            obs = denial
+            obs.meta.setdefault("error", True)
+            obs.meta.setdefault("error_kind", "permission_denied")
+            obs.meta["budget_charged"] = False
         elif tool.preflight is not None and (denial := tool.preflight(args, self)) is not None:
             obs = denial
             obs.meta.setdefault('error', True)
@@ -528,7 +547,8 @@ class Agent:
                                      "error_kind": "budget_exhausted", "budget_scope": denial, "budget_charged": False}))
             try:
                 self.active_tool_call_id = call["id"]
-                activity = self.session_budget.activity("execution") if self.session_budget and name != "delegate" else nullcontext()
+                # Serial submission accounts for export I/O through its audit scopes.
+                activity = self.session_budget.activity("execution") if self.session_budget and name != self.submission_tool else nullcontext()
                 with activity:
                     obs = tool.run(args, self)
             except ProviderError as error:
@@ -543,15 +563,15 @@ class Agent:
                 obs = Observation(f"Error executing {name}: {error}", {"error": True, "error_kind": "execution_error"})
             obs.meta["budget_charged"] = tool.budgeted
             if name == self.submission_tool and not obs.meta.get("error"):
-                self.submission = obs.text
+                self.submission = obs.submission_text if obs.submission_text is not None else obs.text
         return self.log_tool(call, args, obs)
 
     def answer(self, calls: list[dict]) -> None:
         """Run internal tool calls and append their results in call order."""
-        if self.before_tools is not None:
-            self.before_tools(calls)
-        if len(calls) > 1 and any(c["function"]["name"] == self.submission_tool for c in calls):
-            self.refuse(calls, "Submit must be the only call in a reply; nothing in this batch was executed.")
+        if len(calls) > 1 and any(c["function"]["name"] == self.submission_tool or
+                                 (self.tools.get(c["function"]["name"]) and self.tools[c["function"]["name"]].sole)
+                                 for c in calls):
+            self.refuse(calls, "Submit/yielding control must be the only call in a reply; nothing in this batch was executed.")
             return
         # Serial tools are barriers; only contiguous explicitly concurrent tools overlap.
         start = 0
@@ -565,13 +585,24 @@ class Agent:
                         break
                     end += 1
             group = calls[start:end]
+            errors = []
+            def execute(call):
+                try:
+                    return self.run_tool(call)
+                except (SessionLimit, ProviderError) as error:
+                    errors.append(error)
+                    return self.log_tool(call, None, Observation(str(error),
+                        {"error": True, "error_kind": getattr(error, "kind", str(error))}))
             if len(group) > 1:
                 with ThreadPoolExecutor(min(len(group), self.max_concurrent_tools)) as pool:
-                    results = list(pool.map(self.run_tool, group))
+                    results = list(pool.map(execute, group))
             else:
-                results = [self.run_tool(group[0])]
+                results = [execute(group[0])]
             for call, obs in zip(group, results):
                 self.append(tool_message(call, obs), obs.ref)
+            if errors:
+                self.refuse(calls[end:], "Not executed: session stopped during tool execution.")
+                raise errors[0]
             start = end
 
     def refuse(self, calls: list[dict], text: str = NOT_EXECUTED) -> None:
@@ -584,50 +615,65 @@ class Agent:
         """A user-role message asking for a forced final reply, with its reason."""
         return {"role": "user", "content": " ".join(filter(None, (reason, final_prompt)))}
 
-    def run(self, prompt: str | None, final_prompt: str, prompt_ref: int | None = None) -> Outcome:
-        """Return this invocation's termination reason, never a correctness verdict."""
+    def start(self, prompt: str | None, final_prompt: str, prompt_ref: int | None = None):
+        """Start an invocation without resetting history or lifetime tools."""
         if prompt is not None:
             self.append({"role": "user", "content": prompt}, prompt_ref)
         self.final_prompt = final_prompt
         self.submission = None
-        text = ""
-        for turn in range(1, self.max_turns + 1):
-            if turn == self.max_turns:
-                self.append(self.notice("This is the last model call allowed for this invocation.", final_prompt))
+        self.invocation_turns = 0
+        self.last_text = ""
+
+    def step(self, *, force_final=False, final_reason=None) -> Outcome | None:
+        """One model response and all its tool results; None means continue."""
+        turn = self.invocation_turns + 1
+        final = force_final or turn >= self.max_turns
+        if final:
+            notice = self.notice("This is the last model call allowed for this invocation.", self.final_prompt)
+            if self.messages[-1:] != [notice]:
+                self.append(notice)
+        try:
+            completion = self.call(tool_choice="none" if final else None, final_reason=final_reason)
+        except SessionLimit as error:
+            return Outcome(self.last_text or "No final report was produced before the session stopped.", str(error), turn - 1)
+        self.invocation_turns = turn
+        calls = completion.message.get("tool_calls") or []
+        text = self.last_text = completion.message.get("content") or ""
+        if self.session_budget is not None:
             try:
-                completion = self.call(tool_choice="none" if turn == self.max_turns else None)
+                self.session_budget.check()
             except SessionLimit as error:
-                return Outcome(text or "No final report was produced before the session stopped.", str(error), turn - 1)
-            calls = completion.message.get("tool_calls") or []
-            text = completion.message.get("content") or ""
-            if self.session_budget is not None:
-                try:
-                    self.session_budget.check()
-                except SessionLimit as error:
-                    self.refuse(calls, f"Not executed: {error}.")
-                    return Outcome(text or "Session stopped before a final report.", str(error), turn)
-            if completion.finish_reason == "length":
-                if self.session_budget:
-                    self.session_budget.record_limit("output_length_limit", self.name)
-                self.refuse(calls, LENGTH_TRUNCATED)
-                return Outcome(text, "length", turn)
-            if not calls:
-                if self.submission_tool:
-                    if self.last_call_final:
-                        return Outcome(text, "submission_missing", turn)
-                    self.append(self.notice("No submission received. Continue working or call the submission tool.", final_prompt))
-                    continue
-                return Outcome(text or "No final report was produced.", "done" if text.strip() else "empty_report", turn)
-            if self.last_call_final and not (self.submission_tool and len(calls) == 1
-                                             and calls[0]["function"]["name"] == self.submission_tool):
-                self.refuse(calls, "Not executed: this last call was reserved for the final report.")
-                return Outcome(text or "No final report was produced.", self.last_final_reason, turn)
-            try:
-                self.answer(calls)
-            except SessionLimit as error:
-                return Outcome(text or "No final report was produced before the session stopped.", str(error), turn)
-            if self.submission is not None:
-                return Outcome(self.submission, "done", turn)
-            if self.last_call_final:
-                return Outcome(text, "submission_invalid", turn)
-        return Outcome(text or "No final report was produced before the invocation call limit.", "turn_limit", self.max_turns)
+                self.refuse(calls, f"Not executed: {error}.")
+                return Outcome(text or "Session stopped before a final report.", str(error), turn)
+        if completion.finish_reason == "length":
+            if self.session_budget:
+                self.session_budget.record_limit("output_length_limit", self.name)
+            self.refuse(calls, LENGTH_TRUNCATED)
+            return Outcome(text, "length", turn)
+        if not calls:
+            if self.submission_tool:
+                if self.last_call_final:
+                    return Outcome(text, "submission_missing", turn)
+                self.append(self.notice("No submission received. Continue working or call the submission tool.", self.final_prompt))
+                return None
+            return Outcome(text or "No final report was produced.", "done" if text.strip() else "empty_report", turn)
+        if self.last_call_final and not (self.submission_tool and len(calls) == 1
+                                         and calls[0]["function"]["name"] == self.submission_tool):
+            self.refuse(calls, "Not executed: this last call was reserved for the final report.")
+            return Outcome(text or "No final report was produced.", self.last_final_reason, turn)
+        try:
+            self.answer(calls)
+        except SessionLimit as error:
+            return Outcome(text or "No final report was produced before the session stopped.", str(error), turn)
+        if self.submission is not None:
+            return Outcome(self.submission, "done", turn)
+        if self.last_call_final:
+            return Outcome(text, "submission_invalid", turn)
+        return None
+
+    def run(self, prompt: str | None, final_prompt: str, prompt_ref: int | None = None) -> Outcome:
+        self.start(prompt, final_prompt, prompt_ref)
+        while True:
+            outcome = self.step()
+            if outcome is not None:
+                return outcome

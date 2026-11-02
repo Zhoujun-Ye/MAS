@@ -10,7 +10,8 @@ import pytest
 
 from harness.agent import Agent, Observation, SessionBudget, SessionLimit, Tool
 from harness.llm import ProviderError
-from harness.subagents import SubagentTemplate, comparison_session
+from harness.catalog import CapabilityTemplate
+from harness.session import comparison_session
 from harness.trace import Trace, read_trace
 from tests.fakes import ScriptedClient
 
@@ -76,12 +77,12 @@ def test_shared_final_notice_checked_before_charging(tmp_path, owner, submission
     assert not any(e["type"] == "llm_error" for e in events)
 
 
-@pytest.mark.parametrize("mode", ["single", "mas"])
+@pytest.mark.parametrize("mode", ["single", "team"])
 def test_capacity_rejection_has_equal_session_accounting_and_cleanup(tmp_path, mode):
     client = ScriptedClient(lambda *a: pytest.fail("Must reject before model dispatch"))
     client.cfg = replace(client.cfg, max_tokens=1, context_margin=0)
     with Trace(tmp_path / "trace.jsonl", mode) as trace:
-        session = comparison_session(client, trace, [SubagentTemplate("worker", "Work", "Worker")], [],
+        session = comparison_session(client, trace, [CapabilityTemplate("worker", "Work", "Worker")], [],
                                      mode=mode, domain_tools=(), session_model_calls=1, max_turns=40)
         before = session.leader.messages + [{"role": "user", "content": "task"}]
         client.cfg = replace(client.cfg, context_window=first_input_estimate(before, session.leader.schemas) + 1)
@@ -92,7 +93,7 @@ def test_capacity_rejection_has_equal_session_accounting_and_cleanup(tmp_path, m
         assert outcome.budget["model_calls"] == outcome.budget["tool_calls"] == 0
         assert outcome.budget["leader_reserved_calls"] == outcome.budget["child_reserved_calls"] == 0
         assert outcome.budget["model_calls_unreserved"] == 1
-        assert len(outcome.errors) == 1 and not session.children
+        assert len(outcome.errors) == 1 and not session.members
         assert not client.requests
 
 

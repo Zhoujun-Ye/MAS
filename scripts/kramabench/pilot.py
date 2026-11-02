@@ -1,6 +1,6 @@
 """One explicitly authorized real task, selected arms once each; no paid judge.
 
-Requires --execute-paid. Creates only two disposable task containers from an
+Requires --execute-paid. Creates only selected disposable task containers from an
 already prepared image, and removes those containers (not evidence) at exit.
 """
 import argparse
@@ -19,8 +19,8 @@ from benchmarks.kramabench.evaluation import grade_numeric
 from benchmarks.kramabench.roles import (ALL_TOOLS, LEADER_SYSTEM, PROJECT_CONTEXT,
                                         SUBMISSION_SCHEMA, SUBMISSION_INSTRUCTIONS, TEMPLATES)
 from benchmarks.kramabench.tasks import load_tasks
-from harness.accounting import observed_balance, report as cost_report
-from harness.catalog import catalog_manifest
+from harness.accounting import observed_balance, require_available_balance, report as cost_report
+from harness.catalog import catalog_manifest, fingerprint
 from harness.comparison import validate_pair
 from harness.config import ROOT, load_env, source_digest
 from harness.container_contract import validate_data_container
@@ -33,7 +33,7 @@ from harness.trace import read_trace
 MODEL = ModelConfig(model='deepseek-flash', thinking='enabled', reasoning_effort='high',
                     max_tokens=16384, context_window=1_000_000, retries=0, timeout=180)
 LIMITS = dict(session_model_calls=64, session_tool_calls=120, session_seconds=1800, audit_seconds=120,
-              max_parallel=4, max_subagents=8, max_delegations=16)
+              max_parallel=4, max_workers=8, max_activations=64, message_limit=128, message_bytes=8192)
 PRICING = {'source': 'https://api-docs.deepseek.com/quick_start/pricing/', 'checked_date': '2026-11-01',
            'models': {'deepseek-flash': {'cache_hit': 0.003, 'cache_miss': 0.15, 'output': 0.60}},
            'peak_hours_utc': [[1, 4], [6, 10]], 'peak_multiplier': 2,
@@ -67,49 +67,36 @@ def main():
     parser.add_argument('--output', type=Path, required=True)
     parser.add_argument('--task-id', default='archeology-hard-1')
     parser.add_argument('--execute-paid', action='store_true')
-    parser.add_argument('--mode', choices=('both', 'single', 'mas'), default='both')
-    parser.add_argument('--resume-unstarted-from', type=Path,
-                        help='Finish only a MAS arm with zero prior requests; never replay single')
+    parser.add_argument('--mode', choices=('both', 'single', 'team'), default='team')
+    parser.add_argument('--leader-mode', choices=('full', 'coordinator'),
+                        help='Team defaults to no-domain-tool coordinator; full explicitly selects an ablation')
     args = parser.parse_args()
     if not args.execute_paid:
         parser.error('Real calls require --execute-paid and run-specific user authorization')
-    if args.resume_unstarted_from and args.mode != 'both':
-        parser.error('--mode cannot be combined with --resume-unstarted-from')
+    if args.mode == 'single' and args.leader_mode not in (None, 'full'):
+        parser.error('--leader-mode only applies to a selected Team arm')
+    team_leader_mode = (args.leader_mode or 'coordinator') if args.mode != 'single' else None
     if (ROOT / '.env').stat().st_mode & 0o077:
         raise ValueError('.env must be private (0600)')
     tasks, provenance = load_tasks(args.upstream)
     task = next(t for t in tasks if t.id == args.task_id)
     dataset = (args.upstream / 'data' / task.domain / 'input').resolve(strict=True)
-    previous = None
-    if args.resume_unstarted_from:
-        previous_root = args.resume_unstarted_from.resolve(strict=True)
-        previous = json.loads((previous_root / 'pair-manifest.json').read_text())
-        previous_summary = json.loads((previous_root / 'summary.json').read_text())
-        previous_launch = json.loads((previous_root / 'launch.json').read_text())
-        if (previous_summary['arms'].get('mas', {}).get('status') != 'preflight_error'
-                or (previous_root / 'mas/trace.jsonl').exists()
-                or previous_summary['arms'].get('single', {}).get('status') != 'completed'
-                or previous_launch['model'] != asdict(MODEL) or previous_launch['limits'] != LIMITS
-                or previous_launch['task'] != asdict(task)):
-            raise ValueError('Continuation requires the same authorized pair and an entirely unstarted MAS arm')
     root = args.output.resolve()
     root.mkdir(parents=True, exist_ok=False)
     load_env()
     # Constructor checks credentials without sending an API request.
-    order = ['mas'] if previous else (['single', 'mas'] if args.mode == 'both' else [args.mode])
+    order = ['single', 'team'] if args.mode == 'both' else [args.mode]
     clients = {mode: ChatClient(MODEL) for mode in order}
     owned, workspaces, arms = [], {}, {}
     summary = {'task': asdict(task), 'task_count': 1, 'attempts_per_mode': 1,
                'order': order, 'monetary_limit_usd': None, 'retries': 0,
                'paid_judge_calls': 0, 'arms': {}, 'status': 'preparing',
                'cache_order_policy': 'Recorded selected-arm order; not cache-balanced efficacy evidence'}
-    if previous:
-        summary.update(continued_from=str(previous_root), single_not_rerun=True,
-                       comparison_quality='engineering_only_source_revision_changed')
-    write_json(root / 'launch.json', dict(summary, model=asdict(MODEL), limits=LIMITS, pricing=PRICING))
+    write_json(root / 'launch.json', dict(summary, model=asdict(MODEL), limits=LIMITS, pricing=PRICING,
+                                        team_leader_mode=team_leader_mode))
     write_json(root / 'summary.json', summary)
     try:
-        for mode in ('single', 'mas'):
+        for mode in order:
             work = root / 'workspaces' / mode
             work.mkdir(parents=True)
             subprocess.run(['git', 'init', '--quiet', str(work)], check=True)
@@ -136,27 +123,15 @@ def main():
                                  'submission_tool': 'submit', 'submission_schema': SUBMISSION_SCHEMA,
                                  'final_tool_policy': 'submit_only_auto_no_forced_named_tool',
                                  'final_prompt': SUBMISSION_INSTRUCTIONS},
-                'budgets': LIMITS, 'pricing': PRICING, 'source_digest': source_digest()}
+                'budgets': LIMITS, 'pricing': PRICING, 'source_digest': source_digest(),
+                'team_leader_mode': team_leader_mode, 'artifact_policy': 'selected_path_frozen_hash_v3'}
             arms[mode] = {'contract': contract, 'environment': environment,
                           'output': str(root / mode), 'archive': str(workspace.archive_dir)}
             workspaces[mode] = workspace
-        preflight = validate_pair(arms)
-        if previous:
-            old_contract, new_contract = previous['contract'], preflight['contract']
-            if {k: v for k, v in old_contract.items() if k != 'source_digest'} != {
-                    k: v for k, v in new_contract.items() if k != 'source_digest'}:
-                raise ValueError('Task/model/tool/prompt/budget/pricing changed since the original arm')
-            for key in ('image_id', 'dataset_files', 'resources', 'network'):
-                if previous['arms']['mas']['environment'][key] != arms['mas']['environment'][key]:
-                    raise ValueError('Continuation environment differs: ' + key)
-            summary['source_revisions'] = {'original': old_contract['source_digest'],
-                                           'continuation': new_contract['source_digest']}
-        write_json(root / 'pair-manifest.json', preflight)
-        if previous:
-            # An unstarted arm may be claimed once; never silently replay it.
-            with (previous_root / 'unstarted-mas-claim.json').open('x') as claim:
-                json.dump({'continuation': str(root), 'pair_sha256': preflight['sha256']}, claim)
-        print('Both real containers and matched pair preflight passed. Starting authorized calls.', flush=True)
+        record = {'contract': contract, 'arms': arms}
+        preflight = validate_pair(arms) if len(arms) == 2 else dict(record, sha256=fingerprint(record))
+        write_json(root / 'preflight-manifest.json', preflight)
+        print('Selected containers and frozen preflight passed. Starting authorized calls.', flush=True)
         summary['status'] = 'running'
         write_json(root / 'summary.json', summary)
         fatal = False
@@ -168,14 +143,17 @@ def main():
             write_json(root / (mode + '-balance-before.json'), before)
             failure = None
             try:
+                require_available_balance(before)
                 run_task(task, client=clients[mode], workspace=workspaces[mode], dataset=dataset,
                     output=root / mode, provenance=provenance, pricing=PRICING, mode=mode,
-                    expected_environment=arms[mode]['environment'], comparison_sha256=preflight['sha256'], **LIMITS)
+                    expected_environment=arms[mode]['environment'], comparison_sha256=preflight['sha256'],
+                    leader_mode=team_leader_mode if mode == 'team' else 'full', **LIMITS)
             except Exception as error:
                 failure = {'type': type(error).__name__, 'message': str(error)}
-                fatal = isinstance(error, ProviderError) and error.fatal
-            after = observed_balance(MODEL)
+                fatal = (isinstance(error, ProviderError) and error.fatal) or before.get('fatal') or before.get('is_available') is False
+            after = {'status': 'not_queried_after_fatal'} if fatal else observed_balance(MODEL)
             write_json(root / (mode + '-balance-after.json'), after)
+            fatal = bool(fatal or after.get('fatal') or after.get('is_available') is False)
             report_path = root / mode / 'report.json'
             result = json.loads(report_path.read_text()) if report_path.exists() else {'status': 'preflight_error', 'failure': failure}
             if (root / mode / 'trace.jsonl').exists():
@@ -195,7 +173,7 @@ def main():
                 summary['arms'][mode]['numeric_grade'] = grade
             elif summary['arms'].get(mode, {}).get('status') not in {'not_run_after_fatal', 'preflight_error'}:
                 summary['arms'][mode]['numeric_grade'] = {'score': 0, 'reason': 'no_valid_submission', 'judge_calls': 0}
-        summary['status'] = ('stopped_after_fatal' if fatal else 'incomplete_pair'
+        summary['status'] = ('stopped_after_fatal' if fatal else 'preflight_failed'
                              if any(r['status'] == 'preflight_error' for r in summary['arms'].values()) else 'attempts_finished')
         write_json(root / 'summary.json', summary)
     except Exception as error:

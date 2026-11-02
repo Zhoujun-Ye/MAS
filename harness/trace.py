@@ -142,6 +142,64 @@ def tool_counts(events: list[dict]) -> dict[str, int]:
     return counts
 
 
+def communication_summary(events):
+    """Intended-recipient mailbox exposure, not semantic use or all information flow.
+
+    Leader inspection through read_messages is a separate, fully logged tool path.
+    """
+    messages = {e["message_id"]: e for e in events if e["type"] == "team_message"}
+    deliveries = {(e["message_id"], e["recipient"]): e for e in events if e["type"] == "team_message_delivery"}
+    undelivered = {(e["message_id"], e["recipient"]) for e in events if e["type"] == "team_message_undelivered"}
+    routes = []
+    for key, message in messages.items():
+        for recipient in message["recipients"]:
+            delivery = deliveries.get((key, recipient))
+            exposed = bool(delivery and any(e["type"] == "llm_attempt" and e["agent"] == recipient and
+                e["t"] > delivery["t"] and e["context_len"] > delivery["context_index"] for e in events))
+            routes.append(dict(message_id=key, sender=message["sender"], recipient=recipient,
+                kind=message["kind"], control=message["control"], queued=True,
+                delivered=bool(delivery), exposed=exposed, undelivered=(key, recipient) in undelivered))
+    peers = [r for r in routes if r["sender"].startswith("worker-") and r["recipient"].startswith("worker-")]
+    return dict(messages=len(messages), explicit_messages=sum(not m["control"] for m in messages.values()),
+                peer_routes=len(peers), peer_exposed=sum(r["exposed"] for r in peers), routes=routes)
+
+
+def activation_summary(events):
+    """Separate message-driven domain actions from assigned work, not semantic production labels."""
+    rows, active = [], {}
+    for event in events:
+        kind = event["type"]
+        if kind == "team_activation_start":
+            row = dict(agent=event["agent"], activation=event["activation"], cause=event["cause"],
+                       task_id=event.get("task_id"), previous_task_id=event.get("previous_task_id"),
+                       trigger_message_ids=event.get("trigger_message_ids", []),
+                       model_attempts=0, tool_calls=0, domain_tool_calls=0, domain_tools={}, outcome=None)
+            rows.append(row)
+            active[event["agent"]] = row
+        elif kind == "team_activation_end":
+            row = active.pop(event["agent_id"], None)
+            if row is not None:
+                row["outcome"] = event["outcome"]
+        elif event.get("agent") in active:
+            row = active[event["agent"]]
+            if kind == "llm_attempt":
+                row["model_attempts"] += 1
+            elif kind == "tool_call":
+                row["tool_calls"] += 1
+                if event.get("budget_charged"):
+                    row["domain_tool_calls"] += 1
+                    name = event["tool"]
+                    row["domain_tools"][name] = row["domain_tools"].get(name, 0) + 1
+    totals = {}
+    for row in rows:
+        group = totals.setdefault(row["cause"], dict(activations=0, model_attempts=0, tool_calls=0, domain_tool_calls=0))
+        group["activations"] += 1
+        for key in ("model_attempts", "tool_calls", "domain_tool_calls"):
+            group[key] += row[key]
+    return dict(by_cause=totals, activations=rows,
+                interpretation="Execution cause, not semantic production or exclusive file-write attribution")
+
+
 def validate(events: list[dict], require_reasoning: bool = True) -> list[str]:
     """Gaps that make a run's log incomplete or show broken reasoning passback."""
     problems = []
@@ -178,8 +236,44 @@ def validate(events: list[dict], require_reasoning: bool = True) -> list[str]:
             elif open_calls:
                 problems.append(f"{agent}: unanswered tool calls {sorted(open_calls)}")
                 open_calls = set()
+        if open_calls:
+            problems.append(f"{agent}: history ended with unanswered tool calls {sorted(open_calls)}")
     asked = {e["msg_id"] for e in events if e["type"] == "boundary_msg" and e["direction"] == "down"}
     answered = {e.get("reply_to") for e in events if e["type"] == "boundary_msg" and e["direction"] == "up"}
     if end is not None and end["status"] == "completed" and asked - answered:
         problems.append(f"boundary messages without a reply: {sorted(asked - answered)}")
+    histories = contexts(events)
+    records = {e["message_id"]: e for e in events if e["type"] == "team_message"}
+    seen = set()
+    for event in events:
+        if event["type"] != "team_message_delivery":
+            continue
+        key = (event["message_id"], event["recipient"])
+        record = records.get(key[0])
+        history = histories.get(key[1], [])
+        index = event["context_index"]
+        if key in seen or not record or key[1] not in record["recipients"] or record["t"] >= event["t"]:
+            problems.append(f"Invalid or duplicate mailbox delivery: {key}")
+        elif index >= len(history) or key[0] not in str(history[index].get("content", "")):
+            problems.append(f"Mailbox delivery missing from context: {key}")
+        seen.add(key)
+    if "session_end" in kinds:
+        for route in communication_summary(events)["routes"]:
+            if not route["delivered"] and not route["undelivered"]:
+                problems.append(f"Mailbox route missing final disposition: {route['message_id']} to {route['recipient']}")
+    open_activations = set()
+    frozen = False
+    for event in events:
+        if event["type"] == "team_activation_start":
+            if frozen or event["agent"] in open_activations:
+                problems.append("Overlapping activation or activation after closure")
+            open_activations.add(event["agent"])
+        elif event["type"] == "team_activation_end":
+            open_activations.discard(event["agent_id"])
+        elif event["type"] == "team_frozen":
+            frozen = True
+            if open_activations:
+                problems.append("Team frozen with active workers")
+    if "session_end" in kinds and open_activations:
+        problems.append("Session ended with unclosed worker activations")
     return problems

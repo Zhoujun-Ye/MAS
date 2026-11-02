@@ -1,62 +1,64 @@
-# Leader-Subagent Harness
+# Leader-Led Agent Team Harness
 
-A benchmark-independent leader solves tasks directly or delegates bounded work to
-fixed, capability-limited subagent templates. Children receive selected task context
-and may use permitted tools on shared workspaces. Independent transcripts are not
-strict information isolation or an OS sandbox.
+Benchmark-independent asynchronous teams with centralized task authority and direct
+Worker-to-Worker messages. The Leader selects fixed capability templates, assigns
+local work and receives handoffs; Workers execute and communicate directly.
+Independent transcripts manage context; shared tools and files are not information
+isolation or a security sandbox.
 
 ## Runtime
 
-- `harness/subagents.py`: bounded parallel delegation, in-session resume, tool
-  grants, shared session budgets and infrastructure-impact reporting.
-- `harness/single_agent.py`: single-context mode using the same loop, all approved
-  domain tools and full own history, without delegation.
-- `harness/agent.py`: append-only context, schema validation and tool dispatch.
-- `harness/llm.py`, `trace.py`, `accounting.py`, `runner.py`: retained infrastructure.
-- `harness/execution.py`: optional container tools; no automatic provisioning.
-- `harness/workspace_audit.py`: trace-only file/hash snapshots for Git workspaces.
-- `analysis/`: cache accounting, general statistics and historical run readers;
-  `scripts/analyze.py` expects old scheduler-based manifests, not new sessions.
+- `harness/team.py`: persistent members, versioned tasks, bounded scheduler and final drain.
+- `harness/messaging.py`: direct mailboxes, request/reply linkage and delivery receipts.
+- `harness/session.py`: common evidence, audits, budgets and explicit mode selection.
+- `harness/single_agent.py`: single-context control with the same total domain capability.
+- `harness/agent.py`: append-only turn loop, verbatim reasoning, validation and tool execution.
+- `harness/llm.py`, `trace.py`, `accounting.py`: provider, exact inputs and accounting.
+- `harness/execution.py`, `workspace_audit.py`: existing-container tools and shared-file snapshots.
 
-See [architecture](docs/leader-subagent.md) and [historical evidence](docs/archive.md).
-
-## Agent Team Design Target
-
-The next design is a [Leader-led Agent Team](docs/agent-team-design.md): the Leader
-assigns tasks and maintains team state; persistent Workers execute and communicate
-directly; key progress, risks and results reach the Leader; communication is retained
-for analysis. The proposal specifies event-driven scheduling, task authority,
-message delivery and a final draining barrier. It is not implemented: the runtime
-and commands below still use foreground delegation, without peer messaging.
+See the [implemented protocol](docs/agent-team-design.md) and [historical evidence](docs/archive.md).
+Foreground subagents were snapshotted at commit `f9c9a4a` and removed from active
+source. Old `mas` and `delegated` flags are rejected, not silently reinterpreted.
 
 ## KramaBench
 
-[KramaBench adapter](docs/kramabench.md) uses a pinned public task catalog and
-eight fixed capability templates for discovery, pipeline implementation, data
-preparation, calculation, result review, requirements, auditing and reproduction.
-The Leader selects templates at runtime; questions and host paths stay out of stable
-role prefixes. Generic inspection/provenance lives in `harness/`, benchmark-specific
-task and response handling in `benchmarks/kramabench/`. Native grading is deliberately
-separate because upstream metrics can invoke paid judges.
+Use explicit `mode="team"` (default) or `mode="single"`. Team has four fixed
+templates: `explorer` for source discovery, `analyst` for requirements and analysis,
+`worker` for implementation/integration, and `verifier` for focused executable checks.
+Explorer has shell and an advisory no-write instruction, not an enforced sandbox.
+The Leader actively seeks meaningful multi-member decomposition with complementary
+responsibilities, distinct deliverables and explicit dependencies. One end-to-end
+member is a justified exception, not the default; a fixed roster or redundant work
+is not required. Membership and local briefs are selected per task. The default
+`leader_mode="coordinator"` has no domain tools, including file readers: domain work
+and execution checks belong to Workers. `leader_mode="full"` is an explicit ablation,
+not the main baseline. No fixed roster or mandatory review. All messages wake idle members with
+unchanged grants; completion unlocks dependencies without mandatory acceptance.
+Single and Team submit `pipeline_path`; freeze records file metadata/hashes, and
+submit exports only the selected file after checking its frozen hash. Closing lists
+paths, hashes and file types; no code is inserted into the Leader's context by submission.
+Repeated indefinite waiting after a confirmed stall notice drains the team instead
+of idling until the deadline. Message activations retain their grants and have
+separate domain-usage accounting from task assignments.
+Generic domain checks are shared with Workers through `PROJECT_CONTEXT`.
+This proves identity, not execution or correctness. See the
+[v4 stability verification](docs/team-stability-v4-20261101.md).
 
-Use `mode="single"` or `mode="mas"` for matched task/model/tool/session-budget
-comparisons. The no-paid paired smoke is `scripts/kramabench/offline.py --mode both
---output outputs/kramabench-single-mas-NEW` (server only). It uses separate fixture
-workspaces; it is not an official evaluation or evidence of MAS superiority.
+Native paid judging is not imported. Numeric grading runs only after the attempt,
+on the host, bound to the exact submission. A final report is not a success verdict.
 
 ## Verification
 
-Run only on the project server, after inspecting processes:
+Run only on the project server after inspecting processes:
 
 ```sh
 scripts/server/sync.sh
 scripts/server/remote.sh '.venv/bin/python -m pytest -q'
-scripts/server/remote.sh '.venv/bin/python scripts/subagent_demo.py --output outputs/subagent-demo-NEW'
+scripts/server/remote.sh '.venv/bin/python scripts/kramabench/offline.py --mode both --output outputs/team-fixture-NEW'
 ```
 
-The demo uses a scripted model and in-memory evidence, with no paid calls. It is
-not a benchmark. Real adapters must bind authorized tools, record frozen model,
-prompt, source and budget settings, and provide independent outcome evaluation.
-A run-specific KramaBench pilot is retained in the adapter documentation. No
-further paid runs are authorized; current verification uses offline fixtures.
-Historical scores do not transfer.
+These checks use scripted clients, not paid models. The paid entry point is
+`scripts/kramabench/pilot.py`; every invocation needs run-specific authorization.
+It creates only selected task containers from an existing image, records frozen
+settings and inputs, and removes only its own containers, never run evidence.
+Historical scores do not establish results for the new Team runtime.

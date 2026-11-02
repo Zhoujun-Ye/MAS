@@ -5,7 +5,7 @@ import pytest
 
 from benchmarks.kramabench.adapter import make_session, parse_submission, run_task
 from benchmarks.kramabench.offline import FixtureWorkspace
-from benchmarks.kramabench.roles import ANALYSIS_CONTRACT, SUBMISSION_INSTRUCTIONS
+from benchmarks.kramabench.roles import PROJECT_CONTEXT, SUBMISSION_INSTRUCTIONS
 from benchmarks.kramabench.tasks import Task
 from harness.llm import ChatClient, ModelConfig
 from harness.trace import Trace, contexts, read_trace, validate
@@ -13,7 +13,7 @@ from scripts.kramabench.diagnose_archeology import interval_means
 from tests.fakes import ScriptedClient
 
 
-VALID = json.dumps({"answer": 4, "pipeline_code": "print(4)", "evidence": "fixture", "unfinished": []})
+VALID = json.dumps({"answer": 4, "pipeline_path": "pipeline.py", "evidence": "fixture", "unfinished": []})
 ROOT_RESPONSE_FORMAT = {"type": "json_object"}  # Generic opt-in transport, no longer the benchmark policy.
 
 
@@ -47,7 +47,7 @@ def test_json_mode_transport_preserves_tools_thinking_and_verbatim_history():
         client._http.close()
 
 
-@pytest.mark.parametrize("mode", ["single", "mas"])
+@pytest.mark.parametrize("mode", ["single"])
 def test_root_submission_shared_budget_and_final_reminder_do_not_reach_children(tmp_path, mode):
     def policy(messages, tools, tool_choice):
         is_root = messages[0]["content"].startswith("Solve the data-analysis")
@@ -56,12 +56,11 @@ def test_root_submission_shared_budget_and_final_reminder_do_not_reach_children(
         if tools == ["submit"]:
             assert SUBMISSION_INSTRUCTIONS in messages[-1]["content"]
             return {"calls": [("submit", json.loads(VALID))]}
-        if mode == "mas":
-            return {"calls": [("delegate", {"template": "data_scout", "task": "Inspect local sources."})]}
         return {"calls": [("list_files", {"area": "data", "path": "."})]}
 
     client = ScriptedClient(policy)
     workspace = FixtureWorkspace(tmp_path / "fixture")
+    workspace.calculate({"command": "fixture_average"}, None)
     with Trace(tmp_path / "trace.jsonl", mode) as trace:
         trace.emit("run_start")
         session, _ = make_session(client, trace, workspace, mode=mode, session_model_calls=3)
@@ -69,12 +68,12 @@ def test_root_submission_shared_budget_and_final_reminder_do_not_reach_children(
         assert outcome.status == "done" and parse_submission(outcome.text)["answer"] == 4
         assert outcome.budget["model_calls"] == 3
         assert session.leader.response_format is None
-        for child in session.children.values():
-            assert child.response_format is None
-            assert "submit" not in child.tools
-            assert ANALYSIS_CONTRACT in child.messages[0]["content"]
-            assert SUBMISSION_INSTRUCTIONS not in child.messages[0]["content"]
-        assert ANALYSIS_CONTRACT in session.leader.messages[0]["content"]
+        for child in session.members.values():
+            assert child.agent.response_format is None
+            assert "submit" not in child.agent.tools
+            assert PROJECT_CONTEXT in child.agent.messages[0]["content"]
+            assert SUBMISSION_INSTRUCTIONS not in child.agent.messages[0]["content"]
+        assert PROJECT_CONTEXT in session.leader.messages[0]["content"]
     attempts = [e for e in read_trace(tmp_path / "trace.jsonl") if e["type"] == "llm_attempt"]
     assert [e["response_format"] for e in attempts] == client.response_formats
     assert all(e["response_format"] is None for e in attempts)
@@ -82,7 +81,7 @@ def test_root_submission_shared_budget_and_final_reminder_do_not_reach_children(
     assert attempts[-1]["available_tools"] == ["submit"]
 
 
-@pytest.mark.parametrize("mode", ["single", "mas"])
+@pytest.mark.parametrize("mode", ["single"])
 @pytest.mark.parametrize("text", ["All checks complete.\n```json\n" + VALID + "\n```",
                                   "```json\n" + VALID + "\n```", "   ", VALID[:-1]])
 def test_invalid_submission_retained_without_extraction_or_repair(tmp_path, mode, text, monkeypatch):

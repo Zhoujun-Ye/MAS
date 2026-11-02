@@ -13,7 +13,8 @@ from harness.agent import Observation, SessionBudget, SessionLimit, Tool
 from harness.comparison import validate_pair
 from harness.container_contract import validate_artifact_paths
 from harness.llm import ProviderError
-from harness.subagents import SubagentTemplate, comparison_session
+from harness.catalog import CapabilityTemplate
+from harness.session import comparison_session
 from harness.trace import Trace, llm_inputs, read_trace, usage_summary
 
 FINAL = json.dumps(dict(answer=4, pipeline_code="", evidence="fixture", unfinished=[]))
@@ -58,48 +59,6 @@ def test_failure_always_has_a_report(tmp_path, failure):
     assert not (output / "native_response.json").exists()
 
 
-def test_failed_child_request_count_and_cost_unknown(tmp_path):
-    def policy(messages, names, choice):
-        if "delegate" not in names:
-            raise ProviderError("http_500", "fixture", 500)
-        if not any(m["role"] == "tool" for m in messages):
-            return {"calls": [("delegate", {"template": "reader", "task": "local"})]}
-        return {"content": "final"}
-    client = ScriptedClient(policy)
-    with Trace(tmp_path / "trace.jsonl", "failure") as trace:
-        session = comparison_session(client, trace, [SubagentTemplate("reader", "read", "read")], [],
-                                     mode="mas", domain_tools=())
-        outcome = session.run("task")
-    events = read_trace(trace.path)
-    counts = usage_summary(events)["total"]
-    assert counts["llm_calls"] == counts["attempted_calls"] == outcome.budget["model_calls"] == 3
-    assert counts["succeeded_calls"] == 2 and counts["failed_calls"] == counts["unknown_usage_calls"] == 1
-    assert len(llm_inputs(events, "subagent-1")) == 1
-    pricing = {"models": {"scripted": {"cache_hit": 1, "cache_miss": 1, "output": 1}},
-               "peak_multiplier": 1, "peak_hours_utc": []}
-    assert estimate(events, pricing) is None
-    assert estimate(events, pricing, known_only=True) > 0
-
-
-def test_audit_only_time_does_not_steal_mas_final_call(tmp_path, monkeypatch):
-    now = [0.0]
-    monkeypatch.setattr("harness.agent.time.monotonic", lambda: now[0])
-    def audit():
-        now[0] += 1
-        return {}
-    def policy(messages, tools, choice):
-        if "delegate" not in tools:
-            return {"content": "child report"}
-        if sum(m["role"] == "tool" for m in messages) < 2:
-            return {"calls": [("delegate", {"template": "reader", "task": "local"})]}
-        return {"content": "final"}
-    with Trace(tmp_path / "trace.jsonl", "audit") as trace:
-        session = comparison_session(ScriptedClient(policy), trace, [SubagentTemplate("reader", "read", "read")], [],
-            mode="mas", domain_tools=(), workspace_audit=audit, session_seconds=5, audit_seconds=10)
-        result = session.run("task")
-    assert result.status == "done"
-    assert result.budget["audit_wall_seconds"] == result.budget["audit_excluded_seconds"] == 6
-    assert result.budget["execution_seconds"] == 0
 
 
 def test_audit_overlap_is_union_and_does_not_pause_running_execution(monkeypatch):
@@ -139,7 +98,7 @@ def test_audit_has_its_own_finite_allowance(tmp_path, monkeypatch):
 
 def paired_specs(tmp_path):
     result = {}
-    for mode in ("single", "mas"):
+    for mode in ("single", "team"):
         result[mode] = dict(contract={key: "same" for key in (
             "task", "model", "tools", "common_prompt", "budgets", "pricing", "source_digest")},
             output=str(tmp_path / mode / "output"), archive=str(tmp_path / mode / "output/retained"),
@@ -155,22 +114,22 @@ def test_real_pair_preflight_rejects_drift_and_shared_state(tmp_path):
     assert validate_pair(original)["sha256"]
     for key in ("image_id", "dataset_files", "resources"):
         arms = copy.deepcopy(original)
-        arms["mas"]["environment"][key] = "different"
+        arms["team"]["environment"][key] = "different"
         with pytest.raises(ValueError, match="differ"):
             validate_pair(arms)
     arms = copy.deepcopy(original)
-    arms["mas"]["contract"]["model"] = "different"
+    arms["team"]["contract"]["model"] = "different"
     with pytest.raises(ValueError, match="contract"):
         validate_pair(arms)
     arms = copy.deepcopy(original)
-    arms["mas"]["environment"]["container_id"] = "single"
+    arms["team"]["environment"]["container_id"] = "single"
     with pytest.raises(ValueError, match="different containers"):
         validate_pair(arms)
     arms = copy.deepcopy(original)
-    arms["mas"]["environment"]["mounts"][1]["Source"] = arms["single"]["environment"]["mounts"][1]["Source"]
+    arms["team"]["environment"]["mounts"][1]["Source"] = arms["single"]["environment"]["mounts"][1]["Source"]
     with pytest.raises(ValueError, match="workspaces overlap"):
         validate_pair(arms)
     arms = copy.deepcopy(original)
-    arms["mas"]["output"] = arms["single"]["output"]
+    arms["team"]["output"] = arms["single"]["output"]
     with pytest.raises(ValueError, match="namespaces"):
         validate_pair(arms)

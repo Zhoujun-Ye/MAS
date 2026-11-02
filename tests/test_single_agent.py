@@ -6,13 +6,14 @@ from fakes import ScriptedClient
 from harness.agent import Observation, Tool
 from harness.llm import ProviderError
 from harness.single_agent import SingleAgent
-from harness.subagents import SubagentTemplate, comparison_session, resolve_mode
+from harness.catalog import CapabilityTemplate
+from harness.session import comparison_session, resolve_mode
 from harness.trace import Trace, contexts, read_trace, validate
 
 
 def tools():
     return [Tool(name, name, {"type": "object", "additionalProperties": False},
-                 lambda args, agent, name=name: Observation(name + " raw observation"), budgeted=True)
+                 lambda args, agent, name=name: Observation(name + " raw observation"), budgeted=True, read_only=name == "read")
             for name in ("read", "write")]
 
 
@@ -36,8 +37,7 @@ def test_single_retains_full_task_tools_observations_and_reasoning(tmp_path):
         single = SingleAgent(client, trace, tools(), workspace_audit=lambda: {"files": {}})
         outcome = single.run("FULL ORIGINAL TASK")
         assert outcome.status == "done" and len(outcome.errors) == 1
-        assert not single.templates and not single.children and single.delegations == 0
-        assert [attempt["status"] for attempt in outcome.delegations] == ["rejected"]
+        assert not single.templates and not single.members
         assert single.context_mode == "full_task_and_own_history"
         for previous, current in zip(client.requests, client.requests[1:]):
             assert current[0][:len(previous[0])] == previous[0]
@@ -65,24 +65,25 @@ def test_single_spends_same_session_ceiling_and_reserves_final_call(tmp_path):
     assert outcome.budget["model_calls"] == 3 and outcome.budget["tool_calls"] == 2
 
 
-@pytest.mark.parametrize("mode", ["single", "mas"])
-def test_pair_factory_aligns_grants_and_root_capacity(tmp_path, mode):
+@pytest.mark.parametrize("mode", ["single", "team"])
+def test_pair_factory_preserves_single_grants_and_team_coordination_only(tmp_path, mode):
     with Trace(tmp_path / "trace.jsonl", mode) as trace:
         session = comparison_session(ScriptedClient(lambda *args: {"content": "done"}), trace,
-            [SubagentTemplate("reader", "read", "read", ("read",))], tools(),
+            [CapabilityTemplate("reader", "read", "read", ("read",))], tools(),
             mode=mode, domain_tools=(name for name in ("read", "write")),
             session_model_calls=65, session_tool_calls=110)
         assert session.leader.max_turns == 65 and session.leader.budget.limit == 110
-        assert set(session.leader.tools) - {"delegate"} == {"read", "write"}
+        assert ("write" in session.leader.tools) == (mode == "single")
+        assert ("read" in session.leader.tools) == (mode == "single")
         assert isinstance(session, SingleAgent) == (mode == "single")
         for limits in ({"max_turns": 2}, {"tool_budget": 1}):
             with pytest.raises(ValueError, match="full shared"):
-                comparison_session(session.client, trace, [], tools(), mode=mode,
+                comparison_session(session.client, trace, [CapabilityTemplate("reader", "read", "read", ("read",))], tools(), mode=mode,
                                    domain_tools=("read", "write"), **limits)
 
 
 @pytest.mark.parametrize("kwargs", [{"mode": "unknown"}, {"mode": "single", "delegated": True},
-                                    {"mode": "mas", "delegated": False}, {"delegated": "false"}])
+                                    {"mode": "team", "delegated": False}, {"delegated": "false"}])
 def test_mode_conflicts_fail_closed(kwargs):
     with pytest.raises(ValueError):
         resolve_mode(**kwargs)
@@ -110,5 +111,5 @@ def test_single_cannot_expand_explicit_capability_ceiling(tmp_path):
         assert set(single.leader.tools) == {"read"}
         with pytest.raises(ValueError):
             SingleAgent(client, trace, tools(), domain_tools=("unregistered",))
-        with pytest.raises(ValueError):
-            SingleAgent(client, trace, tools(), templates=[SubagentTemplate("bad", "bad", "bad")])
+        with pytest.raises(TypeError):
+            SingleAgent(client, trace, tools(), templates=[CapabilityTemplate("bad", "bad", "bad")])

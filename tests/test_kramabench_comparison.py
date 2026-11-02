@@ -18,7 +18,7 @@ def test_paired_smoke_independent_workspaces_and_equal_control(tmp_path, monkeyp
     summary = comparison_smoke(output)
     assert summary["status"] == "completed"
     assert summary["evaluation"] == "not_run" and summary["fixture_only"]
-    assert set(summary["arms"]) == {"single", "mas"}
+    assert set(summary["arms"]) == {"single", "team"}
     for mode, arm in summary["arms"].items():
         assert arm["response"]["explanation"]["answer"] == 4
         assert arm["status"] == "done" and not arm["infra_affected"]
@@ -30,22 +30,22 @@ def test_paired_smoke_independent_workspaces_and_equal_control(tmp_path, monkeyp
         assert audits[0]["snapshot"]["files"] == {}
         assert set(audits[-1]["snapshot"]["files"]) == {"answer.json", "pipeline.py"}
     assert summary["arms"]["single"]["usage"]["total"]["llm_calls"] == 4
-    assert summary["arms"]["mas"]["usage"]["total"]["llm_calls"] == 15
+    assert summary["arms"]["team"]["usage"]["total"]["llm_calls"] >= 5
     manifest = json.loads((output / "single/attempt/manifest.json").read_text())
     assert manifest["active_templates"] == []
-    assert manifest["limits"]["max_subagents"] == 0
+    assert manifest["limits"]["max_workers"] == 0
     assert manifest["context_mode"] == "full_task_and_own_history"
     assert set(manifest["domain_tools"]) == set(ALL_TOOLS)
     assert "Subagents:" not in manifest["leader_system"]
-    for mode in ("single", "mas"):
+    for mode in ("single", "team"):
         model_manifest = json.loads((output / mode / "attempt/manifest.json").read_text())
         assert model_manifest["leader_system"].startswith(LEADER_SYSTEM)
     single_history = contexts(read_trace(output / "single/attempt/trace.jsonl"))
     assert set(single_history) == {"leader"}
     assert len([m for m in single_history["leader"] if m["role"] == "tool"]) == 4
-    assert (output / "single/fixture/work").resolve() != (output / "mas/fixture/work").resolve()
+    assert (output / "single/fixture/work").resolve() != (output / "team/fixture/work").resolve()
     (output / "single/fixture/work/answer.json").write_text("single-only mutation")
-    assert json.loads((output / "mas/fixture/work/answer.json").read_text())["answer"] == 4
+    assert json.loads((output / "team/fixture/work/answer.json").read_text())["answer"] == 4
     with pytest.raises(FileExistsError):
         comparison_smoke(output)
 
@@ -60,13 +60,8 @@ def test_native_api_accepts_explicit_single_mode(tmp_path):
     assert result["explanation"]["answer"] == 4
 
 
-def test_legacy_false_uses_the_same_single_implementation(tmp_path):
-    with Trace(tmp_path / "trace.jsonl", "compatibility") as trace:
-        fixture = FixtureWorkspace(tmp_path / "fixture")
-        explicit, _ = make_session(SingleFixtureClient(), trace, fixture, mode="single")
-        legacy, _ = make_session(SingleFixtureClient(), trace, fixture, delegated=False)
-        assert isinstance(explicit, SingleAgent) and isinstance(legacy, SingleAgent)
-        assert explicit.leader.messages == legacy.leader.messages
-        assert explicit.leader.schemas == legacy.leader.schemas
-        with pytest.raises(ValueError, match="Conflicting"):
-            make_session(SingleFixtureClient(), trace, fixture, mode="single", delegated=True)
+def test_legacy_flag_is_rejected(tmp_path):
+    fixture = FixtureWorkspace(tmp_path / "fixture")
+    with Trace(tmp_path / "trace.jsonl", "legacy") as trace:
+        with pytest.raises(ValueError, match="retired"):
+            make_session(SingleFixtureClient(), trace, fixture, delegated=False)

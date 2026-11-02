@@ -1,6 +1,7 @@
-"""KramaBench System API bridge backed by the generic LeaderSubagent runtime."""
+"""KramaBench System API bridge backed by the generic Agent Team runtime."""
 
 from dataclasses import asdict
+import hashlib
 import json
 from pathlib import Path
 import time
@@ -8,16 +9,17 @@ import time
 from analysis.cache import summarize
 from harness.accounting import estimate
 from harness.agent import Observation, Tool
+from harness.artifacts import MAX_ARTIFACT_BYTES, workspace_relative_path
 from harness.catalog import catalog_manifest, fingerprint
 from harness.config import source_digest
 from harness.container_contract import validate_artifact_paths, validate_data_container
 from harness.data_tools import inspection_tools
 from harness.execution import ContainerWorkspace
 from harness.runner import write_json
-from harness.subagents import comparison_session, resolve_mode
-from harness.trace import Trace, read_trace, usage_summary, validate
+from harness.session import comparison_session, resolve_mode
+from harness.trace import Trace, activation_summary, communication_summary, read_trace, usage_summary, validate
 
-from .roles import (ALL_TOOLS, CATALOG_VERSION, DELEGATION_GUIDANCE, LEADER_SYSTEM,
+from .roles import (ALL_TOOLS, CATALOG_VERSION, LEADER_SYSTEM,
                     PROJECT_CONTEXT, SUBMISSION_SCHEMA, SUBMISSION_INSTRUCTIONS, TEMPLATES)
 from .tasks import Task, UPSTREAM_COMMIT
 
@@ -47,17 +49,63 @@ def make_session(client, trace, workspace, *, mode=None, delegated=None, **limit
     tools = tuple(workspace.tools()) + tuple(inspection_tools(workspace))
     if set(ALL_TOOLS) != {tool.name for tool in tools}:
         raise ValueError("Use ContainerWorkspace with retained output (archive_dir required)")
-    if set(limits) - {"max_turns", "tool_budget", "max_subagents", "max_delegations", "max_parallel",
+    if set(limits) - {"max_turns", "tool_budget", "max_workers", "max_activations", "max_parallel", "message_limit", "message_bytes", "leader_mode",
                        "session_model_calls", "session_tool_calls", "session_seconds", "audit_seconds"}:
         raise ValueError("Only budget/scheduling overrides are allowed; catalog and grants are fixed")
+    def submit(args, agent):
+        path = args["pipeline_path"]
+        unresolved = path is None and args["answer"] is None and bool(args["unfinished"])
+        if path is None and not unresolved:
+            return Observation("A missing pipeline requires null answer and explicit unfinished work.",
+                               {"error": True, "error_kind": "artifact_binding"})
+        artifact = None
+        try:
+            if mode == "single":
+                session.freeze_workspace()
+            if path is not None:
+                path = workspace_relative_path(path, workspace.workdir)
+                record = session.frozen_files.get(path, {})
+                if record.get("kind") != "file" or record.get("submission_status") != "hash_recorded":
+                    raise ValueError("pipeline_path must name a regular file in frozen_files")
+                budget = session.session_budget
+                remaining = min(budget.remaining_audit_seconds(), budget.remaining_seconds())
+                if remaining <= 0:
+                    raise ValueError("No artifact export time remains")
+                with budget.activity("audit"):
+                    artifact = workspace.export_artifact(path, record["sha256"], timeout=remaining)
+                if budget.remaining_audit_seconds() <= 0:
+                    raise RuntimeError("Artifact export exceeded the audit allowance")
+                if budget.remaining_seconds() <= 0:
+                    raise ValueError("Artifact export exceeded the session deadline")
+                data = artifact["content"].encode("utf-8")
+                if (artifact["path"] != path or artifact["sha256"] != record["sha256"] or
+                        hashlib.sha256(data).hexdigest() != record["sha256"] or artifact["bytes"] != len(data)
+                        or len(data) > MAX_ARTIFACT_BYTES):
+                    raise ValueError("Exported artifact does not match the freeze snapshot")
+        except (ValueError, RuntimeError) as error:
+            infrastructure = isinstance(error, RuntimeError)
+            session.infra_affected |= infrastructure
+            trace.emit("submission_artifact_binding", status="rejected", pipeline_path=path, error=str(error))
+            return Observation(str(error), {"error": True, "error_kind": "artifact_export_transport" if infrastructure else "artifact_binding"})
+        binding = dict(pipeline_path=path, pipeline_code_sha256=artifact["sha256"] if artifact else None,
+                       bytes=artifact["bytes"] if artifact else 0,
+                       status="exact_match" if artifact else "declared_unfinished",
+                       trusted_pipeline_reexecution=False)
+        trace.emit("submission_artifact_binding", **binding)
+        session.submission_binding = binding
+        parsed = parse_submission(json.dumps(dict(answer=args["answer"], pipeline_code=artifact["content"] if artifact else "",
+                                                   evidence=args["evidence"], unfinished=args["unfinished"])))
+        return Observation(json.dumps(dict(binding, submitted=True)),
+                           submission_text=json.dumps(parsed, ensure_ascii=False))
     session = comparison_session(client, trace, TEMPLATES, tools, mode=mode,
-        domain_tools=ALL_TOOLS, leader_system=LEADER_SYSTEM + (DELEGATION_GUIDANCE if mode == "mas" else ""),
+        domain_tools=ALL_TOOLS, leader_system=LEADER_SYSTEM, workspace_root=workspace.workdir,
         project_context=PROJECT_CONTEXT,
         submission_tool=Tool("submit", "Submit the final answer and self-contained pipeline; call alone.",
                              SUBMISSION_SCHEMA,
-                             lambda args, agent: Observation(json.dumps(parse_submission(json.dumps(args)), ensure_ascii=False))),
+                             submit),
         leader_final_prompt=SUBMISSION_INSTRUCTIONS,
         workspace_audit=workspace.audit_snapshot, **limits)
+    session.submission_binding = None
     return session, catalog_manifest(TEMPLATES, tools)
 
 
@@ -97,20 +145,26 @@ def run_task(task, *, client, workspace, output, dataset, provenance=None, prici
                 "pricing": pricing,
                 "comparison_sha256": comparison_sha256,
                 "condition": mode, "mode": mode, "context_mode": session.context_mode,
+                "team_arm": ("full_tool_leader_ablation" if session.leader_mode == "full" else "coordinator_only") if mode == "team" else None,
+                "leader_domain_tools": sorted(set(session.leader.tools) & set(ALL_TOOLS)),
                 "active_templates": list(session.templates), "domain_tools": list(ALL_TOOLS),
                 "fixture_only": fixture,
                 "leader_system": session.leader.messages[0]["content"],
                 "leader_prefix_sha256": fingerprint(session.leader.messages[0]),
                 "leader_system_chars": len(session.leader.messages[0]["content"]),
                 "output_contract": {"response_format": session.leader.response_format,
+                                    "artifact_policy": "selected_path_frozen_hash_v3", "max_artifact_bytes": MAX_ARTIFACT_BYTES,
                                     "submission_tool": "submit", "schema": SUBMISSION_SCHEMA,
                                     "final_tool_policy": "submit_only_auto_no_forced_named_tool",
-                                    "final_prompt": session.leader_final_prompt, "parser": "strict_json_v1"},
+                                    "final_prompt": session.leader_final_prompt, "parser": "path_request_to_strict_json_export_v2",
+                                    "model_receipt": "path_hash_status_without_code"},
                 "limits": {"leader_turns": session.leader.max_turns,
                     "leader_tools": session.leader.budget.limit,
-                    "max_subagents": session.max_subagents if session.templates else 0,
-                    "max_delegations": session.max_delegations if session.templates else 0,
+                    "max_workers": session.max_workers,
+                    "max_activations": session.max_activations,
                     "max_parallel": session.max_parallel if session.templates else 0,
+                    "message_limit": session.mail.limit if mode == "team" else 0,
+                    "message_bytes": session.mail.max_bytes if mode == "team" else 0,
                     "shared": session.session_budget.snapshot()}, "environment": environment,
                 "evaluation": "not_run"}
             write_json(output / "manifest.json", manifest)
@@ -140,6 +194,9 @@ def run_task(task, *, client, workspace, output, dataset, provenance=None, prici
     events = read_trace(output / "trace.jsonl")
     usage = usage_summary(events)
     report = {"status": run_status, "mode": mode, "usage": usage, "cache": summarize([(mode, events)]),
+              "communication": communication_summary(events),
+              "activation_usage": activation_summary(events),
+              "artifact_binding": getattr(session, "submission_binding", None),
               "integrity_errors": validate(events), "evaluation": "not_run",
               "submission_sha256": fingerprint(submission) if submission is not None else None,
               "fixture_only": fixture,
@@ -176,14 +233,14 @@ class KramaBenchSystem:
     Factory(dataset_directory, attempt_directory) returns an existing workspace;
     it must not mount evaluator/workload/solutions or host credentials.
     """
-    name = "leader_subagent"
+    name = "agent_team"
 
     def __init__(self, *, client, workspace_factory, output, domain, mode=None, delegated=None, **limits):
         self.client, self.workspace_factory = client, workspace_factory
         self.output, self.domain = Path(output), domain
         self.mode = resolve_mode(mode=mode, delegated=delegated)
-        self.delegated, self.limits = self.mode == "mas", limits
-        self.name = "single_agent" if self.mode == "single" else "leader_subagent"
+        self.limits = limits
+        self.name = "single_agent" if self.mode == "single" else "agent_team"
         self.dataset_directory = None
 
     def process_dataset(self, dataset_directory):
