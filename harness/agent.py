@@ -161,13 +161,24 @@ class SessionBudget:
         with self.lock:
             self._check_locked()
 
+    def _report_capacity_locked(self, require_work):
+        needed = 2 if require_work else 1
+        available = self.model_limit - self.model_used - len(self.report_reservations)
+        return dict(required_unreserved_calls=needed, available_unreserved_calls=available,
+                    can_start=available >= needed)
+
+    def report_capacity(self, *, require_work=False):
+        """Advisory admission check; only reserve_report allocates capacity."""
+        with self.lock:
+            self._check_locked()
+            return self._report_capacity_locked(require_work)
+
     def reserve_report(self, owner, *, require_work=False, protect_root=False):
         with self.lock:
             self._check_locked()
             if owner in self.report_reservations:
                 raise ValueError("Report call already reserved")
-            needed = 2 if require_work else 1
-            if self.model_limit - self.model_used - len(self.report_reservations) < needed:
+            if not self._report_capacity_locked(require_work)["can_start"]:
                 self._limit_locked("report_reservation_unavailable", owner)
                 return False
             self.report_reservations.add(owner)

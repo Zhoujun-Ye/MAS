@@ -1,3 +1,5 @@
+"""Comparison preflight, failure evidence and workspace-audit contracts."""
+
 import copy
 import json
 

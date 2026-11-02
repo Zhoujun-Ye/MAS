@@ -13,7 +13,7 @@ from harness.trace import Trace, contexts, read_trace
 from test_team import invoke
 
 
-CONTROLS = {"spawn_worker", "assign_task", "update_task", "finish_team", "send_message",
+CONTROLS = {"spawn_worker", "assign_task", "update_task", "continue_worker", "finish_team", "send_message",
             "read_messages", "resolve_request", "get_team_state", "wait_event", "submit"}
 
 

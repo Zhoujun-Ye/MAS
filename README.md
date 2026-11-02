@@ -45,10 +45,19 @@ of idling until the deadline. Message activations retain their grants and have
 separate domain-usage accounting from task assignments.
 Generic domain checks are shared with Workers through `PROJECT_CONTEXT`.
 This proves identity, not execution or correctness. See the
-[v5 review and verification](docs/team-review-v5-20261101.md).
+[current benchmark guide](docs/kramabench.md).
 
-Native paid judging is not imported. Numeric grading runs only after the attempt,
-on the host, bound to the exact submission. A final report is not a success verdict.
+Answer grading runs after attempts on the host, bound to exact submissions and the
+pinned upstream metric mapping. Numeric approximation uses continuous error/RAE
+metrics, not binary success. Lists retain F1/precision/recall. Semantic text grading
+requires an explicitly supplied judge; missing authorization yields pending_judge,
+not a false failure or an implicit paid call. Pipeline judging remains separate.
+A final report is not a success verdict.
+
+The batch launcher supports `--all-tasks --dry-run` to inspect the 104-task,
+312-attempt scope without model calls or containers. Default question concurrency
+is 12 (maximum 32); numerical libraries use one thread per container to prevent
+oversubscription. See the guide before authorizing a paid run.
 
 ## Verification
 

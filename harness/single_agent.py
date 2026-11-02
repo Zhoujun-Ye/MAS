@@ -8,7 +8,7 @@ class SingleAgent(Session):
     def __init__(self, client, trace, tools=(), *, domain_tools=None, project_context="",
                  leader_system=None, max_turns=None, tool_budget=None, leader_response_format=None,
                  leader_final_prompt=None, submission_tool=None, **kwargs):
-        for key in ("max_workers", "max_activations", "max_parallel", "message_limit", "message_bytes", "workspace_root"):
+        for key in ("max_workers", "max_activations", "max_parallel", "message_limit", "message_bytes", "workspace_root", "worker_quantum"):
             kwargs.pop(key, None)
         if kwargs.pop("leader_mode", "full") != "full":
             raise ValueError("leader_mode only selects a Team arm, not Single")

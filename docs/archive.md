@@ -42,7 +42,8 @@ preserved at commit `f9c9a4a` in `docs/leader-subagent.md` and in the source
 archives above. That document was removed from the active tree because its
 delegation API, mode flags, scheduling and inline-submission instructions no
 longer describe the implemented Team runtime. Use `docs/agent-team-design.md`
-for current behavior; retain the dated audit and experiment reports as evidence.
+for current behavior. Superseded tracked audit documents remain in Git rather than
+the active documentation tree; retained server evidence is listed separately.
 
 The subsequent source cleanup removed the unreferenced YAML configuration loader
 and its PyYAML dependency, unused imports, and unreachable child assertions in
@@ -60,3 +61,35 @@ No paid model calls, Docker provisioning or benchmark re-evaluation was performe
 After the analysis cleanup was synchronized, the server regression passed all
 92 tests. Historical results again passed `results-before.sha256` verification.
 No paid calls or benchmark re-evaluation were performed for this follow-up.
+
+## Authorized Pilot Cleanup
+
+On 2026-11-02 the user explicitly requested deletion of only the latest four
+six-question pilots, including their matching local copies, adjacent logs and
+source snapshots:
+
+- `outputs/kramabench-engineering6-20261101-01`
+- `outputs/kramabench-engineering6-rerun-20261101-01`
+- `outputs/kramabench-engineering6-fixed-20261102-01`
+- `outputs/kramabench-checkpoints6-20261102-01`
+
+This is a user-authorized retention exception, not filtering failed attempts to
+improve a score. Other experiment outputs, preparation records, input checkouts,
+assets, images, caches and `archives/leader-subagent-20261101` are outside the
+deletion scope. The unrelated `/home/zhoujunye/agent-team` is never touched.
+Dated pilot reports were removed from active docs along with obsolete protocol
+audits. Current behavior lives in agent-team-design.md and kramabench.md. The
+single-question archeology diagnostic and its dedicated numerical tests were
+retired; generic transport, submission, scheduling and budget regressions remain.
+
+The cleanup does not authorize any new paid benchmark, judge or retry. A full
+104-task preflight is read-only with respect to data and uses no paid calls.
+
+## Repository Verification
+
+On 2026-11-02, version- and review-named regression modules were renamed by
+behavior, preserving their scenarios and updating their cross-module import.
+See `tests/README.md` for the test layout. An isolated server source copy passed
+279 tests, with 7 opt-in tests skipped. No paid calls, environment provisioning,
+or modifications to the concurrently running benchmark were performed. This is
+offline regression evidence, not a claim that all bugs or runtime issues are gone.

@@ -1,3 +1,5 @@
+"""Submission validation and lossless provider transport regressions."""
+
 import json
 
 import httpx
@@ -9,7 +11,6 @@ from benchmarks.kramabench.roles import PROJECT_CONTEXT, SUBMISSION_INSTRUCTIONS
 from benchmarks.kramabench.tasks import Task
 from harness.llm import ChatClient, ModelConfig
 from harness.trace import Trace, contexts, read_trace, validate
-from scripts.kramabench.diagnose_archeology import interval_means
 from tests.fakes import ScriptedClient
 
 
@@ -96,21 +97,3 @@ def test_invalid_submission_retained_without_extraction_or_repair(tmp_path, text
     assert validate(events) == []
     assert contexts(events)["leader"][-1]["content"] == text
     assert len(client.requests) == 1 and client.response_formats == [None]
-
-
-def test_interval_diagnostic_distinguishes_estimands_and_handles_reversed_bounds():
-    points = [(0, 0), (1, 4), (2, 0)]
-    forward = interval_means(points, 0, 2)
-    assert interval_means(points, 2, 0) == forward
-    assert forward["endpoint_mean"] == 0
-    assert forward["time_weighted_mean"] == 2
-    assert forward["interior_knots"] == 1
-    assert forward["integer_inclusive_mean"] == pytest.approx(4 / 3)
-    assert forward["integer_right_exclusive_mean"] == 2
-
-
-@pytest.mark.parametrize("points,lo,hi", [([(0, 0), (0, 3), (2, 0)], 0, 2),
-    ([(0, 0), (2, 1)], 1, 1), ([(0, 0), (2, 1)], -1, 2), ([(0, 0), (2, float("nan"))], 0, 2)])
-def test_interval_diagnostic_rejects_undefined_or_ambiguous_series(points, lo, hi):
-    with pytest.raises(ValueError):
-        interval_means(points, lo, hi)

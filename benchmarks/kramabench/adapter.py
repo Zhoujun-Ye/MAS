@@ -5,6 +5,7 @@ import hashlib
 import json
 from pathlib import Path
 import time
+from jsonschema import Draft202012Validator
 
 from analysis.cache import summarize
 from harness.accounting import estimate
@@ -19,7 +20,7 @@ from harness.runner import write_json
 from harness.session import comparison_session, resolve_mode
 from harness.trace import Trace, activation_summary, communication_summary, read_trace, usage_summary, validate
 
-from .roles import (ALL_TOOLS, CATALOG_VERSION, LEADER_SYSTEM,
+from .roles import (ALL_TOOLS, ANSWER_SCHEMA, CATALOG_VERSION, LEADER_SYSTEM,
                     PROJECT_CONTEXT, SUBMISSION_SCHEMA, SUBMISSION_INSTRUCTIONS, TEMPLATES)
 from .tasks import Task, UPSTREAM_COMMIT
 
@@ -41,6 +42,8 @@ def parse_submission(text):
             or not isinstance(result["unfinished"], list)
             or any(not isinstance(item, str) for item in result["unfinished"])):
         raise ValueError("Invalid submission types")
+    if not Draft202012Validator(ANSWER_SCHEMA).is_valid(result["answer"]):
+        raise ValueError("answer must contain only the requested scalar or list, not a diagnostic object")
     return result
 
 
@@ -49,7 +52,7 @@ def make_session(client, trace, workspace, *, mode=None, delegated=None, **limit
     tools = tuple(workspace.tools()) + tuple(inspection_tools(workspace))
     if set(ALL_TOOLS) != {tool.name for tool in tools}:
         raise ValueError("Use ContainerWorkspace with retained output (archive_dir required)")
-    if set(limits) - {"max_turns", "tool_budget", "max_workers", "max_activations", "max_parallel", "message_limit", "message_bytes", "leader_mode",
+    if set(limits) - {"max_turns", "tool_budget", "max_workers", "max_activations", "max_parallel", "message_limit", "message_bytes", "worker_quantum", "leader_mode",
                        "session_model_calls", "session_tool_calls", "session_seconds", "audit_seconds"}:
         raise ValueError("Only budget/scheduling overrides are allowed; catalog and grants are fixed")
     def submit(args, agent):

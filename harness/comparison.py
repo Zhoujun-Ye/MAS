@@ -9,11 +9,12 @@ def selected_conditions(mode, leader_mode=None):
     """Explicit arm selection; never silently expands the number of paid attempts."""
     if leader_mode not in {None, "full", "coordinator"}:
         raise ValueError("Unknown Leader mode")
-    if mode == "leader-pair":
+    if mode in {"leader-pair", "all"}:
         if leader_mode is not None:
-            raise ValueError("leader-pair already selects coordinator and full; omit --leader-mode")
-        return {"team_coordinator": dict(mode="team", leader_mode="coordinator"),
-                "team_full": dict(mode="team", leader_mode="full")}
+            raise ValueError(f"{mode} already selects coordinator and full; omit --leader-mode")
+        conditions = {"team_coordinator": dict(mode="team", leader_mode="coordinator"),
+                      "team_full": dict(mode="team", leader_mode="full")}
+        return dict(single=dict(mode="single", leader_mode="full"), **conditions) if mode == "all" else conditions
     if mode not in {"single", "team", "both"}:
         raise ValueError("Unknown comparison mode")
     if mode == "single" and leader_mode not in {None, "full"}:

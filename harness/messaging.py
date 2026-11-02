@@ -15,7 +15,8 @@ class Mailboxes:
         self.sequence = 0
 
     def send(self, sender, recipient, content, *, kind="info", task_id=None,
-             revision=None, reply_to=None, needs_reply=False, control=False, stale_reply=False):
+             revision=None, reply_to=None, needs_reply=False, control=False, stale_reply=False,
+             action=None, expected_result=None, stop_condition=None):
         if not control:
             if self.sent >= self.limit:
                 raise ValueError("Session communication limit reached")
@@ -31,7 +32,9 @@ class Mailboxes:
         record = dict(message_id=message_id, sender=sender, recipient=recipient,
                       recipients=recipients, kind=kind, task_id=task_id,
                       specification_revision=revision, reply_to=reply_to,
-                      needs_reply=needs_reply, content=content, control=control, stale_reply=stale_reply)
+                      needs_reply=needs_reply, content=content, control=control, stale_reply=stale_reply,
+                      action=action or ("reply" if needs_reply or kind == "question" else "none"),
+                      expected_result=expected_result, stop_condition=stop_condition)
         self.trace.emit("team_message", **record)
         self.records[message_id] = record
         for target in recipients:

@@ -130,7 +130,7 @@ def test_idle_question_reactivates_same_history_with_original_grants(tmp_path):
     assert not result.infra_affected
 
 
-@pytest.mark.parametrize("ceiling", [1, 2, 3, 4, 7, 12])
+@pytest.mark.parametrize("ceiling", [1, 2, 3, 4, 7, 12, 128])
 def test_shared_ceiling_and_protected_root_final(tmp_path, ceiling):
     def policy(messages, tools, choice):
         if messages[0]["content"].startswith("Coordinate"):

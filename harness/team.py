@@ -27,6 +27,31 @@ or dependencies. Run independent work concurrently and have collaborators exchan
 needed information directly. Do not default to a single end-to-end owner. Use one
 member only when no useful split fits the task and available capacity, and record
 that reason in your brief. Do not create duplicate work merely to fill roles.
+Keep requirement interpretation separate from implementation checks. In local briefs,
+include the relevant requirement wording and label your assumptions as provisional,
+not as established requirements. Agreement on a shared assumption is not independent
+evidence for that assumption. Resolve material conflicting interpretations through a
+focused evidence check; retain unresolved alternatives and uncertainty in the handoff.
+Before further review, name the unresolved question and evidence that could change
+the decision. Reuse existing artifacts and verified findings; after a repair, check
+the changed behavior and affected interfaces rather than repeating the entire task.
+Use the latest runtime budget, not an earlier estimate. Remaining calls include
+reserved reports and the Leader final call; unreserved calls are shared with all
+active members. Keep room for integration, focused checks, repair and submission.
+Queue acknowledgements do not reserve execution capacity. If capacity is insufficient,
+prioritize the remaining deliverable and report unchecked work instead of launching
+another broad review. Checks and repairs must finish before closure.
+Give each work package a concrete deliverable and stop_condition. Discovery should
+locate required sources, not inventory unrelated files. For verification, first run
+the saved production artifact and check the requested result; add independent
+reconstruction only for a named residual risk, not as a prerequisite to that run.
+Workers pause at bounded checkpoints. Use continue_worker with a focused instruction
+to continue, narrow or return the work; cancel an assignment if no longer needed.
+Do not wait for a checkpointed member without deciding what it should do next.
+Use assign_task's context for a new brief, not a preliminary message announcing a
+future task. Assignments can queue behind message work without interrupting it.
+Use action=none for FYIs, reply for a specific answer, work for bounded assistance
+with expected_result and stop_condition. Do not acknowledge acknowledgements.
 Only you can assign, accept, reopen or cancel tasks. Use current task revisions for
 updates. Only a Worker's explicit completed claim on a normally returned assignment
 unblocks dependencies; accept is optional and is not a correctness verdict.
@@ -61,6 +86,23 @@ unchanged permissions. This does not start or release that pending assignment.
 Your context contains shared project instructions, local assignments, your own
 history and explicit messages, not the Leader's history. Domain tools, model calls
 and communication have shared ceilings. Messaging does not consume domain calls.
+Distinguish evidence for the requirements/assumptions from checks conditional on
+those assumptions. Flag material ambiguity or contradictions to the Leader and the
+affected peer; do not silently treat a local brief's hypothesis as proven. Reuse
+existing evidence for focused checks and state what remains unchecked in the handoff.
+Messages carry an action: none is an FYI, not a work request; normally return a brief
+final reply without tools or sending an acknowledgement. For reply, answer only the
+specific question; for work, stop at expected_result/stop_condition. Do not turn a
+clarification into a new general review. If a critical new contradiction needs work,
+notify the Leader with the specific risk instead of silently expanding scope.
+Finish message-only work with finish_message or a final reply; do not wait for a
+thank-you or send acknowledgements that provoke more work. These are work boundaries,
+not permission reductions: your fixed tools remain available for legitimate checks.
+Use report_status(checkpoint, summary) to yield a decision to the Leader. Summarize
+the artifact, observed checks, remaining necessary work and next bounded step. A
+checkpoint is not task completion and does not release dependencies.
+The runtime shows calls left in your scheduling slice. If you cannot finish within
+it, use its last call to report a checkpoint with a useful handoff, not another scan.
 """
 
 REPORT_POLICY = "Return your result and unfinished work. For an active assignment, use finish_task to declare its status when tools are available; plain text alone does not claim completion. If instructed to return a final text-only report, describe partial work without tools."
@@ -83,6 +125,9 @@ class Member:
     pending_task_id: str | None = None
     previous_task_id: str | None = None
     declaration: dict | None = None
+    slice_start: int = 0
+    message_summary: str | None = None
+    checkpoint_summary: str | None = None
 
 
 def schema(properties=None, required=()):
@@ -97,7 +142,7 @@ class AgentTeam(Session):
                  project_context="", leader_system=None, leader_final_prompt=None,
                  leader_response_format=None, submission_tool=None, max_turns=None,
                  tool_budget=None, max_workers=8, max_activations=None, max_parallel=4,
-                 message_limit=128, message_bytes=8192, leader_mode="coordinator", workspace_root="/workspace", **kwargs):
+                 message_limit=128, message_bytes=8192, worker_quantum=16, leader_mode="coordinator", workspace_root="/workspace", **kwargs):
         super().__init__(client, trace, tools, **kwargs)
         templates = tuple(templates)
         self.templates = {t.name: t for t in templates}
@@ -110,6 +155,9 @@ class AgentTeam(Session):
             max_activations = self.session_budget.model_limit
         if min(max_workers, max_activations, max_parallel) < 1:
             raise ValueError("Invalid team limits")
+        if type(worker_quantum) is not int or worker_quantum < 1:
+            raise ValueError("worker_quantum must be a positive integer")
+        self.worker_quantum = worker_quantum
         self.mode, self.context_mode = "team", "local_briefs_and_explicit_messages"
         self.task_completion_policy = "explicit_claim_v1"
         self.max_workers, self.max_activations, self.max_parallel = max_workers, max_activations, max_parallel
@@ -167,13 +215,20 @@ class AgentTeam(Session):
                     if denial is not None:
                         return denial
                     result = fn(args, agent)
+                    if name in {"spawn_worker", "assign_task", "update_task", "continue_worker"}:
+                        result["budget"] = self._budget_feedback()
                     self.condition.notify_all()
-                    return Observation(json.dumps(result, ensure_ascii=False))
+                    meta = {}
+                    if isinstance(result, dict) and result.get("status") == "rejected":
+                        meta = {"error": True, "error_kind": "team_admission_denied"}
+                    return Observation(json.dumps(result, ensure_ascii=False), meta)
             return Tool(name, description + (" Call alone; a mixed batch is refused." if sole else ""),
                         schema(properties, required), invoke, sole=sole)
         controls = [
             control("send_message", "Send directly to one member. Risks/milestones also notify the Leader. Queued is not read.",
                 dict(to=TEXT, content=TEXT, kind={"enum": ["question", "answer", "info", "risk", "milestone"]},
+                     action={"enum": ["none", "reply", "work"], "description": "FYI, focused reply, or bounded assistance. All can wake recipients; no permission changes."},
+                     expected_result=TEXT, stop_condition=TEXT,
                      task_id=TEXT, reply_to=TEXT, needs_reply={"type": "boolean", "description":
                          "Set true when a response is needed, including review requests. Default false. This tracks replies only; all messages wake idle members."}),
                 ("to", "content"), self._send),
@@ -188,24 +243,29 @@ class AgentTeam(Session):
                 dict(timeout_seconds={"type": "number", "minimum": 0.01, "description": "Optional timeout; omit to wait for an event within the session deadline."}), (), self._wait, sole=True),
         ]
         if not leader:
-            controls.append(control("report_status", "Report meaningful progress or a blocker on your owned task; blocked yields.",
-                dict(status={"enum": ["progress", "blocked"]}, summary=TEXT), ("status", "summary"), self._report_status, sole=True))
+            controls.append(control("report_status", "Report progress, a blocker, or a checkpoint with saved results and remaining work. Checkpoint pauses until the Leader continues/cancels/closes; blocked waits for help.",
+                dict(status={"enum": ["progress", "blocked", "checkpoint"]}, summary=TEXT), ("status", "summary"), self._report_status, sole=True))
             controls.append(control("finish_task", "Return the current assignment with an explicit status claim, not a verification verdict. Unavailable during message-only work.",
                 dict(status={"enum": ["completed", "partial", "blocked", "failed"]}, summary=TEXT),
                 ("status", "summary"), self._finish_task, sole=True))
+            controls.append(control("finish_message", "End message-only work without an extra report call or peer acknowledgement; does not complete any assignment.",
+                dict(summary=TEXT), ("summary",), self._finish_message, sole=True))
             return controls
-        task_fields = dict(task=TEXT, context={"type": "string"}, write_scope={"type": "string", "description":
+        task_fields = dict(task=TEXT, context={"type": "string"}, deliverable=TEXT, stop_condition=TEXT,
+                           write_scope={"type": "string", "description":
                            "Workspace directory, e.g. producer or /workspace/producer. Omit for a distinct default."},
                            depends_on={"type": "array", "items": TEXT, "uniqueItems": True})
         controls += [
-            control("spawn_worker", "Create a persistent fixed-capability worker and assign local work; returns handles immediately.",
+            control("spawn_worker", "Create a persistent fixed-capability worker and queue local work after a capacity preflight. Queued is not reserved or guaranteed to start.",
                 dict(template={"enum": list(self.templates)}, **task_fields), ("template", "task"), self._spawn),
-            control("assign_task", "Assign new work to an idle member, preserving history and lifetime tools.",
+            control("assign_task", "Queue a complete brief for an idle member or behind its active message work. Use context instead of a preliminary message. Queued is not reserved or guaranteed to start.",
                 dict(worker_id=TEXT, **task_fields), ("worker_id", "task"), self._assign),
-            control("update_task", "Leader accepts a reported result, reopens its owner for repair, or cancels. Use current state revision.",
+            control("update_task", "Accept a reported result, reopen its owner for repair after a capacity preflight, or cancel. Use current revision. Cancel and drain dependent results before reopening their input; queued repair is not reserved.",
                 dict(task_id=TEXT, expected_revision={"type": "integer", "minimum": 1},
                      action={"enum": ["accept", "reopen", "cancel"]}, reason=TEXT),
                 ("task_id", "expected_revision", "action", "reason"), self._update),
+            control("continue_worker", "Resume a checkpointed activation with a focused next step, preserving history, grants and reservations. No new assignment or completion claim.",
+                dict(worker_id=TEXT, instruction=TEXT), ("worker_id", "instruction"), self._continue),
             control("finish_team", "Irreversibly stop new work, drain admitted actions and collect closing evidence before submitting.",
                 dict(reason=TEXT), ("reason",), self._finish, sole=True),
         ]
@@ -233,11 +293,13 @@ class AgentTeam(Session):
         scope = self._write_scope(args.get("write_scope"), worker_id + "/" + task_id)
         for other in self.tasks.values():
             owner = self.members.get(other["owner"])
-            if other["status"] not in {"reported", "accepted", "cancelled", "failed"} or owner and owner.active:
+            if other["status"] not in {"reported", "accepted", "cancelled", "failed"} or (owner and owner.active and
+                    not (other["owner"] == worker_id and owner.cause == "message")):
                 a, b = PurePosixPath(scope), PurePosixPath(other["write_scope"])
                 if a == b or a in b.parents or b in a.parents:
                     raise ValueError("Write scope overlaps another outstanding assignment")
         task = dict(task_id=task_id, owner=worker_id, objective=args["task"], context=args.get("context", ""),
+                    deliverable=args.get("deliverable"), stop_condition=args.get("stop_condition"),
                     depends_on=list(dependencies), write_scope=scope, status="assigned", revision=1,
                     specification_revision=1, result_revision=0, report=None, outcome=None, completion_status=None)
         self.trace.emit("team_task", event="created", actor="leader", task=dict(task))
@@ -245,11 +307,31 @@ class AgentTeam(Session):
         self.deadlock_notified = False
         return task
 
+    def _budget_feedback(self):
+        budget = self.session_budget.snapshot()
+        return {key: budget[key] for key in (
+            "model_calls", "model_limit", "model_calls_remaining", "model_calls_unreserved",
+            "leader_reserved_calls", "child_reserved_calls", "tool_calls", "tool_limit", "tool_calls_remaining")}
+
+    def _assignment_preflight(self):
+        capacity = self.session_budget.report_capacity(require_work=True)
+        capacity["activations_remaining"] = max(0, self.max_activations - self.activations)
+        reason = ("activation_limit" if self.activations >= self.max_activations else
+                  "model_capacity" if not capacity["can_start"] else None)
+        if reason:
+            capacity["can_start"] = False
+            return dict(status="rejected", reason=reason, admission=capacity,
+                        note="No assignment was changed. Preserve final submission and report unfinished work.")
+        return None
+
     def _spawn(self, args, actor):
         if len(self.members) >= self.max_workers:
             raise ValueError("Worker identity limit reached")
         worker_id = f"worker-{len(self.members) + 1}"
         template = self.templates[args["template"]]
+        rejection = self._assignment_preflight()
+        if rejection is not None:
+            return rejection
         # Validate task metadata before publishing a member or reserving calls.
         task = self._new_task(worker_id, args)
         try:
@@ -266,17 +348,41 @@ class AgentTeam(Session):
         member = Member(agent, template.name, state="assigned", task_id=task["task_id"])
         self.members[worker_id] = member
         self.trace.emit("team_member", agent=worker_id, template=template.name, state="created")
-        return dict(worker_id=worker_id, task=task, status="queued", budget=self.session_budget.snapshot())
+        return dict(worker_id=worker_id, task=task, status="queued")
 
     def _assign(self, args, actor):
         member = self.members.get(args["worker_id"])
-        if member is None or member.active or member.state != "idle":
-            raise ValueError("New assignments require an idle live worker")
+        behind_message = member is not None and member.active and member.cause == "message"
+        if member is None or not behind_message and (member.active or member.state != "idle"):
+            raise ValueError("New assignments require an idle live worker or active message-only work")
         if member.task_id and self.tasks[member.task_id]["status"] not in {"reported", "accepted", "cancelled"}:
             raise ValueError("Wait for or cancel the previous assignment before assigning new work")
+        rejection = self._assignment_preflight()
+        if rejection is not None:
+            return rejection
         task = self._new_task(member.agent.name, args)
-        member.task_id, member.state = task["task_id"], "assigned"
-        return dict(worker_id=member.agent.name, task=task, status="queued")
+        member.task_id = task["task_id"]
+        if behind_message:
+            member.pending_task_id = task["task_id"]
+        else:
+            member.state = "assigned"
+        return dict(worker_id=member.agent.name, task=task, status="queued", queued_behind_message=behind_message)
+
+    def _continue(self, args, actor):
+        member = self.members.get(args["worker_id"])
+        if member is None or not member.active or member.state != "checkpoint":
+            raise ValueError("Only a checkpointed activation can continue")
+        task = self.tasks.get(member.task_id)
+        if member.cause == "assignment" and task["status"] == "cancelled":
+            raise ValueError("Cancelled work cannot continue")
+        member.agent.append(dict(role="user", content="Leader checkpoint decision:\n" + args["instruction"]))
+        member.slice_start = member.agent.model_calls
+        member.state = "ready"
+        self.ready.append(member.agent.name)
+        self.deadlock_notified = False
+        self.trace.emit("team_checkpoint_resume", agent=member.agent.name, activation=member.activation,
+                        instruction=args["instruction"])
+        return dict(status="resumed", worker_id=member.agent.name)
 
     def _update(self, args, actor):
         task = self.tasks.get(args["task_id"])
@@ -295,11 +401,17 @@ class AgentTeam(Session):
                     self.members[t["owner"]].cause == "assignment" and self.members[t["owner"]].task_id == t["task_id"]) or
                     t["result_revision"] and t["status"] != "cancelled") for t in self.tasks.values()):
                 raise ValueError("Dependent work used this input; cancel and drain it before reopening")
+            rejection = self._assignment_preflight()
+            if rejection is not None:
+                return rejection
             task.update(status="assigned", specification_revision=task["specification_revision"] + 1,
                         context=task["context"] + "\nFollow-up: " + args["reason"], completion_status=None)
             member.task_id, member.state = task["task_id"], "assigned"
         else:
             task["status"] = "cancelled"
+            if member.active and member.cause == "assignment" and member.task_id == task["task_id"] and member.state == "checkpoint":
+                member.state = "ready"
+                self.ready.append(member.agent.name)
             if not member.active and member.task_id == task["task_id"] and member.state not in {"failed", "exhausted", "closed"}:
                 member.state = "idle"
         task["leader_decision"] = args["reason"]
@@ -307,6 +419,8 @@ class AgentTeam(Session):
         return dict(task=task, note="Leader acceptance is not evaluator correctness")
 
     def _send(self, args, actor):
+        if args.get("action") == "work" and not all(args.get(k) for k in ("expected_result", "stop_condition")):
+            raise ValueError("Work messages require expected_result and stop_condition")
         target = args["to"]
         if target == actor.name or target != "leader" and target not in self.members:
             raise ValueError("Address a different existing team member")
@@ -322,7 +436,8 @@ class AgentTeam(Session):
         stale = bool(reply and task_id and reply["task_id"] == task_id and reply["specification_revision"] != revision)
         record = self.mail.send(actor.name, target, args["content"], kind=args.get("kind", "info"),
             task_id=task_id, revision=revision, stale_reply=stale,
-            reply_to=args.get("reply_to"), needs_reply=args.get("needs_reply", False))
+            reply_to=args.get("reply_to"), needs_reply=args.get("needs_reply", False),
+            action=args.get("action"), expected_result=args.get("expected_result"), stop_condition=args.get("stop_condition"))
         state = self.members[target].state if target != "leader" else (
             "in_flight" if "leader" in self.futures else "waiting" if self.root_waiting else "ready")
         self.deadlock_notified = False
@@ -367,11 +482,11 @@ class AgentTeam(Session):
         if not ignore_leader and self.root_waiting and self.root_deadline is not None:
             return False
         for name, member in self.members.items():
-            if member.active and (member.state != "waiting" or member.wait_until is not None):
+            if member.active and member.state != "checkpoint" and (member.state != "waiting" or member.wait_until is not None):
                 return False
             if not member.active and self._assignment_ready(member):
                 return False
-            if self.mail.pending.get(name) and (member.active or member.state in {"idle", "assigned"}):
+            if self.mail.pending.get(name) and ((member.active and member.state != "checkpoint") or member.state in {"idle", "assigned"}):
                 return False
         return True
 
@@ -386,6 +501,13 @@ class AgentTeam(Session):
                         task_id=member.task_id, specification_revision=member.assignment_revision, **args)
         return dict(status="recorded", completion_status=args["status"], note="Member claim only; not verified correctness")
 
+    def _finish_message(self, args, actor):
+        member = self.members[actor.name]
+        if not member.active or member.cause != "message":
+            raise ValueError("finish_message requires active message-only work")
+        member.message_summary = args["summary"]
+        return dict(status="recorded", note="Message work returned; no assignment completion claimed")
+
     def _report_status(self, args, actor):
         member = self.members[actor.name]
         task = self.tasks.get(member.task_id)
@@ -393,7 +515,9 @@ class AgentTeam(Session):
             raise ValueError("No live owned assignment to report")
         self.mail.send(actor.name, "leader", args["summary"], kind=args["status"], task_id=member.task_id,
                        revision=task["specification_revision"])
-        if args["status"] == "blocked":
+        if args["status"] == "checkpoint":
+            member.checkpoint_summary = args["summary"]
+        elif args["status"] == "blocked":
             task["status"] = "blocked"
             member.state, member.wait_until = "waiting", None
         else:
@@ -433,6 +557,7 @@ class AgentTeam(Session):
                     requests={k: dict(v) for k, v in self.mail.requests.items() if v["state"] != "resolved"},
                     pending_mail={k: len(v) for k, v in self.mail.pending.items() if v},
                     activations=self.activations, explicit_messages=self.mail.sent,
+                    worker_quantum=self.worker_quantum,
                     frozen_files=self.frozen_files,
                     budget=self.session_budget.snapshot(), close_reason=self.close_reason)
 
@@ -445,7 +570,8 @@ class AgentTeam(Session):
         if not admitted:
             member.state = "exhausted"
             self._notice(dict(event="activation_rejected", worker_id=member.agent.name,
-                              reason="activation_or_model_capacity", task_id=member.task_id))
+                              reason="activation_or_model_capacity", task_id=member.task_id,
+                              budget=self._budget_feedback()))
             return
         self.deadlock_notified = False
         self.activations += 1
@@ -456,6 +582,8 @@ class AgentTeam(Session):
         member.pending_task_id = member.task_id if cause == "message" and task["status"] == "assigned" else None
         member.previous_task_id = member.task_id if cause == "message" and not member.pending_task_id else None
         member.declaration = None
+        member.message_summary = member.checkpoint_summary = None
+        member.slice_start = member.agent.model_calls
         member.wait_until, member.state = None, "ready"
         member.before = (member.agent.model_calls, member.agent.tool_calls, member.agent.budget.used)
         if cause == "assignment":
@@ -465,9 +593,13 @@ class AgentTeam(Session):
             self._touch(task, "started", member.agent.name)
             prompt = json.dumps(dict(task_id=member.task_id, task=task["objective"], context=task["context"],
                                      write_scope=task["write_scope"], depends_on=task["depends_on"],
+                                     deliverable=task.get("deliverable"), stop_condition=task.get("stop_condition"),
                                      specification_revision=member.assignment_revision), ensure_ascii=False)
         else:
-            prompt = "Message activation: continue on the incoming messages with your existing template permissions. Only the Leader can change task assignments. This activation cannot complete an assignment."
+            prompt = ("Message activation: handle only the incoming action and stop condition, not the old task again. "
+                      "For action=none, normally return immediately without tools or acknowledgement mail. "
+                      "Your existing template permissions are unchanged. Only the Leader can change assignments. "
+                      "This activation cannot complete an assignment. Use finish_message or a final reply when done.")
             if member.pending_task_id:
                 prompt += "\nPending assignment (not started; dependencies still govern its execution): " + json.dumps(
                     {k: task[k] for k in ("task_id", "objective", "context", "write_scope", "depends_on", "specification_revision")}, ensure_ascii=False)
@@ -501,6 +633,15 @@ class AgentTeam(Session):
             member.audited = True
         with self.condition:
             self.mail.deliver(actor, limit=len(self.mail.records) if self.phase == "frozen" else 8)
+            if member is None:
+                # Append at a safe turn boundary; never rewrite the cached prefix.
+                actor.append(dict(role="user", content="Team budget before this request (concurrent work may consume more):\n" +
+                                  json.dumps(self._budget_feedback())))
+            else:
+                actor.append(dict(role="user", content="Work budget before this request:\n" + json.dumps(dict(
+                    budget=self._budget_feedback(),
+                    slice_calls_remaining=max(0, self.worker_quantum - (actor.model_calls-member.slice_start)),
+                    note="Finish the scoped work or report a checkpoint before this slice ends; no completion is inferred."))))
             final = member is not None and (self.phase in {"draining", "aborted"} or
                     member.cause == "assignment" and self.tasks[member.task_id]["status"] == "cancelled")
         try:
@@ -508,6 +649,8 @@ class AgentTeam(Session):
                 member and member.cause == "assignment" and self.tasks[member.task_id]["status"] == "cancelled" else "team_draining") if final else None)
             if result is None and member is not None and member.declaration is not None:
                 result = Outcome(member.declaration["summary"], "done", actor.invocation_turns)
+            if result is None and member is not None and member.message_summary is not None:
+                result = Outcome(member.message_summary, "done", actor.invocation_turns)
         except BaseException:
             if member is not None:
                 self.audit("after", worker_id, member.activation)
@@ -547,7 +690,19 @@ class AgentTeam(Session):
             return
         member = self.members[worker_id]
         if result is None:
-            if member.state != "waiting":
+            if self.phase == "open" and (member.checkpoint_summary is not None or
+                    member.agent.model_calls - member.slice_start >= self.worker_quantum):
+                member.state, member.wait_until = "checkpoint", None
+                task = self.tasks.get(member.task_id)
+                checkpoint = dict(event="worker_checkpoint", worker_id=worker_id, activation=member.activation,
+                    cause=member.cause, task_id=member.task_id if member.cause == "assignment" else None,
+                    summary=member.checkpoint_summary or "Scheduling quantum reached; no completion claimed.",
+                    last_reply=member.agent.last_text, deliverable=task.get("deliverable"), stop_condition=task.get("stop_condition"),
+                    slice_model_calls=member.agent.model_calls-member.slice_start, budget=self._budget_feedback())
+                member.checkpoint_summary = None
+                self.trace.emit("team_checkpoint", **checkpoint)
+                self._notice(checkpoint)
+            elif member.state != "waiting":
                 member.state = "ready"
                 self.ready.append(worker_id)
             return
@@ -570,12 +725,13 @@ class AgentTeam(Session):
                         result_revision=task["result_revision"] + 1, completion_status=report["completion_status"])
             self._touch(task, "handoff", worker_id)
             report["task_revision"] = task["revision"]
-        self.trace.emit("team_activation_end", **report)
-        self.reports.append(report)
-        self._notice(report, "result", report["task_id"])
         member.active, member.wait_until = False, None
         member.state = "failed" if failed else "assigned" if task and task["status"] == "assigned" else "idle"
         self.session_budget.release_report(worker_id)
+        report["budget"] = self._budget_feedback()
+        self.trace.emit("team_activation_end", **report)
+        self.reports.append(report)
+        self._notice(report, "result", report["task_id"])
 
     def _freeze(self):
         self.phase = "frozen"
@@ -606,6 +762,7 @@ class AgentTeam(Session):
                         task_completion_policy=self.task_completion_policy,
                         templates=[asdict(t) for t in self.templates.values()], leader_mode=self.leader_mode, max_workers=self.max_workers,
                         max_parallel=self.max_parallel, max_activations=self.max_activations,
+                        worker_quantum=self.worker_quantum,
                         message_limit=self.mail.limit, message_bytes=self.mail.max_bytes,
                         budget=self.session_budget.snapshot())
         self.leader.start(task, self.leader_final_prompt)

@@ -15,7 +15,7 @@ import uuid
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from benchmarks.kramabench.adapter import run_task
-from benchmarks.kramabench.evaluation import grade_numeric
+from benchmarks.kramabench.evaluation import grade_answer, scoring_contract
 from benchmarks.kramabench.roles import (LEADER_SYSTEM, PROJECT_CONTEXT,
                                         SUBMISSION_SCHEMA, SUBMISSION_INSTRUCTIONS, TEMPLATES)
 from benchmarks.kramabench.tasks import load_tasks
@@ -33,8 +33,10 @@ from harness.team import LEADER_POLICY, WORKER_POLICY
 
 MODEL = ModelConfig(model='deepseek-flash', thinking='enabled', reasoning_effort='high',
                     max_tokens=16384, context_window=1_000_000, retries=0, timeout=180)
-LIMITS = dict(session_model_calls=64, session_tool_calls=120, session_seconds=1800, audit_seconds=120,
-              max_parallel=4, max_workers=8, max_activations=64, message_limit=128, message_bytes=8192)
+LIMITS = dict(session_model_calls=600, session_tool_calls=300, session_seconds=3600, audit_seconds=120,
+              max_parallel=4, max_workers=8, max_activations=64, message_limit=128, message_bytes=8192, worker_quantum=16)
+THREAD_ENV = {key: '1' for key in ('OMP_NUM_THREADS', 'OPENBLAS_NUM_THREADS', 'MKL_NUM_THREADS',
+                                  'NUMEXPR_NUM_THREADS', 'VECLIB_MAXIMUM_THREADS')}
 PRICING = {'source': 'https://api-docs.deepseek.com/quick_start/pricing/', 'checked_date': '2026-11-01',
            'models': {'deepseek-flash': {'cache_hit': 0.003, 'cache_miss': 0.15, 'output': 0.60}},
            'peak_hours_utc': [[1, 4], [6, 10]], 'peak_multiplier': 2,
@@ -57,22 +59,29 @@ else:
     data_probe.unlink()
     raise AssertionError('Dataset is writable')
 import numpy, pandas, scipy, openpyxl
+import os
+assert all(os.environ.get(k) == '1' for k in ('OMP_NUM_THREADS', 'OPENBLAS_NUM_THREADS', 'MKL_NUM_THREADS', 'NUMEXPR_NUM_THREADS', 'VECLIB_MAXIMUM_THREADS'))
 print(json.dumps({'workspace_read_write': True, 'dataset_readonly': True, 'analysis_imports': True}))
 '''
 
 
-def main():
+def main(argv=None, *, client_factory=None, stop_event=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--upstream', type=Path, required=True)
     parser.add_argument('--image', required=True)
     parser.add_argument('--output', type=Path, required=True)
     parser.add_argument('--task-id', default='archeology-hard-1')
     parser.add_argument('--execute-paid', action='store_true')
-    parser.add_argument('--mode', choices=('both', 'single', 'team', 'leader-pair'), default='team',
+    parser.add_argument('--model-calls', type=int, default=LIMITS['session_model_calls'])
+    parser.add_argument('--tool-calls', type=int, default=LIMITS['session_tool_calls'])
+    parser.add_argument('--mode', choices=('both', 'single', 'team', 'leader-pair', 'all'), default='team',
                         help='leader-pair explicitly runs coordinator and full Team once each')
     parser.add_argument('--leader-mode', choices=('full', 'coordinator'),
                         help='For a single Team condition: coordinator (default) or full domain tools')
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
+    if args.model_calls < 2 or args.tool_calls < 1:
+        parser.error('Require at least two model calls and one domain call')
+    limits = dict(LIMITS, session_model_calls=args.model_calls, session_tool_calls=args.tool_calls)
     if not args.execute_paid:
         parser.error('Real calls require --execute-paid and run-specific user authorization')
     try:
@@ -82,6 +91,7 @@ def main():
     if (ROOT / '.env').stat().st_mode & 0o077:
         raise ValueError('.env must be private (0600)')
     tasks, provenance = load_tasks(args.upstream)
+    grading = scoring_contract(args.upstream)
     task = next(t for t in tasks if t.id == args.task_id)
     dataset = (args.upstream / 'data' / task.domain / 'input').resolve(strict=True)
     root = args.output.resolve()
@@ -89,14 +99,14 @@ def main():
     load_env()
     # Constructor checks credentials without sending an API request.
     order = list(conditions)
-    clients = {mode: ChatClient(MODEL) for mode in order}
+    clients = {mode: (client_factory or ChatClient)(MODEL) for mode in order}
     owned, workspaces, arms = [], {}, {}
     summary = {'task': asdict(task), 'task_count': 1, 'attempts_per_arm': 1, 'conditions': conditions,
                'order': order, 'monetary_limit_usd': None, 'retries': 0,
                'paid_judge_calls': 0, 'arms': {}, 'status': 'preparing',
                'cache_order_policy': 'Recorded selected-arm order; not cache-balanced efficacy evidence'}
-    write_json(root / 'launch.json', dict(summary, model=asdict(MODEL), limits=LIMITS, pricing=PRICING,
-                                        conditions=conditions))
+    write_json(root / 'launch.json', dict(summary, model=asdict(MODEL), limits=limits, pricing=PRICING,
+                                        conditions=conditions, scoring=grading, thread_limits=THREAD_ENV))
     write_json(root / 'summary.json', summary)
     try:
         for mode in order:
@@ -109,6 +119,7 @@ def main():
                 '--network', 'none', '--cpus', '2', '--memory', '4g', '--pids-limit', '128',
                 '--cap-drop', 'ALL', '--security-opt', 'no-new-privileges',
                 '--user', f'{os.getuid()}:{os.getgid()}',
+                *[value for key, setting in THREAD_ENV.items() for value in ('--env', key + '=' + setting)],
                 '--mount', f'type=bind,src={dataset},dst=/data,readonly',
                 '--mount', f'type=bind,src={work},dst=/workspace',
                 args.image, 'sleep', 'infinity'], text=True).strip()
@@ -127,24 +138,35 @@ def main():
                                  'final_tool_policy': 'submit_only_auto_no_forced_named_tool',
                                  'final_prompt': SUBMISSION_INSTRUCTIONS, 'team_policy': LEADER_POLICY,
                                  'worker_policy': WORKER_POLICY},
-                'budgets': LIMITS, 'pricing': PRICING, 'source_digest': source_digest(),
+                'budgets': limits, 'pricing': PRICING, 'source_digest': source_digest(),
+                'scoring': grading, 'thread_limits': THREAD_ENV,
                 'artifact_policy': 'selected_path_frozen_hash_v3'}
             arms[mode] = {'contract': contract, 'environment': environment,
                           'condition': conditions[mode],
                           'output': str(root / mode), 'archive': str(workspace.archive_dir)}
             workspaces[mode] = workspace
         record = {'contract': contract, 'arms': arms}
-        preflight = validate_pair(arms) if len(arms) == 2 else dict(record, sha256=fingerprint(record))
+        if len(arms) == 3:
+            pairs = {'leader_permissions': validate_pair({k: arms[k] for k in ('team_coordinator', 'team_full')})}
+            for name in ('team_coordinator', 'team_full'):
+                pairs[name] = validate_pair({'single': arms['single'], 'team': arms[name]})
+            record['validated_pairs'] = pairs
+            preflight = dict(record, sha256=fingerprint(record))
+        else:
+            preflight = validate_pair(arms) if len(arms) == 2 else dict(record, sha256=fingerprint(record))
         write_json(root / 'preflight-manifest.json', preflight)
         print('Selected containers and frozen preflight passed. Starting authorized calls.', flush=True)
         summary['status'] = 'running'
         write_json(root / 'summary.json', summary)
         fatal = False
         for mode in summary['order']:
-            if fatal:
+            if fatal or (stop_event is not None and stop_event.is_set()):
+                fatal = True
                 summary['arms'][mode] = {'status': 'not_run_after_fatal'}
                 continue
             before = observed_balance(MODEL)
+            if stop_event is not None and (before.get('fatal') or before.get('is_available') is False):
+                stop_event.set()
             write_json(root / (mode + '-balance-before.json'), before)
             failure = None
             try:
@@ -152,13 +174,16 @@ def main():
                 run_task(task, client=clients[mode], workspace=workspaces[mode], dataset=dataset,
                     output=root / mode, provenance=provenance, pricing=PRICING, **conditions[mode],
                     expected_environment=arms[mode]['environment'], comparison_sha256=preflight['sha256'],
-                    **LIMITS)
+                    **limits)
             except Exception as error:
                 failure = {'type': type(error).__name__, 'message': str(error)}
                 fatal = (isinstance(error, ProviderError) and error.fatal) or before.get('fatal') or before.get('is_available') is False
+            fatal = bool(fatal or (stop_event is not None and stop_event.is_set()))
             after = {'status': 'not_queried_after_fatal'} if fatal else observed_balance(MODEL)
             write_json(root / (mode + '-balance-after.json'), after)
             fatal = bool(fatal or after.get('fatal') or after.get('is_available') is False)
+            if fatal and stop_event is not None:
+                stop_event.set()
             report_path = root / mode / 'report.json'
             result = json.loads(report_path.read_text()) if report_path.exists() else {'status': 'preflight_error', 'failure': failure}
             if (root / mode / 'trace.jsonl').exists():
@@ -173,11 +198,13 @@ def main():
         for mode in summary['order']:
             submission = root / mode / 'submission.json'
             if submission.exists():
-                grade = grade_numeric(args.upstream, task.id, submission)
+                grade = grade_answer(args.upstream, task.id, submission)
                 write_json(root / mode / 'grade.json', grade)
-                summary['arms'][mode]['numeric_grade'] = grade
+                summary['arms'][mode]['answer_grade'] = grade
             elif summary['arms'].get(mode, {}).get('status') not in {'not_run_after_fatal', 'preflight_error'}:
-                summary['arms'][mode]['numeric_grade'] = {'score': 0, 'reason': 'no_valid_submission', 'judge_calls': 0}
+                grade = grade_answer(args.upstream, task.id, None)
+                write_json(root / mode / 'grade.json', grade)
+                summary['arms'][mode]['answer_grade'] = grade
         summary['status'] = ('stopped_after_fatal' if fatal else 'preflight_failed'
                              if any(r['status'] == 'preflight_error' for r in summary['arms'].values()) else 'attempts_finished')
         write_json(root / 'summary.json', summary)
@@ -194,9 +221,10 @@ def main():
         for client in clients.values():
             client._http.close()
     print(json.dumps({'status': summary['status'], 'output': str(root), 'arms': {
-        mode: {'status': result['status'], 'score': result.get('numeric_grade', {}).get('score'),
+        mode: {'status': result['status'], 'score': result.get('answer_grade', {}).get('score'),
                'cost_usd_estimate': result.get('cost_usd_estimate')}
         for mode, result in summary['arms'].items()}}, indent=2))
+    return summary
 
 
 if __name__ == '__main__':

@@ -11,7 +11,7 @@ from benchmarks.kramabench.offline import comparison_smoke
 from harness.agent import Observation, Outcome, Tool
 from harness.comparison import selected_conditions, validate_pair
 from harness.trace import Trace, activation_summary, read_trace, validate
-from test_comparison_review_fixes import paired_specs
+from test_comparison_contract import paired_specs
 from test_team import call, finish_when_returned, inbox, invoke, make, names_used
 
 
@@ -210,7 +210,9 @@ def test_same_coordination_policy_with_enforced_different_domain_grants(tmp_path
 
 
 @pytest.mark.parametrize("fatal", [False, True])
-def test_pilot_leader_pair_dispatch_is_explicit_once_per_arm_and_stops_after_fatal(tmp_path, monkeypatch, fatal):
+@pytest.mark.parametrize("mode", ["leader-pair", "all"])
+@pytest.mark.parametrize("pending_judge", [False, True])
+def test_pilot_leader_pair_dispatch_is_explicit_once_per_arm_and_stops_after_fatal(tmp_path, monkeypatch, fatal, mode, pending_judge):
     from benchmarks.kramabench.tasks import Task
     from harness.llm import ProviderError
     from scripts.kramabench import pilot
@@ -218,7 +220,7 @@ def test_pilot_leader_pair_dispatch_is_explicit_once_per_arm_and_stops_after_fat
     (upstream / "data/archeology/input").mkdir(parents=True)
     (tmp_path / ".env").touch(mode=0o600)
     root = tmp_path / "run"
-    conditions = selected_conditions("leader-pair")
+    conditions = selected_conditions(mode)
     calls, created, removed, closed = [], [], [], []
 
     class Client:
@@ -262,10 +264,17 @@ def test_pilot_leader_pair_dispatch_is_explicit_once_per_arm_and_stops_after_fat
             raise ProviderError("http_402", "synthetic balance failure", 402)
         kwargs["output"].mkdir()
         pilot.write_json(kwargs["output"] / "report.json", dict(status="completed", fixture_only=True))
+        if pending_judge:
+            pilot.write_json(kwargs["output"] / "submission.json", {})
+
+    def pending_grade(*args):
+        return dict(status='pending_judge', score=None, judge_calls=0)
 
     monkeypatch.setattr(pilot, "ROOT", tmp_path)
     monkeypatch.setattr(pilot, "load_env", lambda: None)
     monkeypatch.setattr(pilot, "load_tasks", lambda path: ([Task("fixture", "archeology", "public fixture")], {}))
+    monkeypatch.setattr(pilot, "scoring_contract", lambda path: {"fixture": True})
+    monkeypatch.setattr(pilot, "grade_answer", lambda *args: dict(status='invalid_submission', score=0, judge_calls=0))
     monkeypatch.setattr(pilot, "ChatClient", Client)
     monkeypatch.setattr(pilot, "ContainerWorkspace", Workspace)
     monkeypatch.setattr(pilot, "inspection_tools", lambda ws: ())
@@ -273,16 +282,19 @@ def test_pilot_leader_pair_dispatch_is_explicit_once_per_arm_and_stops_after_fat
     monkeypatch.setattr(pilot, "validate_data_container", environment)
     monkeypatch.setattr(pilot, "observed_balance", lambda cfg: {"status": "recorded", "is_available": True})
     monkeypatch.setattr(pilot, "run_task", attempt)
+    if pending_judge:
+        monkeypatch.setattr(pilot, "grade_answer", pending_grade)
     monkeypatch.setattr(pilot.subprocess, "check_output", command)
     monkeypatch.setattr(pilot.subprocess, "run", run_command)
     monkeypatch.setattr(pilot.sys, "argv", ["pilot", "--upstream", str(upstream), "--image", "fixture-image",
-        "--output", str(root), "--task-id", "fixture", "--mode", "leader-pair", "--execute-paid"])
+        "--output", str(root), "--task-id", "fixture", "--mode", mode, "--execute-paid",
+        "--model-calls", "128" if mode == "all" else "64", "--tool-calls", "240"])
     pilot.main()
-    assert [c["name"] for c in calls] == (["team_coordinator"] if fatal else list(conditions))
+    assert [c["name"] for c in calls] == (list(conditions)[:1] if fatal else list(conditions))
     for record in calls:
         assert {k: record[k] for k in ("mode", "leader_mode")} == conditions[record["name"]]
-        assert record["model_calls"] == 64
-    assert removed == created and len(closed) == 2
+        assert record["model_calls"] == (128 if mode == "all" else 64)
+    assert removed == created and len(closed) == len(conditions)
     summary = json.loads((root / "summary.json").read_text())
     assert summary["conditions"] == conditions and summary["paid_judge_calls"] == 0
     if fatal:
@@ -290,3 +302,6 @@ def test_pilot_leader_pair_dispatch_is_explicit_once_per_arm_and_stops_after_fat
         assert summary["arms"]["team_full"]["status"] == "not_run_after_fatal"
     else:
         assert len({c["comparison"] for c in calls}) == 1
+        if pending_judge:
+            assert all(r['answer_grade']['status'] == 'pending_judge' and
+                       r['answer_grade']['score'] is None for r in summary['arms'].values())

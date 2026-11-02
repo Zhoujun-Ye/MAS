@@ -1,4 +1,4 @@
-"""Review regressions: protocol mechanics only, with scripted clients."""
+"""Team protocol and artifact-export regressions with scripted clients."""
 
 from concurrent.futures import Future
 import hashlib

@@ -2,20 +2,26 @@
 
 from harness.catalog import CapabilityTemplate
 
-CATALOG_VERSION = "kramabench-team-v5"
+CATALOG_VERSION = "kramabench-team-v8"
+ANSWER_SCHEMA = {"type": ["number", "string", "boolean", "array", "null"],
+                 "items": {"type": ["number", "string", "boolean", "null"]},
+                 "description": "Only the requested result: a scalar for one numeric result, or a list if explicitly requested. No diagnostic objects."}
 SUBMISSION_SCHEMA = {
     "type": "object",
-    "properties": {"answer": {}, "pipeline_path": {"type": ["string", "null"], "minLength": 1},
+    "properties": {"answer": ANSWER_SCHEMA, "pipeline_path": {"type": ["string", "null"], "minLength": 1},
                    "evidence": {"type": "string"}, "unfinished": {"type": "array", "items": {"type": "string"}}},
     "required": ["answer", "pipeline_path", "evidence", "unfinished"],
     "additionalProperties": False,
 }
 SUBMISSION_INSTRUCTIONS = (
-    "Finish by calling submit alone with answer (JSON value), pipeline_path (workspace Python file, "
+    "Finish by calling submit alone with answer (only the requested result), pipeline_path (workspace Python file, "
     "relative or under /workspace), evidence (string), and unfinished (array of strings). "
     "The runtime exports the selected file and verifies its snapshot hash; do not paste code into submit. "
     "If no pipeline was produced, use answer=null, pipeline_path=null and explain unfinished work. "
     "Plain text is not a submission."
+    " For a question asking one numeric value, answer must be that number alone, not an object. "
+    "For an explicitly requested list, use a list of result values. Put units, sample counts, "
+    "alternative estimates and explanations in evidence, never in an answer wrapper."
 )
 READ_TOOLS = ("list_files", "inspect_file", "read_file", "read_output")
 ALL_TOOLS = (*READ_TOOLS, "write_file", "terminal")
@@ -27,11 +33,23 @@ PROJECT_CONTEXT = (
     "Assigned write scopes coordinate use of the shared workspace. "
     "For assigned pipeline implementation, save runnable code and report its path. "
     "For domain analysis and verification, check output units and precision. "
+    "Keep the requested final result separate from diagnostic statistics; a single numeric question "
+    "needs a scalar result, not a dictionary of results and metadata. "
     "Clarify ambiguous requirements; check data coverage, missing values, duplicates and types. "
+    "Separate requirement/scope evidence from execution and arithmetic checks. State which assumptions "
+    "each check supports and which it merely adopts; matching implementations do not validate a shared "
+    "assumption. For material ambiguity, compare the plausible interpretations against the supplied "
+    "requirements and source evidence, and retain unresolved uncertainty rather than claiming unconditional validation. "
     "Check join cardinality and reproducibility where relevant. "
     "Report observed outputs, checks performed and unfinished work. "
     "For assigned verification, run the saved artifact and compare its output with the requirements; "
-    "report the command and outcome, distinguishing execution checks from method validation."
+    "report the command and outcome, distinguishing execution checks from method validation. "
+    "Scope additional checks to a named unresolved question and evidence that could change the conclusion. "
+    "Reuse existing artifacts and checked findings; after edits, focus on changed behavior and affected interfaces."
+    " Run the submitted production file and check its requested output before optional independent reconstruction. "
+    "Limit discovery to sources needed for the assigned deliverable; do not inventory unrelated data. "
+    "A documentation or diagnostic-only change does not automatically require redoing all numerical analysis; "
+    "identify what behavior actually changed and check that boundary."
 )
 LEADER_SYSTEM = "Solve the data-analysis question using the provided data and available tools. " + SUBMISSION_INSTRUCTIONS
 TEMPLATES = (

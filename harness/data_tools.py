@@ -16,7 +16,10 @@ from pathlib import Path
 
 request = json.load(sys.stdin)
 root = Path(request.pop("root")).resolve(strict=True)
-path = (root / request.get("path", ".")).resolve(strict=True)
+requested = request.get("path", ".")
+if request["operation"] == "list" and requested == "/":
+    requested = "."
+path = (root / requested).resolve(strict=True)
 if not path.is_relative_to(root):
     raise ValueError("Path must remain within the selected root")
 if request["operation"] == "list":
@@ -104,7 +107,7 @@ def inspection_tools(workspace, *, data_root="/data", work_root="/workspace"):
               "path": {"type": "string", "minLength": 1},
               "offset": {"type": "integer", "minimum": 0}}
     return [
-        Tool("list_files", "List one directory of data or work, sorted and paginated. Paths are relative to that area.",
+        Tool("list_files", "List one directory of data or work, sorted and paginated. Paths are relative to that area; omit path or use '.' for its root. '/' also selects the area root.",
              {"type": "object", "properties": dict(common, limit={"type": "integer", "minimum": 1, "maximum": 200}),
               "required": ["area"], "additionalProperties": False},
              lambda args, agent: invoke("list", args, agent), budgeted=True, read_only=True),
