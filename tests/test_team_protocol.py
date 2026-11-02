@@ -56,6 +56,67 @@ def test_wait_has_no_implicit_timeout_and_accepts_long_explicit_timeout(tmp_path
         assert not team.client.requests
 
 
+def test_accept_returned_assignment_during_unrelated_message_work(tmp_path):
+    with Trace(tmp_path / 'trace.jsonl', 'accept-during-message') as trace:
+        team = make(trace, lambda *a: {})
+        invoke(team.leader, 'spawn_worker', template='worker', task='produce')
+        member = team.members['worker-1']
+        with team.condition:
+            team._activate(member, 'assignment')
+            member.declaration = dict(status='completed', summary='saved artifact')
+            ended = Future()
+            ended.set_result(Outcome('saved artifact', 'done', 1))
+            team._complete('worker-1', ended)
+            task = team.tasks['task-1']
+            original = (task['report'], task['outcome'], task['completion_status'], task['result_revision'])
+            invoke(team.leader, 'send_message', to='worker-1', content='FYI only')
+            team._activate(member, 'message')
+        grants = set(member.agent.tools)
+        result = invoke(team.leader, 'update_task', task_id='task-1', expected_revision=task['revision'],
+                        action='accept', reason='assignment already returned')
+        assert not result.meta.get('error') and task['status'] == 'accepted'
+        assert member.active and member.cause == 'message' and set(member.agent.tools) == grants
+        ended = Future()
+        ended.set_result(Outcome('FYI received', 'done', 1))
+        with team.condition:
+            team._complete('worker-1', ended)
+        assert (task['report'], task['outcome'], task['completion_status'], task['result_revision']) == original
+
+
+def test_bad_message_target_reports_actual_ids_without_sending(tmp_path):
+    with Trace(tmp_path / 'trace.jsonl', 'message-target') as trace:
+        team = make(trace, lambda *a: {})
+        invoke(team.leader, 'spawn_worker', template='worker', task='produce')
+        before = team.mail.sent
+        result = invoke(team.leader, 'send_message', to='explorer', content='wrong ID')
+        assert result.meta['error'] and 'available IDs: ["worker-1"]' in result.text
+        assert team.mail.sent == before and not team.client.requests
+
+
+def test_accept_old_returned_assignment_while_owner_runs_a_new_assignment(tmp_path):
+    with Trace(tmp_path / 'trace.jsonl', 'accept-old-task') as trace:
+        team = make(trace, lambda *a: {})
+        invoke(team.leader, 'spawn_worker', template='worker', task='first')
+        member = team.members['worker-1']
+        with team.condition:
+            team._activate(member, 'assignment')
+            member.declaration = dict(status='completed', summary='first result')
+            ended = Future()
+            ended.set_result(Outcome('first result', 'done', 1))
+            team._complete('worker-1', ended)
+            invoke(team.leader, 'assign_task', worker_id='worker-1', task='second')
+            team._activate(member, 'assignment')
+        first, second = team.tasks.values()
+        accepted = invoke(team.leader, 'update_task', task_id='task-1', expected_revision=first['revision'],
+                          action='accept', reason='first returned before new work')
+        assert not accepted.meta.get('error') and first['status'] == 'accepted'
+        assert second['status'] == 'running' and second['completion_status'] is None
+        assert member.active and member.task_id == 'task-2' and member.declaration is None
+        rejected = invoke(team.leader, 'update_task', task_id='task-2', expected_revision=second['revision'],
+                          action='accept', reason='must not accept unfinished work')
+        assert rejected.meta['error'] and second['status'] == 'running'
+
+
 def test_no_runnable_notification_resets_and_blocked_wakeup_restores_running(tmp_path):
     observed = []
     def policy(messages, tools, choice):

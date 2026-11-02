@@ -137,6 +137,11 @@ reports remain partial runtime outcomes without inferred completion. Reopen clea
 the old completion claim for the new specification. Explicit completion is still a
 member claim, not execution verification, evaluator correctness or team success.
 
+Acceptance checks the selected task's return, not whether its owner is idle now.
+A returned task can be accepted while the owner handles mail or a different
+assignment. This does not alter the active work, its history or completion claim.
+Accepting a still-running assignment remains rejected; revision checks still apply.
+
 Reopen preserves identity, complete history and lifetime domain budget, increments
 the specification revision and appends the repair brief. If a dependent has used
 the prior result, it must first be cancelled and drained. New work for an old owner
@@ -317,6 +322,20 @@ changes. Real-model scope adherence, token/cache overhead, accuracy and cost eff
 remain unmeasured. Prior runs and their reports are unchanged.
 
 ## Budgets And Evidence
+
+Terminal completion records are parsed independently of merged-output ordering:
+late stderr is retained even when it follows the stdout exit record. Confirmed
+nonzero command exits are command failures, not Docker transport failures. Tool
+metadata distinguishes `execution_confirmed` and `executor_exit_code`; without a
+record, `exit_code` is only the executor status. A signal without exit confirmation
+is `execution_interrupted` (or `execution_timeout` at the deadline), not evidence
+by itself of a transport failure. The actor/cause may be unknown: model commands
+can kill their own shell/timeout wrapper, and container/process termination can
+also interrupt execution. Such errors remain in history; `infra_affected=false`
+does not prove that external infrastructure played no role. Actual transport and
+audit/provider errors retain their separate infrastructure diagnostics.
+Terminal guidance names POSIX sh, explicit Bash invocation and saved-PID cleanup;
+shell access still is not a sandbox or protection against killing the executor.
 
 The pilot entry point exposes these bounded settings (not authorization to run):
 

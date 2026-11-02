@@ -65,6 +65,21 @@ def test_single_spends_same_session_ceiling_and_reserves_final_call(tmp_path):
     assert outcome.budget["model_calls"] == 3 and outcome.budget["tool_calls"] == 2
 
 
+@pytest.mark.parametrize('kind,infra', [('execution_interrupted', False), ('execution_transport', True)])
+def test_execution_history_does_not_infer_infra_from_unconfirmed_interruption(tmp_path, kind, infra):
+    tool = Tool('execute', 'execute', {'type': 'object'},
+                lambda *a: Observation('execution not confirmed', {'error': True, 'error_kind': kind}), budgeted=True)
+    client = ScriptedClient(lambda messages, names, choice:
+                            {'content': 'partial work retained'} if any(m.get('tool_calls') for m in messages)
+                            else {'calls': [('execute', {})]})
+    with Trace(tmp_path / 'trace.jsonl', kind) as trace:
+        session = SingleAgent(client, trace, [tool])
+        outcome = session.run('task')
+    assert outcome.infra_affected is infra
+    assert len(outcome.errors) == 1 and outcome.errors[0]['error_kind'] == kind
+    assert len(client.requests) == 2
+
+
 @pytest.mark.parametrize("mode", ["single", "team"])
 def test_pair_factory_preserves_single_grants_and_team_coordination_only(tmp_path, mode):
     with Trace(tmp_path / "trace.jsonl", mode) as trace:

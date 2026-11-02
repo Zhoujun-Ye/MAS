@@ -7,6 +7,7 @@ import subprocess
 import uuid
 import codecs
 import hashlib
+import re
 import time
 from pathlib import Path
 
@@ -28,6 +29,37 @@ class ContainerWorkspace:
         text = decoder.decode(data, final=final)
         return text, len(data) - len(decoder.getstate()[0])
 
+    @staticmethod
+    def exit_record(output, marker):
+        # Docker may multiplex late stderr after the stdout exit record. Scan
+        # bounded blocks rather than assuming the record is the final line.
+        pattern = re.compile(b'\n' + re.escape(marker.encode()) + rb'([0-9]{1,3})\n')
+        overlap = len(marker) + 5
+        output.seek(0)
+        carry, offset, record = b'', 0, None
+        while block := output.read(1024 * 1024):
+            data = carry + block
+            base = offset - len(carry)
+            for match in pattern.finditer(data):
+                code = int(match[1])
+                if code <= 255:
+                    record = (base + match.start(), base + match.end(), code)
+            carry = data[-overlap:]
+            offset += len(block)
+        return record
+
+    @staticmethod
+    def payload_blocks(output, ranges):
+        for start, end in ranges:
+            output.seek(start)
+            remaining = end - start
+            while remaining:
+                block = output.read(min(remaining, 1024 * 1024))
+                if not block:
+                    raise RuntimeError('Incomplete output capture')
+                yield block
+                remaining -= len(block)
+
     def execute(self, command, stdin=None, *, retain=False, timeout=None, capture_all=False):
         # stdout is spooled to disk so a noisy command cannot exhaust host RAM.
         import tempfile
@@ -47,43 +79,45 @@ class ContainerWorkspace:
                 transport_code = 124
             except OSError as error:
                 return dict(exit_code=None, output=str(error), truncated=False,
-                            execution_error=True, error_kind='execution_transport')
+                            execution_error=True, execution_confirmed=False, executor_exit_code=None,
+                            error_kind='execution_transport')
             size = output.tell()
-            output.seek(max(0, size - 100))
-            tail = output.read()
-            suffix = b'\n' + marker.encode()
-            parts = tail.rsplit(suffix, 1)
-            complete = transport_code == 0 and len(parts) == 2 and parts[1].strip().isdigit()
-            code = int(parts[1].strip()) if complete else transport_code
+            record = self.exit_record(output, marker) if transport_code == 0 else None
+            complete = record is not None
+            code = record[2] if complete else transport_code
             # BusyBox timeout returns the terminating signal (143/137), unlike
             # GNU's 124. A completed command with that exit still has a marker.
             timed_out = not complete and (code == 124 or
                 (code in (137, 143) and time.monotonic() - started >= timeout - 0.1))
-            payload_size = size - len(suffix) - len(parts[1]) if complete else size
-            output.seek(0)
-            data = output.read(payload_size if capture_all else min(payload_size, self.output_limit))
+            interrupted = not complete and (code < 0 or 129 <= code <= 192)
+            ranges = [(0, record[0]), (record[1], size)] if complete else [(0, size)]
+            payload_size = sum(end - start for start, end in ranges)
+            limit = payload_size if capture_all else min(payload_size, self.output_limit)
+            chunks = []
+            for block in self.payload_blocks(output, ranges):
+                chunks.append(block[:limit])
+                limit -= len(chunks[-1])
+                if not limit:
+                    break
+            data = b''.join(chunks)
             extra = {}
             if retain and self.archive_dir is not None:
                 self.archive_dir.mkdir(parents=True, exist_ok=True)
                 key = 'output_' + uuid.uuid4().hex
                 path = self.archive_dir / (key + '.bin')
-                output.seek(0)
-                remaining = payload_size
                 digest = hashlib.sha256()
                 with path.open('xb') as saved:
-                    while remaining:
-                        block = output.read(min(remaining, 1024 * 1024))
-                        if not block:
-                            raise RuntimeError('Incomplete output capture')
+                    for block in self.payload_blocks(output, ranges):
                         saved.write(block)
                         digest.update(block)
-                        remaining -= len(block)
                 self.outputs[key] = path
                 extra = dict(output_id=key, output_bytes=payload_size, output_sha256=digest.hexdigest())
         text, consumed = self.page(data, len(data) == payload_size)
         return dict(exit_code=code, output=text, **extra, next_offset=consumed,
+                    execution_confirmed=complete, executor_exit_code=transport_code,
                     truncated=not capture_all and payload_size > self.output_limit, execution_error=not complete,
-                    error_kind=None if complete else 'execution_timeout' if timed_out else 'execution_transport')
+                    error_kind=None if complete else 'execution_timeout' if timed_out else
+                    'execution_interrupted' if interrupted else 'execution_transport')
 
     def tools(self):
         import shlex
@@ -97,10 +131,15 @@ class ContainerWorkspace:
                           f"page: 0..{result['next_offset']}; more: {str(more).lower()}. "
                           + (f"Use read_output(id=\"{result['output_id']}\", offset={result['next_offset']}) for the rest. " if more else '')
                           + '\n')
+            if result.get('execution_error'):
+                header += ('Execution not confirmed: ' + result['error_kind'] +
+                           '. Exit code is the executor status, not a confirmed command result.\n')
             return Observation(header + result['output'],
                                {"error": result.get('execution_error', False),
                                 'error_kind': result.get('error_kind'),
                                 'exit_code': result['exit_code'],
+                                'execution_confirmed': result.get('execution_confirmed', False),
+                                'executor_exit_code': result.get('executor_exit_code'),
                                 'truncated': result['truncated'] and not bool(result.get('output_id')),
                                 'paginated': result['truncated'] and bool(result.get('output_id')),
                                 'output_preserved': bool(result.get('output_id')),
@@ -153,7 +192,7 @@ class ContainerWorkspace:
                                     paginated=end < size, output_preserved=True))
 
         return [
-            Tool("terminal", f"Execute in the configured workspace container, which may be shared. Large output is paged when read_output is available. Default timeout {self.timeout}s; request up to 600s for builds.",
+            Tool("terminal", f"Execute with POSIX sh in the configured workspace container, which may be shared. Invoke bash explicitly for Bash-only syntax. Stop only processes you own using saved PIDs; broad command-line substring matching can also kill the executor. Large output is paged when read_output is available. Default timeout {self.timeout}s; request up to 600s for builds.",
                  dict(type="object", properties={"command": dict(type="string", minLength=1),
                                                 "timeout_seconds": dict(type="integer", minimum=1, maximum=600)},
                       required=["command"], additionalProperties=False), invoke, budgeted=True),

@@ -97,3 +97,19 @@ def test_invalid_submission_retained_without_extraction_or_repair(tmp_path, text
     assert validate(events) == []
     assert contexts(events)["leader"][-1]["content"] == text
     assert len(client.requests) == 1 and client.response_formats == [None]
+
+
+@pytest.mark.parametrize('mode', ['single', 'team'])
+def test_truncated_submit_is_incomplete_with_no_hidden_repair(tmp_path, mode):
+    client = ScriptedClient(lambda *a: {'finish': 'length', 'reasoning': 'unfinished analysis',
+                                      'calls': [('submit', json.loads(VALID))]})
+    workspace = FixtureWorkspace(tmp_path / 'fixture')
+    output = tmp_path / 'attempt'
+    with pytest.raises(ValueError, match='No valid submit'):
+        run_task(Task('fixture', 'archeology', 'Compute a value.'), client=client, workspace=workspace,
+                 dataset=workspace.data, output=output, mode=mode, session_model_calls=600)
+    report = json.loads((output / 'report.json').read_text())
+    assert report['termination_reason'] == 'length' and report['outcome_status'] == 'incomplete'
+    assert report['budget']['model_calls_remaining'] == 599 and not report['infra_affected']
+    assert report['submission_status'] == 'invalid' and len(client.requests) == 1
+    assert not (output / 'submission.json').exists()

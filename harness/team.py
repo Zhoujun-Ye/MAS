@@ -225,7 +225,7 @@ class AgentTeam(Session):
             return Tool(name, description + (" Call alone; a mixed batch is refused." if sole else ""),
                         schema(properties, required), invoke, sole=sole)
         controls = [
-            control("send_message", "Send directly to one member. Risks/milestones also notify the Leader. Queued is not read.",
+            control("send_message", "Send directly to one other existing member, using its returned worker ID or leader, not its template name. Risks/milestones also notify the Leader. Queued is not read.",
                 dict(to=TEXT, content=TEXT, kind={"enum": ["question", "answer", "info", "risk", "milestone"]},
                      action={"enum": ["none", "reply", "work"], "description": "FYI, focused reply, or bounded assistance. All can wake recipients; no permission changes."},
                      expected_result=TEXT, stop_condition=TEXT,
@@ -253,7 +253,7 @@ class AgentTeam(Session):
             return controls
         task_fields = dict(task=TEXT, context={"type": "string"}, deliverable=TEXT, stop_condition=TEXT,
                            write_scope={"type": "string", "description":
-                           "Workspace directory, e.g. producer or /workspace/producer. Omit for a distinct default."},
+                           "Workspace file or subdirectory, e.g. producer or /workspace/producer, never '.' or the workspace root. Omit for a distinct default."},
                            depends_on={"type": "array", "items": TEXT, "uniqueItems": True})
         controls += [
             control("spawn_worker", "Create a persistent fixed-capability worker and queue local work after a capacity preflight. Queued is not reserved or guaranteed to start.",
@@ -391,7 +391,8 @@ class AgentTeam(Session):
         member = self.members[task["owner"]]
         action = args["action"]
         if action == "accept":
-            if task["status"] != "reported" or member.active:
+            returning_assignment = member.active and member.cause == "assignment" and member.task_id == task["task_id"]
+            if task["status"] != "reported" or returning_assignment:
                 raise ValueError("Only a fully returned reported task can be accepted")
             task["status"] = "accepted"
         elif action == "reopen":
@@ -423,7 +424,9 @@ class AgentTeam(Session):
             raise ValueError("Work messages require expected_result and stop_condition")
         target = args["to"]
         if target == actor.name or target != "leader" and target not in self.members:
-            raise ValueError("Address a different existing team member")
+            targets = [name for name in ["leader", *self.members] if name != actor.name and
+                       (name == "leader" or self.members[name].state not in {"failed", "exhausted", "closed"})]
+            raise ValueError("Address a different existing team member; available IDs: " + json.dumps(targets))
         if target != "leader" and self.members[target].state in {"failed", "exhausted", "closed"}:
             raise ValueError("Recipient cannot receive further work in this session")
         task_id = args.get("task_id")
