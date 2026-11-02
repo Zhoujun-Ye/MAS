@@ -35,6 +35,21 @@ for scheduler-based manifests, not Leader-Subagent session outputs. At the user'
 request, this cleanup is also synchronized to server source using explicit paths;
 archives and experiment evidence remain untouched.
 
+## Foreground Baseline
+
+The retired foreground protocol and its baseline-provenance discussion are
+preserved at commit `f9c9a4a` in `docs/leader-subagent.md` and in the source
+archives above. That document was removed from the active tree because its
+delegation API, mode flags, scheduling and inline-submission instructions no
+longer describe the implemented Team runtime. Use `docs/agent-team-design.md`
+for current behavior; retain the dated audit and experiment reports as evidence.
+
+The subsequent source cleanup removed the unreferenced YAML configuration loader
+and its PyYAML dependency, unused imports, and unreachable child assertions in
+Single-only tests. Active regression scenarios and historical diagnostics remain.
+Server verification after this cleanup: 218 passed, 5 skipped (existing-image
+Docker opt-ins were not enabled). No paid calls, installs or image operations.
+
 ## Refactor Verification
 
 Server regression: 35 scripted/mock tests passed. The foreground delegation demo

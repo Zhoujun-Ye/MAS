@@ -167,37 +167,76 @@ def communication_summary(events):
 def activation_summary(events):
     """Separate message-driven domain actions from assigned work, not semantic production labels."""
     rows, active = [], {}
+    snapshots, messages, pending_exposure = {}, {}, {}
+    leader_domain_actions = []
     for event in events:
         kind = event["type"]
-        if kind == "team_activation_start":
+        if kind == "team_message":
+            messages[event["message_id"]] = {k: event.get(k) for k in
+                ("message_id", "sender", "recipient", "task_id", "specification_revision", "reply_to")}
+        elif kind == "team_activation_start":
             row = dict(agent=event["agent"], activation=event["activation"], cause=event["cause"],
                        task_id=event.get("task_id"), previous_task_id=event.get("previous_task_id"),
+                       pending_task_id=event.get("pending_task_id"), assignment_revision=event.get("assignment_revision"),
+                       write_scope=event.get("write_scope"), start_event=event["t"], end_event=None,
                        trigger_message_ids=event.get("trigger_message_ids", []),
-                       model_attempts=0, tool_calls=0, domain_tool_calls=0, domain_tools={}, outcome=None)
+                       trigger_messages=[messages.get(mid, {"message_id": mid}) for mid in event.get("trigger_message_ids", [])],
+                       exposed_message_ids=[], domain_actions=[], workspace_changes=None, audit_events={},
+                       model_attempts=0, tool_calls=0, domain_tool_calls=0, domain_tools={}, outcome=None,
+                       completion_status=None)
             rows.append(row)
             active[event["agent"]] = row
+            pending_exposure[event["agent"]] = []
         elif kind == "team_activation_end":
             row = active.pop(event["agent_id"], None)
             if row is not None:
                 row["outcome"] = event["outcome"]
+                row["completion_status"] = event.get("completion_status")
+                row["end_event"] = event["t"]
         elif event.get("agent") in active:
             row = active[event["agent"]]
             if kind == "llm_attempt":
                 row["model_attempts"] += 1
+                delivered = pending_exposure[event["agent"]]
+                row["exposed_message_ids"].extend(e["message_id"] for e in delivered if event["context_len"] > e["context_index"])
+                pending_exposure[event["agent"]] = [e for e in delivered if event["context_len"] <= e["context_index"]]
+            elif kind == "workspace_snapshot" and event.get("activation") == row["activation"]:
+                snapshot = event.get("snapshot")
+                phase = event["phase"]
+                row["audit_events"][phase] = event["t"]
+                if isinstance(snapshot, dict) and isinstance(snapshot.get("files"), dict):
+                    key = (row["agent"], row["activation"])
+                    if phase == "before":
+                        snapshots[key] = snapshot["files"]
+                    elif phase == "after" and key in snapshots:
+                        before, after = snapshots.pop(key), snapshot["files"]
+                        row["workspace_changes"] = [dict(path=p, before=before.get(p), after=after.get(p))
+                            for p in sorted(before.keys() | after.keys()) if before.get(p) != after.get(p)]
             elif kind == "tool_call":
                 row["tool_calls"] += 1
                 if event.get("budget_charged"):
                     row["domain_tool_calls"] += 1
                     name = event["tool"]
                     row["domain_tools"][name] = row["domain_tools"].get(name, 0) + 1
+                    row["domain_actions"].append(dict(event=event["t"], call_id=event["call_id"], tool=name,
+                        declared_path=(event.get("args") or {}).get("path"), error_kind=event.get("error_kind"), exit_code=event.get("exit_code")))
+        if kind == "team_message_delivery" and event.get("recipient") in active:
+            pending_exposure[event["recipient"]].append(event)
+        if kind == "tool_call" and event.get("agent") == "leader" and event.get("budget_charged"):
+            leader_domain_actions.append(dict(event=event["t"], call_id=event["call_id"], tool=event["tool"]))
     totals = {}
     for row in rows:
         group = totals.setdefault(row["cause"], dict(activations=0, model_attempts=0, tool_calls=0, domain_tool_calls=0))
         group["activations"] += 1
         for key in ("model_attempts", "tool_calls", "domain_tool_calls"):
             group[key] += row[key]
-    return dict(by_cause=totals, activations=rows,
-                interpretation="Execution cause, not semantic production or exclusive file-write attribution")
+    for row in rows:
+        row["overlapping_activations"] = [other["activation"] for other in rows if other is not row and
+            other["start_event"] < (row["end_event"] or float("inf")) and
+            row["start_event"] < (other["end_event"] or float("inf"))]
+    return dict(by_cause=totals, activations=rows, leader_domain_tool_calls=len(leader_domain_actions),
+                leader_domain_actions=leader_domain_actions,
+                interpretation="Execution cause and shared-interval file changes, not semantic production, verified success or exclusive write attribution; null changes means unavailable audit")
 
 
 def validate(events: list[dict], require_reasoning: bool = True) -> list[str]:

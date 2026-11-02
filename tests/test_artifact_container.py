@@ -90,14 +90,15 @@ def test_many_intermediates_export_only_selected_pipeline_in_container(container
         assert not session.infra_affected and session.session_budget.snapshot()["tool_calls"] == 0
 
 
-def test_coordinator_delegates_production_and_execution_check_before_freeze(container_workspace, tmp_path):
+@pytest.mark.parametrize("leader_mode", ["coordinator", "full"])
+def test_coordinator_delegates_production_and_execution_check_before_freeze(container_workspace, tmp_path, leader_mode):
     workspace, work = container_workspace
     code = "print(2 + 2)\n"
     checked = []
     def policy(messages, tools, choice):
         used = names_used(messages)
         if messages[0]["content"].startswith("Solve the data-analysis"):
-            assert not set(tools) & {"terminal", "read_file", "inspect_file", "write_file", "list_files", "read_output"}
+            assert bool(set(tools) & {"terminal", "read_file", "inspect_file", "write_file", "list_files", "read_output"}) == (leader_mode == "full")
             if not used:
                 return call("spawn_worker", template="worker", task="produce", write_scope="producer")
             if len(team.reports) == 1 and len(team.members) == 1:
@@ -124,10 +125,10 @@ def test_coordinator_delegates_production_and_execution_check_before_freeze(cont
         assert "Exit code: 0" in last and last.rstrip().endswith("4")
         if task != "produce":
             checked.append(True)
-        return {"content": "producer/pipeline.py executed; observed output 4"}
+        return call("finish_task", status="completed", summary="producer/pipeline.py executed; observed output 4")
     with Trace(tmp_path / "trace.jsonl", "worker-verification") as trace:
         trace.emit("run_start")
-        team, _ = make_session(ScriptedClient(policy), trace, workspace, session_seconds=30)
+        team, _ = make_session(ScriptedClient(policy), trace, workspace, session_seconds=30, leader_mode=leader_mode)
         outcome = team.run("Produce a Python pipeline returning 4 and have another Worker run it to check the output.")
         trace.emit("final", text=outcome.text)
         trace.emit("run_end", status="completed")

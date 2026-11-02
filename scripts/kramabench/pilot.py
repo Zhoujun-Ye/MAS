@@ -16,12 +16,12 @@ import uuid
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from benchmarks.kramabench.adapter import run_task
 from benchmarks.kramabench.evaluation import grade_numeric
-from benchmarks.kramabench.roles import (ALL_TOOLS, LEADER_SYSTEM, PROJECT_CONTEXT,
+from benchmarks.kramabench.roles import (LEADER_SYSTEM, PROJECT_CONTEXT,
                                         SUBMISSION_SCHEMA, SUBMISSION_INSTRUCTIONS, TEMPLATES)
 from benchmarks.kramabench.tasks import load_tasks
 from harness.accounting import observed_balance, require_available_balance, report as cost_report
 from harness.catalog import catalog_manifest, fingerprint
-from harness.comparison import validate_pair
+from harness.comparison import selected_conditions, validate_pair
 from harness.config import ROOT, load_env, source_digest
 from harness.container_contract import validate_data_container
 from harness.data_tools import inspection_tools
@@ -29,6 +29,7 @@ from harness.execution import ContainerWorkspace
 from harness.llm import ChatClient, ModelConfig, ProviderError
 from harness.runner import write_json
 from harness.trace import read_trace
+from harness.team import LEADER_POLICY, WORKER_POLICY
 
 MODEL = ModelConfig(model='deepseek-flash', thinking='enabled', reasoning_effort='high',
                     max_tokens=16384, context_window=1_000_000, retries=0, timeout=180)
@@ -67,15 +68,17 @@ def main():
     parser.add_argument('--output', type=Path, required=True)
     parser.add_argument('--task-id', default='archeology-hard-1')
     parser.add_argument('--execute-paid', action='store_true')
-    parser.add_argument('--mode', choices=('both', 'single', 'team'), default='team')
+    parser.add_argument('--mode', choices=('both', 'single', 'team', 'leader-pair'), default='team',
+                        help='leader-pair explicitly runs coordinator and full Team once each')
     parser.add_argument('--leader-mode', choices=('full', 'coordinator'),
-                        help='Team defaults to no-domain-tool coordinator; full explicitly selects an ablation')
+                        help='For a single Team condition: coordinator (default) or full domain tools')
     args = parser.parse_args()
     if not args.execute_paid:
         parser.error('Real calls require --execute-paid and run-specific user authorization')
-    if args.mode == 'single' and args.leader_mode not in (None, 'full'):
-        parser.error('--leader-mode only applies to a selected Team arm')
-    team_leader_mode = (args.leader_mode or 'coordinator') if args.mode != 'single' else None
+    try:
+        conditions = selected_conditions(args.mode, args.leader_mode)
+    except ValueError as error:
+        parser.error(str(error))
     if (ROOT / '.env').stat().st_mode & 0o077:
         raise ValueError('.env must be private (0600)')
     tasks, provenance = load_tasks(args.upstream)
@@ -85,15 +88,15 @@ def main():
     root.mkdir(parents=True, exist_ok=False)
     load_env()
     # Constructor checks credentials without sending an API request.
-    order = ['single', 'team'] if args.mode == 'both' else [args.mode]
+    order = list(conditions)
     clients = {mode: ChatClient(MODEL) for mode in order}
     owned, workspaces, arms = [], {}, {}
-    summary = {'task': asdict(task), 'task_count': 1, 'attempts_per_mode': 1,
+    summary = {'task': asdict(task), 'task_count': 1, 'attempts_per_arm': 1, 'conditions': conditions,
                'order': order, 'monetary_limit_usd': None, 'retries': 0,
                'paid_judge_calls': 0, 'arms': {}, 'status': 'preparing',
                'cache_order_policy': 'Recorded selected-arm order; not cache-balanced efficacy evidence'}
     write_json(root / 'launch.json', dict(summary, model=asdict(MODEL), limits=LIMITS, pricing=PRICING,
-                                        team_leader_mode=team_leader_mode))
+                                        conditions=conditions))
     write_json(root / 'summary.json', summary)
     try:
         for mode in order:
@@ -101,7 +104,7 @@ def main():
             work.mkdir(parents=True)
             subprocess.run(['git', 'init', '--quiet', str(work)], check=True)
             name = 'kramabench-pilot-' + mode + '-' + uuid.uuid4().hex[:10]
-            container_id = subprocess.check_output(['docker', 'run', '-d', '--name', name,
+            container_id = subprocess.check_output(['docker', 'run', '-d', '--pull', 'never', '--name', name,
                 '--label', 'project=mas-information', '--label', 'purpose=kramabench-pilot',
                 '--network', 'none', '--cpus', '2', '--memory', '4g', '--pids-limit', '128',
                 '--cap-drop', 'ALL', '--security-opt', 'no-new-privileges',
@@ -122,10 +125,12 @@ def main():
                 'common_prompt': {'leader_system': LEADER_SYSTEM, 'project_context': PROJECT_CONTEXT,
                                  'submission_tool': 'submit', 'submission_schema': SUBMISSION_SCHEMA,
                                  'final_tool_policy': 'submit_only_auto_no_forced_named_tool',
-                                 'final_prompt': SUBMISSION_INSTRUCTIONS},
+                                 'final_prompt': SUBMISSION_INSTRUCTIONS, 'team_policy': LEADER_POLICY,
+                                 'worker_policy': WORKER_POLICY},
                 'budgets': LIMITS, 'pricing': PRICING, 'source_digest': source_digest(),
-                'team_leader_mode': team_leader_mode, 'artifact_policy': 'selected_path_frozen_hash_v3'}
+                'artifact_policy': 'selected_path_frozen_hash_v3'}
             arms[mode] = {'contract': contract, 'environment': environment,
+                          'condition': conditions[mode],
                           'output': str(root / mode), 'archive': str(workspace.archive_dir)}
             workspaces[mode] = workspace
         record = {'contract': contract, 'arms': arms}
@@ -145,9 +150,9 @@ def main():
             try:
                 require_available_balance(before)
                 run_task(task, client=clients[mode], workspace=workspaces[mode], dataset=dataset,
-                    output=root / mode, provenance=provenance, pricing=PRICING, mode=mode,
+                    output=root / mode, provenance=provenance, pricing=PRICING, **conditions[mode],
                     expected_environment=arms[mode]['environment'], comparison_sha256=preflight['sha256'],
-                    leader_mode=team_leader_mode if mode == 'team' else 'full', **LIMITS)
+                    **LIMITS)
             except Exception as error:
                 failure = {'type': type(error).__name__, 'message': str(error)}
                 fatal = (isinstance(error, ProviderError) and error.fatal) or before.get('fatal') or before.get('is_available') is False

@@ -12,11 +12,14 @@ The current [Team protocol](agent-team-design.md) uses fixed `worker`, `explorer
 templates, direct peer mail, persistent contexts, Leader-only task authority and
 a draining barrier before final submission.
 
-The current catalog is `kramabench-team-v4`: Team defaults to a pure coordinator
-with no domain tools, including readers. `--leader-mode full` is only an explicit
-ablation. Explorer has shell with an
-advisory no-write instruction. Every message can wake idle members with original
-grants, and completed handoffs automatically unblock dependencies. Single and
+The current catalog is `kramabench-team-v5`: Team defaults to a pure coordinator
+with no domain tools, including readers. `--leader-mode full` explicitly selects
+the full-tool comparison condition with the same coordination-first policy.
+Explorer has shell with an advisory no-write instruction. Messages can wake idle
+or dependency-waiting members with original grants without starting their pending
+assignments. Workers use `finish_task(status, summary)` to declare completed,
+partial, blocked or failed; only explicit completed claims with normal handoffs
+unblock dependencies. Plain final text is an unclaimed handoff. Single and
 Team use the same `pipeline_path` frozen-hash/selected-file export contract. Closing
 lists file metadata and hashes; the Leader selects a path without reading/copying code.
 Only that selected path is exported at submit, rejecting changes after freeze.
@@ -24,10 +27,11 @@ The Leader actively seeks useful multi-member specialist decomposition, not a
 default end-to-end owner. Roles and parallelism follow deliverables/dependencies,
 not a mandatory panel. A repeated indefinite wait after a confirmed no-progress
 notice drains the team while preserving final submission.
-Execution verification belongs to Workers before finish. Per-member defaults
+Execution verification belongs to Workers in the coordinator condition; the full-tool
+Leader may also check directly. All checks precede finish. Per-member defaults
 inherit shared ceilings. Generic domain checks are in `PROJECT_CONTEXT` for Single
 and Workers; the task-tuned archeology analysis contract remains inactive.
-See [v4 stability verification](team-stability-v4-20261101.md); the historical sections below
+See [v5 review and verification](team-review-v5-20261101.md); the historical sections below
 must not be copied as current roles, prompts, flags or submission settings.
 
 Run offline verification on the server:
@@ -35,6 +39,7 @@ Run offline verification on the server:
 ```sh
 .venv/bin/python -m pytest -q
 .venv/bin/python scripts/kramabench/offline.py --mode both --output outputs/team-fixture-NEW
+.venv/bin/python scripts/kramabench/offline.py --mode leader-pair --output outputs/leader-pair-fixture-NEW
 ```
 
 The paid runner is `scripts/kramabench/pilot.py --mode team --execute-paid` with
@@ -46,6 +51,19 @@ diagnostic ceilings are 64 model calls, 120 domain calls, 1800 execution seconds
 activations and their domain usage are reported separately from assigned tasks. Previous
 archeology outputs and reference disagreement are diagnostic evidence, not held-out
 scores or evidence of a Team improvement.
+
+For the explicit Leader comparison, the paid runner's `--mode leader-pair` selects
+`team_coordinator` and `team_full` once each with independent containers/workspaces
+and identical per-attempt ceilings. Common task/data/model/source/catalog/budget/
+submission settings are checked before dispatch. Each arm's actual Leader grants,
+system text/hash and completion protocol are recorded in its manifest. The two arms
+share organization instructions but have different tool schemas and accurate
+capability descriptions. This is a permission-policy comparison, not a claim of
+identical prompts, realized teams, compute or causal communication effects.
+`--mode both` still means Single plus one selected Team condition; `--mode team`
+still means one Team. The pair does not permit a separate `--leader-mode` override.
+Any paid pair requires authorization for **two** attempts and their stated limits;
+this documentation is not authorization. Fatal key/balance errors stop remaining arms.
 
 ## Historical Scope
 
@@ -184,7 +202,7 @@ in their assigned directory and cite them; read-only roles reference existing
 evidence without new write permissions. There is no truncation, history rewrite or
 extra compression call. This does not shorten the root's required final JSON
 submission or remove its self-contained pipeline code. See the harness design's
-[baseline provenance and alternatives](leader-subagent.md#baseline-provenance-and-alternatives);
+[archived foreground baseline](archive.md#foreground-baseline);
 this is not an exact Claude Code, Codex or AutoGen system reproduction.
 
 Manifests freeze templates, schemas, catalog SHA-256, Leader system text/length,

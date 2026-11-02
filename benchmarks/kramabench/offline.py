@@ -13,6 +13,7 @@ from harness.data_tools import INSPECT_SCRIPT
 from harness.execution import ContainerWorkspace
 from harness.llm import Completion, ModelConfig, normalize_usage
 from harness.catalog import fingerprint
+from harness.comparison import selected_conditions
 from harness.runner import write_json
 from harness.session import resolve_mode
 from .adapter import run_task
@@ -111,6 +112,8 @@ class FixtureClient:
         elif "terminal" not in previous and tool_choice != "none":
             assert "LEADER_ONLY_SENTINEL" not in json.dumps(messages)
             calls = [("terminal", {"command": "fixture_average"})]
+        elif "finish_task" in names and tool_choice != "none":
+            calls = [("finish_task", {"status": "completed", "summary": "Average 4; answer.json and pipeline.py."})]
         else:
             content = "Average 4; answer.json and pipeline.py."
         message = {"role": "assistant", "content": content, "reasoning_content": "scripted fixture"}
@@ -155,16 +158,17 @@ def smoke(output, *, mode="team", leader_mode=None):
                     dataset=workspace.data, mode=mode, **({"leader_mode": leader_mode} if leader_mode is not None else {}))
 
 
-def comparison_smoke(output, *, leader_mode="coordinator"):
+def comparison_smoke(output, *, leader_mode=None, leader_pair=False):
     """Two independent synthetic attempts. Not a paid runner or efficacy study."""
     output = Path(output)
     output.mkdir(parents=True, exist_ok=False)
-    summary = {"fixture_only": True, "evaluation": "not_run", "order": ["single", "team"], "arms": {}}
+    conditions = selected_conditions("leader-pair" if leader_pair else "both", leader_mode)
+    summary = {"fixture_only": True, "evaluation": "not_run", "conditions": conditions, "order": list(conditions), "arms": {}}
     write_json(output / "comparison.json", summary)
     contracts = []
     try:
         for mode in summary["order"]:
-            response = smoke(output / mode, mode=mode, leader_mode=leader_mode if mode == "team" else "full")
+            response = smoke(output / mode, **conditions[mode])
             attempt = output / mode / "attempt"
             manifest = json.loads((attempt / "manifest.json").read_text())
             report = json.loads((attempt / "report.json").read_text())
@@ -179,6 +183,8 @@ def comparison_smoke(output, *, leader_mode="coordinator"):
                                   for p in sorted(dataset.rglob("*")) if p.is_file()})
             contracts.append(contract)
             summary["arms"][mode] = {"status": outcome["status"], "infra_affected": outcome["infra_affected"],
+                "leader_domain_tools": manifest["leader_domain_tools"], "team_arm": manifest["team_arm"],
+                "activation_usage": report["activation_usage"],
                 "usage": report["usage"], "cache": report["cache"], "budget": outcome["budget"],
                 "runtime": report["runtime"], "cost_usd_actual": report["cost_usd_actual"],
                 "integrity_errors": report["integrity_errors"], "response": response}

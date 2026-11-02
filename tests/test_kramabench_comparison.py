@@ -5,7 +5,6 @@ import pytest
 from benchmarks.kramabench.adapter import KramaBenchSystem, make_session
 from benchmarks.kramabench.offline import FixtureWorkspace, SingleFixtureClient, comparison_smoke
 from benchmarks.kramabench.roles import ALL_TOOLS, LEADER_SYSTEM
-from harness.single_agent import SingleAgent
 from harness.trace import Trace, contexts, read_trace
 
 

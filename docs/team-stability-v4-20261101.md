@@ -2,6 +2,9 @@
 
 2026-11-01. Implemented v4 revision following review of the coordinator-only v3
 baseline. Current protocol: [agent-team-design.md](agent-team-design.md).
+This document retains historical v4 evidence. V5 adds explicit completion claims,
+dependency-waiting message activations and matched Leader-condition entry points;
+see [the v5 review](team-review-v5-20261101.md).
 
 ## Review Decisions
 

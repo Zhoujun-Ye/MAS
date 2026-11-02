@@ -227,7 +227,7 @@ def test_dependency_runs_after_completion_without_acceptance(tmp_path):
             return finish_when_returned(team, messages, tools)
         if json.loads(messages[1]["content"])["task"] == "dependent":
             assert team.tasks["task-1"]["status"] == "reported"
-        return {"content": "artifact produced"}
+        return call("finish_task", status="completed", summary="artifact produced")
     with Trace(tmp_path / "trace.jsonl", "dependency") as trace:
         team = make(trace, policy, max_parallel=1)
         result = team.run("task")
@@ -340,7 +340,7 @@ def test_idle_send_receipt_is_explicit_and_domain_exhaustion_allows_mail(tmp_pat
 ])
 def test_team_submit_binds_exact_frozen_artifact(tmp_path, code, answer, unfinished, accepted):
     from benchmarks.kramabench.adapter import make_session
-    from benchmarks.kramabench.offline import FixtureWorkspace, PIPELINE
+    from benchmarks.kramabench.offline import FixtureWorkspace
     with Trace(tmp_path / "trace.jsonl", "binding") as trace:
         workspace = FixtureWorkspace(tmp_path / "fixture")
         workspace.calculate({"command": "fixture_average"}, None)

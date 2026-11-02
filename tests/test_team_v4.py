@@ -226,7 +226,7 @@ def test_four_specialists_exchange_peer_information_and_release_dependencies(tmp
             if "inspect_file" not in used:
                 return call("inspect_file", area="data", path="values.csv")
             if "send_message" in used:
-                return {"content": "values.csv schema shared with analyst"}
+                return call("finish_task", status="completed", summary="values.csv schema shared with analyst")
             questions = [r for r in mail if r["needs_reply"]]
             if not questions:
                 return call("wait_event")
@@ -237,10 +237,10 @@ def test_four_specialists_exchange_peer_information_and_release_dependencies(tmp
                 return call("send_message", to="worker-1", content="Which numeric column?", needs_reply=True)
             if not any(r["kind"] == "answer" for r in mail):
                 return call("wait_event")
-            return {"content": "Compute arithmetic average of value in values.csv"}
+            return call("finish_task", status="completed", summary="Compute arithmetic average of value in values.csv")
         if "terminal" not in used:
             return call("terminal", command="fixture_average" if task == "implement average" else "fixture_verify")
-        return {"content": "production/pipeline.py; observed average 4; assigned fixture operation completed"}
+        return call("finish_task", status="completed", summary="production/pipeline.py; observed average 4; assigned fixture operation completed")
 
     with Trace(tmp_path / "trace.jsonl", "specialists") as trace:
         trace.emit("run_start")

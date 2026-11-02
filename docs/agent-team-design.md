@@ -1,6 +1,6 @@
 # Leader-Led Agent Team Protocol
 
-2026-11-01. Implemented v4 contract; test and paid-run evidence are recorded
+2026-11-01. Implemented v5 contract; test and paid-run evidence are recorded
 separately. Foreground subagents are archived at commit `f9c9a4a`; their active
 implementation was removed at the user's request. No compatibility engine runs
 behind the old `mas` or `delegated` flags.
@@ -32,19 +32,23 @@ only spawn_worker, assign_task, update_task, finish_team, send_message, read_mes
 resolve_request, get_team_state, wait_event and the adapter's submit. Permissions
 are enforced by the registered tool table, not only by instructions.
 
-Workers own discovery, implementation, integration, repairs and domain verification.
+In the coordinator condition, Workers own discovery, implementation, integration,
+repairs and domain verification.
 For example, the Leader assigns a Worker to run an existing pipeline, compare the
 observed output with the requirements, and report the command/result. This must
 finish before finish_team; closure is not a place to start checks or repairs.
 There is no mandatory reviewer count or semantic success gate. A Worker report
 and Leader acceptance remain claims, not evaluator correctness.
 
-`leader_mode="full"` retains all session domain tools only as an explicitly selected
-ablation in this runtime. It is never launched automatically and is not the main
-baseline. Manifest arm names are `coordinator_only` and `full_tool_leader_ablation`,
-not the prior T0/T1 labels. Single retains all approved domain tools.
+`leader_mode="full"` permits all session domain tools as an explicitly selected
+comparison condition. Both conditions share the coordination-first, meaningful
+multi-member policy, templates, communication, claims, budgets and submission rules;
+only the Leader tool table and its capability description differ. The coordinator
+remains the default, not an assumption that one condition will perform better.
+Manifest names are `coordinator_only` and `full_tool_leader`. Historical v3/v4
+`full_tool_leader_ablation` labels remain in old evidence. Single retains all domain tools.
 
-KramaBench v4 freezes four templates:
+KramaBench v5 retains four templates:
 
 | Template | Responsibility | Domain grants |
 |---|---|---|
@@ -82,12 +86,15 @@ task and remaining capacity; the Leader is instructed to record that reason in i
 brief. There is no fixed minimum count, mandatory reviewer/panel, voting, discussion
 rounds or automatic scientific-method selection. Duplicating work solely to fill
 roles is discouraged. This is a delegation policy, not a runtime quota or proof that
-a real model will follow it; the tool table separately enforces zero Leader domain work.
+a real model will follow it; the coordinator's tool table separately enforces zero
+Leader domain work. The full-tool Leader can investigate, execute or check directly,
+while retaining the same organizational responsibility.
 
 ## Tasks And Persistent Members
 
 Task records contain owner, local objective/context, dependencies, write scope,
-state revision, specification revision, result revision, handoff and outcome.
+state revision, specification revision, result revision, handoff, runtime outcome
+and member-declared `completion_status`.
 Leader controls are:
 
 - `spawn_worker(template, task, context?, write_scope?, depends_on?)`: create identity and queue work; return handles immediately.
@@ -98,15 +105,23 @@ Leader controls are:
 Task states include assigned, running, blocked, reported, accepted, cancelled and
 failed. Runtime controls own transitions. Worker progress cannot accept work.
 Dependencies reference already-created tasks, preventing a task-board cycle;
-execution starts after all referenced tasks have a normal completed handoff
-(`outcome="done"`, status reported or accepted). Acceptance is optional. Forced
-closing/limit reports are partial and do not unblock dependencies. Normal completion
-is a lifecycle signal, not a semantic check that the result is sufficient or correct.
+execution starts only after all referenced tasks have a normal handoff (`outcome="done"`,
+status reported or accepted) and an explicit `completion_status="completed"` claim.
+Workers use the sole-call `finish_task(status, summary)` control to return an assignment
+as completed, partial, blocked or failed. This ends the activation without another
+model call or a compulsory report template. A plain final reply is retained verbatim
+as `completion_status="unclaimed"`; the runtime does not infer status from prose.
+Accepting a partial/unclaimed report does not release dependencies. Forced closing
+reports remain partial runtime outcomes without inferred completion. Reopen clears
+the old completion claim for the new specification. Explicit completion is still a
+member claim, not execution verification, evaluator correctness or team success.
 
 Reopen preserves identity, complete history and lifetime domain budget, increments
 the specification revision and appends the repair brief. If a dependent has used
 the prior result, it must first be cancelled and drained. New work for an old owner
 does not permit reopening an earlier assignment behind its current assignment.
+A message activation before a dependent assignment starts is not treated as having
+consumed the dependency result merely because its member is active.
 
 A Worker can have one active activation. An activation ends with its normal final
 reply, a partial/limited outcome or failure. There is no extra summarization call.
@@ -123,7 +138,10 @@ All members can call:
 - `resolve_request(message_id, reason)`
 - `wait_event(timeout_seconds?)`
 
-Workers also have `report_status(status, summary)`, with progress or blocked.
+Workers also have `report_status(status, summary)`, with progress or blocked, and
+the assignment-only `finish_task(status, summary)` described above. `report_status`
+blocked yields while retaining the active assignment; `finish_task` blocked returns
+it with an unresolved-blocker claim. Message-only activations cannot finish a task.
 Risk/milestone messages are copied to the Leader; blockers and final/failure
 handoffs automatically notify the Leader. Ordinary peer dialogue is not broadcast.
 The Leader can inspect all explicit mail through bounded pages; Workers can inspect
@@ -138,26 +156,39 @@ does not reopen a resolved request.
 Queued, appended to context and included in an attempted provider request are
 distinct receipts. Exposure does not prove reading, use, trust or causal influence.
 Send acknowledgements include recipient state and wake policy. Every message type,
-including ordinary info, can wake an idle member; `needs_reply` tracks response
+including ordinary info, can wake an idle or dependency-waiting member; `needs_reply` tracks response
 expectations only and does not control wakeup.
 Missing replies and undelivered messages remain evidence, not silently successful
 communication. Shared files and arbitrary shell output are additional channels;
 the explicit-mail log is not a complete information-flow monitor.
 
-An idle Worker receiving mail gets a bounded message activation on the same context
+An idle or dependency-waiting Worker receiving mail gets a bounded message activation on the same context
 with its original template grants. No post-wakeup read-only policy or variant exists.
 Message follow-ups do not overwrite the prior task result or grant task-assignment
 authority. All calls count against the original shared budget and lifetime tool
 usage. Activation admission, closure and exhausted identities may still prevent
 wakeup; queued is not a guarantee of execution. Unconsumed mail remains recorded.
+For a member whose assignment has not started, this activation receives its local
+pending brief/context and explicit mail, not the Leader history. The pending task
+stays assigned with no result update. When the message activation returns, the member
+returns to assigned unless that task was cancelled; only satisfied dependencies can
+start its assignment activation. There is no concurrent message/assignment invocation
+within the same member and no new read-only permission variant.
 
 Message activations may perform domain work without a new task-board assignment.
 Cancelling the old task does not cancel an independent message activation; closing
 the team does stop new actions. Activation records distinguish `cause=message`,
-`task_id=null`, `previous_task_id` and triggering message IDs from assigned work.
+`task_id=null`, `previous_task_id` or `pending_task_id` and triggering message IDs from assigned work.
 `report.json.activation_usage` counts model attempts and domain-tool calls by cause
-and activation. These are execution-cause statistics, not a semantic classification
-of productive work or exclusive attribution of workspace writes.
+and activation. It includes trigger sender/task links, newly exposed mail, domain-call
+event references, declared tool paths, before/after snapshot references, observed
+file/hash deltas and overlapping activations. Leader domain usage is separate.
+`workspace_changes=null` means missing audit evidence, not no writes. Snapshots use
+the existing tracked/nonignored workspace scope and are non-atomic; concurrent peers,
+the full-tool Leader or background commands may cause the same observed delta.
+These are execution-cause/shared-interval statistics, not verified conflicts, reasons
+for edits, semantic productivity or exclusive write attribution. Inspection through
+read_messages remains a separate logged tool path, not automatic mailbox exposure.
 
 ## Scheduling And Stop Semantics
 
@@ -181,7 +212,7 @@ deadline or repeatedly polling the model. A finite wait is an explicit progress
 source, not deadlock; it remains bounded by the session deadline. Circular waits
 have no hidden model calls or automatic domain repair.
 
-`wait_event`, `report_status`, `finish_team` and submit are sole-call controls.
+`wait_event`, `report_status`, `finish_task`, `finish_team` and submit are sole-call controls.
 A mixed batch containing one is refused without partial execution. `update_task`
 can be batched; updates execute serially and each retains its revision check.
 Write scopes accept both relative paths and paths under the workspace root (e.g.
@@ -270,6 +301,8 @@ The v1.1 inline hash-binding policy and the v1 paid result are historical. See
 [the historical review](team-review-20261101.md) for v2 evidence and the
 [coordinator baseline verification](team-coordinator-20261101.md) for v3, followed
 by [stability and specialist-policy verification](team-stability-v4-20261101.md) for v4.
+Current claim/message/Leader-comparison verification is recorded in
+[the v5 review](team-review-v5-20261101.md).
 
 Trace analysis includes exact reconstructed inputs, usage and error accounting,
 prompt sizes/cache reuse by role, request exposure and unresolved mail. Estimated
@@ -299,6 +332,15 @@ causal attribution system. Worker task metadata can be read explicitly through t
 shared task board; this is not a hidden-context experiment.
 
 ## Research Boundary
+
+The explicit `--mode leader-pair` runner selects coordinator and full-tool Teams
+once each, with independent workspaces, a matched common contract and separate
+frozen condition records. It neither flips the default nor authorizes paid calls.
+Both arms prioritize collaboration; the intended treatment is the Leader tool grant
+and the accurate capability description, not different task decomposition prompts.
+Realized membership, decomposition and verification remain model decisions and can
+therefore differ between conditions. This comparison cannot by itself isolate the
+effect of peer communication, equalize actual compute or establish causal superiority.
 
 The previously inspected archeology case is diagnostic, not held-out evidence.
 Its pinned numerical reference disagreement must remain visible, not be repaired

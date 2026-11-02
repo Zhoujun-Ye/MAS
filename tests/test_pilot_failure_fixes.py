@@ -47,12 +47,8 @@ def test_json_mode_transport_preserves_tools_thinking_and_verbatim_history():
         client._http.close()
 
 
-@pytest.mark.parametrize("mode", ["single"])
-def test_root_submission_shared_budget_and_final_reminder_do_not_reach_children(tmp_path, mode):
+def test_single_submission_shared_budget_and_final_reminder(tmp_path):
     def policy(messages, tools, tool_choice):
-        is_root = messages[0]["content"].startswith("Solve the data-analysis")
-        if not is_root:
-            return {"content": "Local findings in prose", "reasoning": "child reasoning"}
         if tools == ["submit"]:
             assert SUBMISSION_INSTRUCTIONS in messages[-1]["content"]
             return {"calls": [("submit", json.loads(VALID))]}
@@ -61,18 +57,14 @@ def test_root_submission_shared_budget_and_final_reminder_do_not_reach_children(
     client = ScriptedClient(policy)
     workspace = FixtureWorkspace(tmp_path / "fixture")
     workspace.calculate({"command": "fixture_average"}, None)
-    with Trace(tmp_path / "trace.jsonl", mode) as trace:
+    with Trace(tmp_path / "trace.jsonl", "single") as trace:
         trace.emit("run_start")
-        session, _ = make_session(client, trace, workspace, mode=mode, session_model_calls=3)
+        session, _ = make_session(client, trace, workspace, mode="single", session_model_calls=3)
         outcome = session.run("A public question")
         assert outcome.status == "done" and parse_submission(outcome.text)["answer"] == 4
         assert outcome.budget["model_calls"] == 3
         assert session.leader.response_format is None
-        for child in session.members.values():
-            assert child.agent.response_format is None
-            assert "submit" not in child.agent.tools
-            assert PROJECT_CONTEXT in child.agent.messages[0]["content"]
-            assert SUBMISSION_INSTRUCTIONS not in child.agent.messages[0]["content"]
+        assert not session.members
         assert PROJECT_CONTEXT in session.leader.messages[0]["content"]
     attempts = [e for e in read_trace(tmp_path / "trace.jsonl") if e["type"] == "llm_attempt"]
     assert [e["response_format"] for e in attempts] == client.response_formats
@@ -81,10 +73,9 @@ def test_root_submission_shared_budget_and_final_reminder_do_not_reach_children(
     assert attempts[-1]["available_tools"] == ["submit"]
 
 
-@pytest.mark.parametrize("mode", ["single"])
 @pytest.mark.parametrize("text", ["All checks complete.\n```json\n" + VALID + "\n```",
                                   "```json\n" + VALID + "\n```", "   ", VALID[:-1]])
-def test_invalid_submission_retained_without_extraction_or_repair(tmp_path, mode, text, monkeypatch):
+def test_invalid_submission_retained_without_extraction_or_repair(tmp_path, text, monkeypatch):
     def forbid(*args, **kwargs):
         raise AssertionError("No real network request allowed")
     monkeypatch.setattr(httpx.Client, "send", forbid)
@@ -93,7 +84,7 @@ def test_invalid_submission_retained_without_extraction_or_repair(tmp_path, mode
     output = tmp_path / "attempt"
     with pytest.raises(ValueError):
         run_task(Task("fixture", "archeology", "Compute a value."), client=client, workspace=workspace,
-                 dataset=workspace.data, output=output, mode=mode, session_model_calls=1)
+                 dataset=workspace.data, output=output, mode="single", session_model_calls=1)
     report = json.loads((output / "report.json").read_text())
     assert report["failure_stage"] == "submission_validation"
     assert report["submission_status"] == "invalid" and not report["infra_affected"]

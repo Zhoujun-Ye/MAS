@@ -14,11 +14,17 @@ instructions. Subsequent peer messages are explicit, logged context additions.
 All messages may wake idle members with unchanged template grants; there is no
 read-only-after-wakeup variant. The main Team baseline defaults to a coordinator
 Leader with no domain tools, including readers. Full Leader grants require an
-explicit ablation setting. Domain verification belongs to Workers before closure.
+explicit comparison setting. Both Leader conditions prioritize coordination and
+meaningful decomposition; full permits domain work, coordinator delegates it all.
+Checks and repairs must precede closure. The leader-pair entry point selects these
+two Team conditions explicitly; it does not authorize paid execution.
 The Leader actively seeks meaningful multi-member decomposition with complementary
 specialists, distinct deliverables and explicit interfaces, not a default single
 end-to-end owner. Do not force duplicate work or a fixed roster to meet a quota.
-Completed handoffs release dependencies without mandatory acceptance. Single and
+Only explicit completed claims on normally returned assignments release dependencies,
+without mandatory acceptance. Plain final text is an unclaimed handoff, not verified
+completion. Dependency-waiting members may process messages with unchanged grants;
+this does not start or complete their pending assignments. Single and
 Team submit artifact paths under a common frozen-hash/selected-file export contract,
 not inline model-copied code. Freeze records metadata/hashes; only the selected path
 is exported at submit. Closing exposes the frozen file inventory, not file content. Put generic

@@ -2,7 +2,7 @@
 
 from harness.catalog import CapabilityTemplate
 
-CATALOG_VERSION = "kramabench-team-v4"
+CATALOG_VERSION = "kramabench-team-v5"
 SUBMISSION_SCHEMA = {
     "type": "object",
     "properties": {"answer": {}, "pipeline_path": {"type": ["string", "null"], "minLength": 1},

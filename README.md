@@ -31,9 +31,12 @@ responsibilities, distinct deliverables and explicit dependencies. One end-to-en
 member is a justified exception, not the default; a fixed roster or redundant work
 is not required. Membership and local briefs are selected per task. The default
 `leader_mode="coordinator"` has no domain tools, including file readers: domain work
-and execution checks belong to Workers. `leader_mode="full"` is an explicit ablation,
-not the main baseline. No fixed roster or mandatory review. All messages wake idle members with
-unchanged grants; completion unlocks dependencies without mandatory acceptance.
+and execution checks belong to Workers. `leader_mode="full"` is an explicit comparison
+condition with all domain tools and the same coordination-first policy. No fixed roster
+or mandatory review. Messages can wake idle and dependency-waiting members with
+unchanged grants without starting their pending assignments. Workers end assignments
+using `finish_task(status, summary)`; only an explicit `completed` claim with a normal
+handoff unlocks dependencies. Plain final text is `unclaimed`, not inferred success.
 Single and Team submit `pipeline_path`; freeze records file metadata/hashes, and
 submit exports only the selected file after checking its frozen hash. Closing lists
 paths, hashes and file types; no code is inserted into the Leader's context by submission.
@@ -42,7 +45,7 @@ of idling until the deadline. Message activations retain their grants and have
 separate domain-usage accounting from task assignments.
 Generic domain checks are shared with Workers through `PROJECT_CONTEXT`.
 This proves identity, not execution or correctness. See the
-[v4 stability verification](docs/team-stability-v4-20261101.md).
+[v5 review and verification](docs/team-review-v5-20261101.md).
 
 Native paid judging is not imported. Numeric grading runs only after the attempt,
 on the host, bound to the exact submission. A final report is not a success verdict.
@@ -55,10 +58,14 @@ Run only on the project server after inspecting processes:
 scripts/server/sync.sh
 scripts/server/remote.sh '.venv/bin/python -m pytest -q'
 scripts/server/remote.sh '.venv/bin/python scripts/kramabench/offline.py --mode both --output outputs/team-fixture-NEW'
+scripts/server/remote.sh '.venv/bin/python scripts/kramabench/offline.py --mode leader-pair --output outputs/leader-pair-fixture-NEW'
 ```
 
 These checks use scripted clients, not paid models. The paid entry point is
 `scripts/kramabench/pilot.py`; every invocation needs run-specific authorization.
+`--mode leader-pair` explicitly selects two attempts, `team_coordinator` and
+`team_full`, each with the same per-attempt ceilings and independent workspace.
+It is not a third condition or an implicit extra run under `--mode team`.
 It creates only selected task containers from an existing image, records frozen
 settings and inputs, and removes only its own containers, never run evidence.
 Historical scores do not establish results for the new Team runtime.

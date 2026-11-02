@@ -7,10 +7,9 @@ import pytest
 
 from benchmarks.kramabench.adapter import make_session, parse_submission
 from benchmarks.kramabench.offline import FixtureWorkspace, PIPELINE
-from harness.agent import Agent, Budget, Observation, SessionBudget, Tool
-from harness.llm import ProviderError
+from harness.agent import Agent, Observation, SessionBudget, Tool
 from harness.single_agent import SingleAgent
-from harness.trace import Trace, read_trace, validate
+from harness.trace import Trace
 from tests.fakes import ScriptedClient
 
 

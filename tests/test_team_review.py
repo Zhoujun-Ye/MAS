@@ -270,7 +270,7 @@ def test_scripted_team_smoke_records_arm_and_artifact_contract(tmp_path, leader_
     manifest = json.loads((output / "attempt" / "manifest.json").read_text())
     report = json.loads((output / "attempt" / "report.json").read_text())
     assert response["explanation"]["answer"] == 4
-    assert manifest["team_arm"] == ("full_tool_leader_ablation" if leader_mode == "full" else "coordinator_only")
+    assert manifest["team_arm"] == ("full_tool_leader" if leader_mode == "full" else "coordinator_only")
     assert manifest["output_contract"]["artifact_policy"] == "selected_path_frozen_hash_v3"
     assert report["artifact_binding"]["status"] == "exact_match"
     assert report["integrity_errors"] == [] and not report["infra_affected"]

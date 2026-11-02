@@ -1,4 +1,4 @@
-"""Configuration files, protected .env secrets and stable digests."""
+"""Protected .env secrets and stable source digests."""
 
 from __future__ import annotations
 
@@ -6,8 +6,6 @@ import hashlib
 import json
 import os
 from pathlib import Path
-
-import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -22,24 +20,6 @@ def load_env(path: Path = ROOT / ".env") -> None:
             continue
         key, value = line.split("=", 1)
         os.environ.setdefault(key.strip(), value.strip().strip("'\""))
-
-
-def _merge(base: dict, extra: dict) -> dict:
-    merged = dict(base)
-    for key, value in extra.items():
-        if isinstance(value, dict) and isinstance(merged.get(key), dict):
-            merged[key] = _merge(merged[key], value)
-        else:
-            merged[key] = value
-    return merged
-
-
-def load_config(*paths: str | Path) -> dict:
-    """Merge YAML files left to right: nested mappings merge, other values replace."""
-    merged: dict = {}
-    for path in paths:
-        merged = _merge(merged, yaml.safe_load(Path(path).read_text()) or {})
-    return merged
 
 
 def canonical(obj) -> str:

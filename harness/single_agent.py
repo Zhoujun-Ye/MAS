@@ -1,7 +1,6 @@
 """Single-context control using the common Agent loop and session accounting."""
 
 from .agent import Agent, Budget, Outcome
-from .llm import ProviderError
 from .session import Session
 
 

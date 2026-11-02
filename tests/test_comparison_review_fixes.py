@@ -1,6 +1,5 @@
 import copy
 import json
-from dataclasses import asdict
 
 import pytest
 
@@ -8,14 +7,12 @@ from benchmarks.kramabench.adapter import run_task
 from benchmarks.kramabench.offline import FixtureWorkspace
 from benchmarks.kramabench.tasks import Task
 from fakes import ScriptedClient
-from harness.accounting import estimate
-from harness.agent import Observation, SessionBudget, SessionLimit, Tool
+from harness.agent import SessionBudget, SessionLimit
 from harness.comparison import validate_pair
 from harness.container_contract import validate_artifact_paths
 from harness.llm import ProviderError
-from harness.catalog import CapabilityTemplate
 from harness.session import comparison_session
-from harness.trace import Trace, llm_inputs, read_trace, usage_summary
+from harness.trace import Trace, read_trace
 
 FINAL = json.dumps(dict(answer=4, pipeline_code="", evidence="fixture", unfinished=[]))
 

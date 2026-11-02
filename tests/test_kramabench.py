@@ -1,17 +1,16 @@
 from dataclasses import asdict
 import json
-from pathlib import Path
 
 import pytest
 
-from benchmarks.kramabench.adapter import KramaBenchSystem, make_session, parse_submission, run_task
-from benchmarks.kramabench.offline import FixtureClient, FixtureWorkspace, PIPELINE, smoke
-from benchmarks.kramabench.roles import ALL_TOOLS, READ_TOOLS, TEMPLATES
+from benchmarks.kramabench.adapter import KramaBenchSystem, parse_submission, run_task
+from benchmarks.kramabench.offline import FixtureClient, FixtureWorkspace
+from benchmarks.kramabench.roles import TEMPLATES
 from benchmarks.kramabench.tasks import Task, public_tasks
 from fakes import ScriptedClient
 from harness.catalog import catalog_manifest
 from harness.data_tools import inspection_tools
-from harness.trace import Trace, contexts, read_trace, validate
+from harness.trace import read_trace, validate
 
 
 def test_public_tasks_strip_all_reference_fields():
