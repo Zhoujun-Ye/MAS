@@ -68,7 +68,6 @@ def test_cache_groups_explicit_team_roles_not_agent_name_prefixes():
 
 def test_analysis_counts_all_started_and_preserves_outputs(tmp_path):
     from scripts.analyze import load_runs, summarize
-    from harness.trace import Trace
     for key, status, failure, success in [
         ("done", "completed", None, True), ("unfinished", "incomplete", "agent_failure", None),
         ("error", "error", "infrastructure_error", None), ("ungraded", "completed", None, None)]:
@@ -78,9 +77,8 @@ def test_analysis_counts_all_started_and_preserves_outputs(tmp_path):
         (folder / "result.json").write_text(json.dumps(dict(status=status, failure_class=failure)))
         if success is not None:
             (folder / "grade.json").write_text(json.dumps(dict(correct=success)))
-        with Trace(folder / "trace.jsonl", key) as trace:
-            trace.emit("run_start")
-            trace.emit("run_end", status=status)
+        events = [dict(type="run_start", t=0), dict(type="run_end", t=1, status=status)]
+        (folder / "trace.jsonl").write_text("".join(json.dumps(event) + "\n" for event in events))
     before = {p: p.read_bytes() for p in tmp_path.rglob("*") if p.is_file()}
     runs, traces = load_runs(tmp_path)
     row = next(iter(summarize(runs)["conditions"].values()))

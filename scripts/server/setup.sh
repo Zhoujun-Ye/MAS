@@ -8,8 +8,5 @@ if [[ ! -x .venv/bin/python ]]; then
   "$UV" venv --python 3.12 .venv
 fi
 "$UV" pip install --python .venv/bin/python -e ".[test]"
-# Existing environments/caches and historical benchmark assets are not removed.
-if [[ ! -e .env ]]; then
-  install -m 600 /home/zhoujunye/agent-team/.env .env
-fi
-stat -c '%a %n' .env
+# Provider credentials are supplied separately. Never copy another project's .env.
+# External CLIs and their Python runtimes are not installed by this script.

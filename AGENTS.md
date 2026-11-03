@@ -1,50 +1,36 @@
 # Project Instructions
 
-Target a benchmark-independent Leader-led Agent Team: the Leader assigns tasks
-and maintains team state, Workers communicate directly, key progress/risks/results
-reach the Leader, and communication is retained. See `docs/agent-team-design.md`
-for the implemented protocol. Foreground subagents were archived at commit
-`f9c9a4a` and removed from active source; old `mas`/`delegated` flags are rejected.
-Use fixed capability templates and task-adaptive membership/delegation, not generated
-role permissions, fixed peer teams, or RSI. Independent contexts are context management,
-not strict information isolation. Shared workspaces are allowed through tool grants.
-Use bounded parallel execution. No fork or automatic full-task injection: initial
-Worker contexts contain the leader's local brief/context and fixed shared project
-instructions. Subsequent peer messages are explicit, logged context additions.
-All messages may wake idle members with unchanged template grants; there is no
-read-only-after-wakeup variant. The main Team baseline defaults to a coordinator
-Leader with no domain tools, including readers. Full Leader grants require an
-explicit comparison setting. Both Leader conditions prioritize coordination and
-meaningful decomposition; full permits domain work, coordinator delegates it all.
-Checks and repairs must precede closure. The leader-pair entry point selects these
-two Team conditions explicitly; it does not authorize paid execution.
-The Leader actively seeks meaningful multi-member decomposition with complementary
-specialists, distinct deliverables and explicit interfaces, not a default single
-end-to-end owner. Do not force duplicate work or a fixed roster to meet a quota.
-Only explicit completed claims on normally returned assignments release dependencies,
-without mandatory acceptance. Plain final text is an unclaimed handoff, not verified
-completion. Dependency-waiting members may process messages with unchanged grants;
-this does not start or complete their pending assignments. Single and
-Team submit artifact paths under a common frozen-hash/selected-file export contract,
-not inline model-copied code. Freeze records metadata/hashes; only the selected path
-is exported at submit. Closing exposes the frozen file inventory, not file content. Put generic
-domain checklists in shared project instructions, not a root-only prompt.
-Runtime status describes lifecycle, never correctness or the absence of past errors.
-Keep error history and infra_affected separate; recoverable errors must not poison
-later reports. Shared-workspace audit intervals are not exclusive write attribution.
+The user reset the runtime on 2026-11-02. The active harness contains four
+adapters for two externally installed CLIs: Deep Agents Single, Claude Code
+Agent Teams, Claude Code Subagents and Claude Code Single Agent. Research orchestration remains separate. Do not
+restore the retired custom Team runtime, provider relay, Single/Team launchers,
+coordinator/full modes, capability catalogs, or custom scheduling semantics.
 
-## Ownership
+## Ownership And Scope
 
-- `harness/team.py`: task authority, persistent members, scheduling and final drain.
-- `harness/messaging.py`: direct mail, request linkage and delivery receipts.
-- `harness/session.py`: shared session evidence, audits and budgets.
-- `harness/agent.py`: append-only context, validation and tool execution.
-- `harness/llm.py`, `trace.py`, `accounting.py`, `runner.py`: shared infrastructure.
-- Adapters supply domain tools/evaluation; orchestration belongs in `harness/`.
-- `analysis/` retains cache/statistics utilities and historical run readers, not
-  study-specific criteria or retired peer-team attribution tools.
-- CooperBench is retired. Server evidence and source archives are documented in
-  `docs/archive.md`; do not restore it as an active dependency.
+- `harness/deepagents/`: Deep Agents Code (`dcode`) arguments and CLI adaptation.
+- `harness/claude_code_agent_team/`: interactive native Claude Code Agent Teams adaptation.
+- `harness/claude_code_subagents/`: print-mode ordinary native Claude subagents, with Teams disabled.
+- `harness/claude_code_single_agent/`: print-mode strict Single, with native delegation tools removed and denied.
+- `harness/_claude_cli.py` and `_claude_hooks.py`: shared native arguments/observations and opt-in Single permission policy.
+- `harness/_cli.py`: CLI preflight, process lifetime, stdin and raw evidence only.
+- Agent contexts, tools, communication and scheduling belong to the external CLI.
+- Do not clone or vendor either upstream runtime, or import its SDK here.
+- Do not silently equate Deep Agents subagents with Claude Code Agent Teams.
+- Do not turn the Team adapter into print mode or label ordinary subagents as a native Agent Team.
+- For the active KramaBench comparison, Deep Agents and Claude Single are strict single-agent
+  baselines. Use explicit native single policies, not prompt-only discouragement
+  or default dcode delegation. Earlier runs with subagents are not single baselines.
+- Do not impose a new roster, decomposition policy, benchmark protocol or solver
+  prompt as part of CLI adaptation.
+- `benchmarks/` owns task data and evaluation, independently of the adapters.
+- `analysis/` retains generic utilities and read-only historical-schema readers.
+- CooperBench is retired; preserve its evidence and retention exceptions in
+  `docs/archive.md`, not an active dependency.
+- Preserve unrelated changes and historical evidence. Snapshot overlapping
+  uncommitted source before removing it; Git alone does not preserve that work.
+
+See `docs/cli-adapters.md` for pinned versions, references and limitations.
 
 ## Server Operations
 
@@ -54,24 +40,33 @@ later reports. Shared-workspace audit intervals are not exclusive write attribut
   CPU ownership first. Never modify `/home/zhoujunye/agent-team` or its resources.
 - Use `scripts/server/sync.sh` for scoped source only. Never sync credentials,
   environments, caches, checkouts, assets, archives or outputs; never `--delete`.
+- A sync does not remove retired files. Remote source cleanup or deployment needs
+  explicit authorization; local cleanup is not automatic remote deployment.
 - `.env` stays ignored and mode 0600. Never print or commit credentials.
-- Installs use the Tsinghua PyPI mirror. Do not provision environments, Docker or
-  cloud resources implicitly. Preserve historical images/assets and immutable runs.
+- Installs use the Tsinghua PyPI mirror. Do not provision environments, CLIs,
+  Docker or cloud resources implicitly. Preserve historical images/assets and runs.
 - Deploy, launch jobs and clean server files only within user authorization.
 
 ## Runtime And Evidence
 
 - No paid agents, judges, simulators or retries without run-specific authorization
-  and size. Offline tests use scripted clients; paid settings require retries=0.
-- Templates and permissions are fixed per session. Children cannot grant tools to
-  themselves. A shell grant is neither a read-only permission nor a security sandbox.
-- Keep histories append-only and reasoning_content verbatim. Do not inject volatile
-  timestamps or trace IDs into prompts. Resume retains child history and tool budget.
-- Runtime owns scheduling, transport, permissions, budgets and lifecycle. Distinguish
-  partial work, tool errors, provider errors and independently verified success.
-- Key/balance errors stop further calls. Context/output exhaustion is incomplete
-  work. Never omit failed attempts to improve scores; evidence is immutable.
-- A final report is not an evaluator verdict. New studies must freeze settings and
-  bind evaluation to exact artifacts. Historical results do not establish new gains.
-- Report prompt lengths, token-weighted cache reuse by role, estimated/actual costs,
-  and unverified behavior. Do not claim causality from implementation or smoke tests.
+  and size. Offline tests use fake CLIs and must not invoke a paid provider.
+- Planning is the default; execution requires an explicit `execute=True` or
+  `--execute` plus run-specific user authorization.
+- Never automatically bypass CLI permissions. A shell allow-list is neither a
+  sandbox nor a guarantee of read-only behavior.
+- Use exact CLI pins and disable automatic updates. Record native version output
+  and raw stdout/stderr; a launcher hash is not a dependency/environment lock.
+- Request retries=0 in native CLIs and do not retry in the adapter. Provider
+  retry semantics and fatal key/balance handling need native-runtime validation
+  before paid studies; do not recreate a provider client to claim enforcement.
+- Keep failed attempts. Native context/output exhaustion is incomplete work.
+- Lifecycle status, CLI final text and enabled team flags do not establish
+  correctness, actual team creation, member shutdown or workspace quiescence.
+- No old frozen-artifact, shared-budget, bounded-team or append-only-message
+  guarantee carries over automatically to the native CLIs.
+- New studies must freeze settings and bind evaluation to exact artifacts.
+  Historical results, static inspection and fake-CLI tests do not establish gains.
+- Report prompt lengths, token-weighted cache reuse by role, estimated/actual
+  costs and unverified behavior when native evidence makes them available.
+  Missing accounting is unknown, never zero.

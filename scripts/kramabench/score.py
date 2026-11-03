@@ -5,8 +5,8 @@ from pathlib import Path
 import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
-from benchmarks.kramabench.evaluation import grade_answer, scoring_contract
-from harness.runner import write_json
+from benchmarks.kramabench.evaluation import NUMERIC_POLICIES, NUMERIC_POLICY, grade_answer, scoring_contract
+from benchmarks.kramabench._io import write_json
 
 
 def main(argv=None):
@@ -14,8 +14,9 @@ def main(argv=None):
     parser.add_argument('--upstream', type=Path, required=True)
     parser.add_argument('--runs', type=Path, required=True)
     parser.add_argument('--output', type=Path, required=True)
+    parser.add_argument('--numeric-policy', choices=NUMERIC_POLICIES, default=NUMERIC_POLICY)
     args = parser.parse_args(argv)
-    contract = scoring_contract(args.upstream)
+    contract = scoring_contract(args.upstream, numeric_policy=args.numeric_policy)
     if args.output.resolve().is_relative_to(args.runs.resolve()):
         parser.error('Output must be outside original run evidence')
     args.output.mkdir(parents=True, exist_ok=False)
@@ -23,7 +24,8 @@ def main(argv=None):
     for report in sorted(args.runs.glob('*/*/report.json')):
         task_id, arm = report.parent.parent.name, report.parent.name
         submission = report.parent / 'submission.json'
-        grade = grade_answer(args.upstream, task_id, submission if submission.exists() else None)
+        grade = grade_answer(args.upstream, task_id, submission if submission.exists() else None,
+                             numeric_policy=args.numeric_policy)
         write_json(args.output / task_id / arm / 'grade.json', grade)
         statuses[grade['status']] += 1
         rows.append(dict(task_id=task_id, arm=arm, status=grade['status'], metric=grade['metric'],

@@ -3,8 +3,12 @@ import json
 import hashlib
 from pathlib import Path
 
-from harness.config import digest
-from harness.trace import read_trace, usage_summary, tool_counts
+from .legacy_trace import read_trace, usage_summary, tool_counts
+
+
+def digest(value):
+    canonical = json.dumps(value, sort_keys=True, ensure_ascii=False, separators=(",", ":"))
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()[:16]
 
 
 def run_directories(output):

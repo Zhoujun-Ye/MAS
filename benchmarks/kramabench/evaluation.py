@@ -1,4 +1,4 @@
-"""Host-only pinned answer metrics; no unsafe eval, implicit judge or code execution."""
+"""Versioned host-only answer metrics with pinned references; no implicit judge."""
 import ast
 from collections import Counter
 import hashlib
@@ -7,7 +7,7 @@ import math
 from pathlib import Path
 import subprocess
 
-from harness.catalog import fingerprint
+from ._io import fingerprint
 from .tasks import DOMAINS, load_tasks, UPSTREAM_COMMIT
 
 METRICS = {
@@ -17,6 +17,15 @@ METRICS = {
     'list_approximate': ('f1_approximate',), 'string_approximate': ('llm_paraphrase',),
 }
 PRIMARY = {kind: names[-1] if kind == 'numeric_approximate' else names[0] for kind, names in METRICS.items()}
+UPSTREAM_NUMERIC_POLICY = 'upstream_v2'
+NUMERIC_POLICY = 'scale_aware_v3'
+NUMERIC_POLICIES = (UPSTREAM_NUMERIC_POLICY, NUMERIC_POLICY)
+NUMERIC_RELATIVE_TOLERANCE = 1e-4
+
+
+def validate_numeric_policy(policy):
+    if policy not in NUMERIC_POLICIES:
+        raise ValueError('Unknown numeric policy: ' + str(policy))
 
 
 def number(value, *, percent_fraction=False):
@@ -33,7 +42,8 @@ def number(value, *, percent_fraction=False):
     return value
 
 
-def numeric_success(predicted, target):
+def numeric_success(predicted, target, *, numeric_policy=NUMERIC_POLICY):
+    validate_numeric_policy(numeric_policy)
     try:
         predicted, target = number(predicted), number(target)
     except (ValueError, TypeError, OverflowError):
@@ -42,6 +52,10 @@ def numeric_success(predicted, target):
         return 1
     if isinstance(predicted, int) and isinstance(target, int):
         return 0
+    if numeric_policy == NUMERIC_POLICY:
+        # Unit-free comparison: a fixed absolute epsilon makes tiny references
+        # accept zero, wrong signs and large relative errors.
+        return int(target != 0 and abs(predicted-target) / abs(target) <= NUMERIC_RELATIVE_TOLERANCE)
     if target == 0:
         return int(abs(predicted) < 1e-6)
     difference = abs(predicted - target)
@@ -49,13 +63,13 @@ def numeric_success(predicted, target):
                or difference < max(abs(predicted), abs(target)) * 1e-4)
 
 
-def success(predicted, target):
+def success(predicted, target, *, numeric_policy=NUMERIC_POLICY):
     try:
         number(predicted), number(target)
     except (ValueError, TypeError, OverflowError):
         return int(isinstance(predicted, str) and isinstance(target, str)
                    and predicted.strip().lower() == target.strip().lower())
-    return numeric_success(predicted, target)
+    return numeric_success(predicted, target, numeric_policy=numeric_policy)
 
 
 def as_list(value):
@@ -117,13 +131,14 @@ def list_metrics(predicted, target, *, approximate=False):
                 recall=len(positives)/len(set(target)) if target else 0.0)
 
 
-def score_answer(predicted, target, answer_type, *, paraphrase=None):
+def score_answer(predicted, target, answer_type, *, paraphrase=None, numeric_policy=NUMERIC_POLICY):
+    validate_numeric_policy(numeric_policy)
     if answer_type not in METRICS:
         raise ValueError('Unknown answer type: ' + str(answer_type))
     metrics = {name: None for name in METRICS[answer_type]}
     status, judge_calls = 'graded', 0
     if answer_type in {'numeric_exact', 'string_exact'}:
-        metrics['success'] = success(predicted, target)
+        metrics['success'] = success(predicted, target, numeric_policy=numeric_policy)
     elif answer_type == 'numeric_approximate':
         target = number(target, percent_fraction=True)
         try:
@@ -160,8 +175,9 @@ def score_answer(predicted, target, answer_type, *, paraphrase=None):
                 judge_calls=judge_calls)
 
 
-def scoring_contract(upstream):
+def scoring_contract(upstream, *, numeric_policy=NUMERIC_POLICY):
     """Validate source AND metric mapping before any solver dispatch."""
+    validate_numeric_policy(numeric_policy)
     root, hashes = Path(upstream), {}
     for relative in ('benchmark/metrics.py', 'benchmark/fixtures/answer_type_fixtures.json'):
         expected = subprocess.check_output(['git', '-C', str(root), 'show', UPSTREAM_COMMIT + ':' + relative])
@@ -180,21 +196,30 @@ def scoring_contract(upstream):
             if row['answer_type'] == 'list_approximate' and any(isinstance(v, str) for v in as_list(row['answer'])):
                 raise ValueError('Workload requires string-list semantic judging')
             counts[row['answer_type']] += 1
-    return dict(version='pinned_answer_metrics_v2', source_sha256=hashes, answer_types=dict(counts),
+    contract = dict(version='pinned_answer_metrics_v2', source_sha256=hashes, answer_types=dict(counts),
                 task_count=len(tasks), offline_tasks=len(tasks)-counts['string_approximate'],
                 semantic_judge_tasks=counts['string_approximate'], provenance=provenance,
                 policy='No implicit judge, unsafe eval, answer extraction, unit repair or pipeline execution')
+    if numeric_policy == NUMERIC_POLICY:
+        contract.update(version='scale_aware_answer_metrics_v3',
+            local_evaluator_sha256=hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
+            numeric_success_policy=dict(name=NUMERIC_POLICY, relative_tolerance=NUMERIC_RELATIVE_TOLERANCE,
+                absolute_tolerance=0, nonzero_reference_scale='abs(target)', zero_reference='exact zero only',
+                integer_pairs='exact equality', boundary='inclusive'),
+            compatibility='Pinned reference source; binary numeric comparison intentionally differs from upstream_v2. Other metrics unchanged.')
+    return contract
 
 
-def grade_answer(upstream, task_id, submission_path, *, paraphrase=None):
-    contract = scoring_contract(upstream)
+def grade_answer(upstream, task_id, submission_path, *, paraphrase=None, numeric_policy=NUMERIC_POLICY):
+    contract = scoring_contract(upstream, numeric_policy=numeric_policy)
     tasks, _ = load_tasks(upstream)
     task = next(t for t in tasks if t.id == task_id)
     rows = json.loads((Path(upstream) / 'workload' / (task.domain + '.json')).read_text())
     reference = next(row for row in rows if row['id'] == task_id)
     submission_bytes = Path(submission_path).read_bytes() if submission_path is not None else None
     submission = json.loads(submission_bytes) if submission_bytes is not None else {'answer': None}
-    result = score_answer(submission['answer'], reference['answer'], reference['answer_type'], paraphrase=paraphrase) if submission_bytes is not None else dict(
+    result = score_answer(submission['answer'], reference['answer'], reference['answer_type'],
+                          paraphrase=paraphrase, numeric_policy=numeric_policy) if submission_bytes is not None else dict(
         status='invalid_submission', answer_type=reference['answer_type'], metrics={name: None if name in
         {'mean_absolute_error', 'mean_squared_error'} else 0.0 for name in METRICS[reference['answer_type']]},
         metric=PRIMARY[reference['answer_type']], score=0.0, score_kind='binary' if reference['answer_type'] in

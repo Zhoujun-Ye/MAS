@@ -11,10 +11,7 @@ import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from analysis import cache, stats
-from harness.runner import write_json
-from harness.trace import validate
-
-
+from analysis.legacy_trace import validate
 from analysis.runs import load_runs
 
 
@@ -68,7 +65,8 @@ def main():
         report["cache"] = cache.summarize([(r["condition"], traces[r["run_id"]]) for r in runs])
         report["log_problems"] = {key: issues for key, events in traces.items() if (issues := validate(events))}
         report["started_attempt_directories"] = len(runs)
-        write_json(args.report_dir / f"{index}-{out.name}.json", report)
+        (args.report_dir / f"{index}-{out.name}.json").write_text(
+            json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
         print(json.dumps({"source": str(out), **report}, ensure_ascii=False))
 
 

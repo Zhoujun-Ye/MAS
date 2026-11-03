@@ -1,123 +1,122 @@
 # KramaBench
 
-## Scope And Runtime
+## Claude Single Addition (2026-11-03)
 
-Pinned upstream: `mitdbg/Kramabench`, revision
-`b2e0d77540263f8b6119f977fe79a8c4386b5a02`. The six domain workloads contain
-104 tasks; tiny and quick-start duplicates are not included. Only public task IDs,
-domains and questions enter solver contexts, never references or answer types.
+`run.py --backend claude-code-single-agent` plans the new strict native Claude
+Single condition. Use its native denial proof, not the Subagents proof. Model,
+CLI pin, task data, V3 scoring, common instructions, container limits, concurrency,
+timeout and one-request judge policy remain aligned with the current comparison.
+The native tool surface/permission guard and condition instruction differ.
 
-Conditions are Single, coordinator Team (no Leader domain tools) and full-tool
-Team. Each has an independent workspace and the same domain-tool ceiling. The
-current Team catalog is `kramabench-team-v8`; membership is adaptive, not a fixed
-roster. See [the implemented protocol](agent-team-design.md).
+`compare_claude_single.py --baseline outputs/current/comparison-3way/summary.json
+--single-run FRESH-RUN --output FRESH-COMPARISON` joins completed 104-task results.
+It checks matched task sets, exact scoring/artifact hashes, strict Single
+observations and zero member transcript messages, without new model/judge calls.
+The retained Team arm still has the 99-original/5-repair protocol limitation.
 
-Single and Team submit a saved pipeline path. Freeze/export hashes bind the exact
-file, not its correctness. Artifact execution, answer correctness and semantic
-method validity remain separate claims.
+Pinned upstream: `mitdbg/Kramabench` at
+`b2e0d77540263f8b6119f977fe79a8c4386b5a02`, 104 tasks in six domains.
+The task loader exposes only public IDs/domains/questions to solvers, never
+references, private subtasks or reference code.
 
-## Answer Scoring
+## Conditions And Execution
 
-The host-only evaluator validates both upstream metrics.py and the answer-type
-fixture against the pinned Git revision. Future runs freeze these hashes and the
-scoring policy before dispatch. No unsafe eval or submitted pipeline execution is
-part of answer scoring, and no alternative is extracted from evidence to repair
-an answer or its units.
+`scripts/kramabench/run.py` is the active launch entry point. Select one backend
+and optional repeated `--task-id` arguments. Its default freezes a plan; only
+`--from-plan --execute` plus run-specific authorization dispatches models.
+The default judge limit is zero; at most ten explicit semantic verdicts per
+backend are supported. No automatic retries or replacement attempts are made.
 
-| Answer Type | Tasks | Upstream Metrics | Primary Score |
-| --- | ---: | --- | --- |
-| numeric_exact | 54 | success | binary success |
-| string_exact | 20 | success | binary success |
-| numeric_approximate | 6 | MAE, MSE, RAE score | continuous RAE score |
-| list_exact | 12 | F1, precision, recall | continuous F1 |
-| list_approximate | 2 | approximate F1 (numeric entries, 1% relative match) | continuous F1 |
-| string_approximate | 10 | LLM paraphrase | binary, pending explicit judge |
+Deep Agents is always strict Single in this benchmark: the native task/async
+delegation hook denies delegation, and MCP, interpreter and extensions are
+disabled. A native 500-turn cap is explicit. SessionStart/End, zero SubagentStart,
+zero executed delegation tools and zero checkpoint member messages are checked.
+Missing evidence is not a pass. This is not an adversarial shell/network sandbox.
 
-Ninety-four tasks can be scored offline. Numeric approximation is **not** a
-made-up success tolerance: RAE score = 1 / (1 + abs(pred-target)/abs(target)).
-Relative error at a zero target is explicitly undefined; MAE/MSE remain available.
-Nonfinite/boolean numeric predictions are rejected. Upstream's metric-specific
-percentage parsing differs: Success strips `%`, error metrics treat `%` as a
-fraction. Preserve that contract, not a universal post-hoc unit conversion.
-List matching is unordered and can receive partial credit. Safe literal parsing
-replaces upstream's unsafe eval fallback.
+`claude-code-agent-team` uses an interactive native team. Automatic native teammate-message input
+after Stop invalidates that Stop; a nonempty submission file is also required
+before automatic /exit. No custom roster, message replay or scheduling is added.
+These observations do not prove strict workspace quiescence or model correctness.
 
-Semantic text cases remain `pending_judge`, score null, unless the explicitly
-authorized launcher selects `--judge-model deepseek-flash`. Exact text agreement
-is not silently substituted for the paraphrase metric. Judging begins only after
-all solver jobs drain, using a separate one-call context, no tools and retries=0.
-The adapted judge compares candidate and reference meaning and emits a strict JSON
-boolean; this is not a replication of the upstream GPT judge/model/prompt. Invalid
-verdicts and provider failures remain ungraded errors, not false failures or retries.
-Original grades stay immutable; bound overlays/receipts/traces are written under
-`semantic-grades/` and read explicitly by the auditor. The authorization cap is
-30 calls, with at most three concurrent judgments. Judge tokens/cache/costs are
-separate from solver budgets/accounting.
-Official pipeline/subtask judging is separate and is not implemented by this
-offline answer scorer. A full native-metric result therefore needs a separately
-configured and authorized semantic judge for up to 30 text results in three arms.
+`claude-code-subagents` uses the separate print-mode adapter and explicitly
+disables Agent Teams. Native SubagentStart/Stop and root SessionEnd, no Team
+configs/TeammateIdle events, actual delegation counts and artifact replay are
+recorded separately. Enabled tools are not evidence that delegation occurred.
 
-Receipts retain per-metric values, score_kind, status, judge counts, source hashes
-and exact submission hashes. Invalid submissions get explicit zero-score receipts;
-unstarted/preflight-failed attempts are not imputed as model failures. The audit
-reports binary success separately from continuous scores and pending judging,
-grouped by answer type/metric rather than calling every non-one score a failure.
+Plans bind source/data/scoring/CLI hashes, native arguments, timeout and concurrency.
+Each task has an independent profile/workspace and disposable existing-image
+container. Offline replay runs after solver drain in a fresh no-network,
+credential-free copy. Actual native messages/usage and failures remain evidence.
 
-Offline rescoring writes a fresh namespace, never overwrites original evidence:
+## Versioned Scoring
 
-```sh
-.venv/bin/python scripts/kramabench/score.py \
-  --upstream benchmarks/kramabench/upstream \
-  --runs outputs/RUN --output outputs/RUN-answer-scoring
-```
+The local evaluator verifies reference definitions/fixtures against the upstream
+pin. Default `scale_aware_v3` intentionally corrects the upstream binary numeric
+absolute-epsilon defect. `upstream_v2` preserves the original behavior explicitly.
 
-## Budgets And Parallelism
+V3 binary numeric success uses target-relative error <= 1e-4 (0.01%), no absolute
+epsilon, and exact zero for a zero reference. Integer-pair equality and parsing
+are retained. This prevents near-1e-13 references from accepting zero, wrong signs
+or large relative errors merely because absolute difference is below 1e-6.
+It is a corrected local score, not an unchanged official score.
 
-Current diagnostic defaults: 600 shared model calls, 300 domain calls, 3,600
-execution seconds and 120 audit seconds per attempt; retries=0. Team uses up to
-8 identities, 64 activations, 4 Worker slots and 16-call scheduling slices.
-The generous model ceiling is informed by Appendix A of
-[Same Context, Different Agents](https://arxiv.org/html/2610.20959v2#A1), which
-uses 300 steps and 600 calls. Our domain calls are not identical to its steps;
-this is not a replication or an empirically optimal production allowance.
+| Answer Type | Tasks | Primary Metric |
+| --- | ---: | --- |
+| numeric_exact | 54 | binary success, scale-aware V3 |
+| string_exact | 20 | case-insensitive success; numeric inputs use V3 |
+| numeric_approximate | 6 | continuous RAE |
+| list_exact | 12 | continuous F1 |
+| list_approximate | 2 | continuous approximate F1 |
+| string_approximate | 10 | explicit semantic verdict, otherwise pending |
 
-Default question concurrency is 12, selectable from 1 to 32. Arms remain serial
-within each question. With 12 active questions, at most 36 containers are
-precreated, with 144 GiB combined memory quotas; active-arm CPU quotas total 24
-CPUs, and up to 60 model requests could overlap. These are ceilings, not measured
-usage. The server has 128 logical CPUs and approximately 1 TiB RAM; other users'
-load must still be inspected before launch. More CPU does not remove provider
-rate limits. Do not raise concurrency mid-run to chase speed.
+Other metrics are unchanged. Continuous scores are not binary accuracy. Neither
+matching answers nor successful replay certify scientific-model methodology.
+The ten semantic verdicts are explicitly authorized, one request each, without
+tools/retries and with separate accounting. Existing artifact-bound verdicts
+can be reused for offline rescoring; no new judge is called implicitly.
 
-Every container sets OMP/OpenBLAS/MKL/NumExpr/vecLib thread limits to 1. The smoke
-probe checks these values; the frozen launch contract records them. This avoids
-128-core host detection spawning excessive numerical threads in 2-CPU containers.
-No new image, environment, Docker service or cloud resource is provisioned.
+## Reporting
 
-## Preflight And Authorization
-
-Run tests only on the server, after inspecting processes. Tests prohibit network
-connections. The pinned workload self-score and differential tests exercise all
-94 offline references and compare representative outputs with reviewed upstream
-metric definitions without importing their paid interfaces.
-
-The full scope is **104 tasks x 3 conditions = 312 solver attempts**, plus up to
-30 semantic text evaluations. On 2026-11-02 the user authorized one full run with
-DeepSeek Flash for both solvers and semantic judging. That authorization applies
-only to `outputs/kramabench-full-20261102-01`, not future repetitions or retries.
+- `catalog.py` and `prepare.py`: validate public task/input provenance; provisioning
+  remains separately authorized.
+- `cli_preflight.py` and `single_native_probe.py`: offline native transport/policy
+  probes. The Single probe uses only a loopback fake provider and dummy key.
+- `score.py`: versioned offline scoring of historical attempt layouts.
+- `rescore_native.py`: reproduce original grades and write a fresh V3 overlay,
+  retaining exact source-summary/submission hashes and reused semantic verdicts.
+- `results.py`: publish matched 104-task snapshots with explicit replacements.
 
 ```sh
-.venv/bin/python scripts/kramabench/batch.py \
-  --upstream benchmarks/kramabench/upstream --image EXISTING_IMAGE_ID \
-  --all-tasks --concurrency 12 --dry-run --output outputs/FULL-preflight-NEW
+.venv/bin/python scripts/kramabench/results.py \
+  --single-audit outputs/SINGLE-V3/summary.json \
+  --team-audit outputs/TEAM-ORIGINAL-V3/summary.json \
+  --repair-audit outputs/TEAM-REPAIR-V3/summary.json \
+  --output outputs/FRESH-PUBLICATION
 ```
 
-Dry-run validates workload/scoring coverage and prepared input directories, then
-writes the scope/resource plan. It does not read credentials, start containers,
-probe a provider or call a solver/judge. It is not a live runtime/load test.
-Actual dispatch requires replacing --dry-run with --execute-paid **and** explicit
-run-specific authorization for the frozen size/settings. Fatal key/balance errors
-stop further admission; no retries or replacement attempts are made.
+The publisher replaces the entire specified repair set, even when a new answer
+scores lower. It rejects changed artifacts/references, duplicate/missing task
+IDs, mismatched scoring versions and an unverified Single condition. Each
+replacement records its old and new source, score and artifact hash. It never
+modifies raw runs or chooses a best-scoring answer after seeing scores.
 
-Keep all future failed attempts and errors. See [archive policy](archive.md) for
-the narrowly authorized removal of four obsolete six-question pilot outputs.
+Current publication: `outputs/current/comparison/`. Single uses
+the uniform 500-turn 104-task baseline, excluding the old 50-turn diagnostic.
+Team uses 99 original + 5 repaired cases. This mixed-protocol Team snapshot is
+not a clean full rerun. Costs of superseded/diagnostic attempts must not disappear
+from expenditure reporting. Per-case USD estimates cover visible messages only;
+overlapping CNY account intervals cannot be allocated or summed as backend bills.
+
+`retain_current.py` plans cleanup by default. On explicit execution it copies and
+hash-checks the selected 208 raw attempts into `current/evidence/`, relocates old
+namespaces to an archive outside outputs, and records a relocation map. Frozen
+logs and source summaries are not rewritten. Local reports-only retention does
+not pretend remote raw evidence is present locally. `compare_subagents.py`
+joins a finished 104-task native Subagents run with these retained baselines;
+it rejects mismatched task/scoring sets, changed artifacts and evidence of Team
+mode in the Subagents condition. Comparison/reporting makes no model calls.
+
+All tests/experiments run on the server. Historical pilot versions, failed probes,
+the old delegated dcode study and detailed audit receipts remain in
+[the audit](native-cli-audit-20261102.md) and [archives](archive.md), not active
+study defaults. No old authorization carries over to future paid work.

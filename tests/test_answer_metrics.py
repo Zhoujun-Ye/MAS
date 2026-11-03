@@ -94,8 +94,9 @@ def test_ports_agree_with_pinned_upstream_on_valid_metric_inputs():
     namespace = dict(Metric=object, List=list, json=json, logging=logging,
                      GPTInterface=lambda **kwargs: None)
     exec(compile(ast.Module(body=definitions, type_ignores=[]), '<pinned-metrics>', 'exec'), namespace)
-    for predicted, target in [(4, 4), ('50%', 50.0), (' a ', 'A'), (100.005, 100.0)]:
-        assert score_answer(predicted, target, 'numeric_exact')['score'] == namespace['Success']()(predicted, target)[0]
+    for predicted, target in [(4, 4), ('50%', 50.0), (' a ', 'A'), (100.005, 100.0),
+                              (0, 4.638e-13), (5.107269247909184e-13, 4.638e-13), (1e-7, 0)]:
+        assert score_answer(predicted, target, 'numeric_exact', numeric_policy='upstream_v2')['score'] == namespace['Success']()(predicted, target)[0]
     for predicted, target in [(0.519, 0.519), (110, 100), ('50%', 0.5), (-12, -10)]:
         result = score_answer(predicted, target, 'numeric_approximate')['metrics']
         for metric, cls in [('mean_absolute_error', 'MeanAbsoluteError'), ('mean_squared_error', 'MeanSquaredError'), ('rae_score', 'RAEScore')]:

@@ -1,80 +1,93 @@
-# Leader-Led Agent Team Harness
+# MAS Information
 
-Benchmark-independent asynchronous teams with centralized task authority and direct
-Worker-to-Worker messages. The Leader selects fixed capability templates, assigns
-local work and receives handoffs; Workers execute and communicate directly.
-Independent transcripts manage context; shared tools and files are not information
-isolation or a security sandbox.
+Research workspace with four adapters for two external CLIs, not an embedded agent runtime.
 
-## Runtime
+## Active Conditions
 
-- `harness/team.py`: persistent members, versioned tasks, bounded scheduler and final drain.
-- `harness/messaging.py`: direct mailboxes, request/reply linkage and delivery receipts.
-- `harness/session.py`: common evidence, audits, budgets and explicit mode selection.
-- `harness/single_agent.py`: single-context control with the same total domain capability.
-- `harness/agent.py`: append-only turn loop, verbatim reasoning, validation and tool execution.
-- `harness/llm.py`, `trace.py`, `accounting.py`: provider, exact inputs and accounting.
-- `harness/execution.py`, `workspace_audit.py`: existing-container tools and shared-file snapshots.
+- **Single:** `deepagents-code==0.2.2` (`dcode`), with native delegation denied,
+  MCP/interpreter/extensions disabled, and an explicit 500-turn limit.
+- **Agent Team:** Claude Code `2.1.225`, using an interactive terminal, native
+  named teammates and native messaging. Print-mode subagents are not this baseline.
+- **Subagents:** the same Claude Code `2.1.225`, using native print-mode Agent
+  subagents, with Agent Teams explicitly disabled in settings and environment.
+- **Claude Single:** Claude Code `2.1.225` in print mode, with delegation tools
+  removed/denied, a native permission guard, and zero-worker evidence checks.
+- **Scoring:** scale-aware V3 final-answer metrics. Original upstream scores
+  remain available for reproduction; frozen experiments are never rewritten.
 
-See the [implemented protocol](docs/agent-team-design.md) and [historical evidence](docs/archive.md).
-Foreground subagents were snapshotted at commit `f9c9a4a` and removed from active
-source. Old `mas` and `delegated` flags are rejected, not silently reinterpreted.
+All conditions use externally installed CLIs. No upstream runtime is cloned,
+vendored or imported as an SDK. Deep Agents subagents from older studies are not
+the current Single condition. See [CLI contracts](docs/cli-adapters.md).
 
-## KramaBench
+## Code Layout
 
-Use explicit `mode="team"` (default) or `mode="single"`. Team has four fixed
-templates: `explorer` for source discovery, `analyst` for requirements and analysis,
-`worker` for implementation/integration, and `verifier` for focused executable checks.
-Explorer has shell and an advisory no-write instruction, not an enforced sandbox.
-The Leader actively seeks meaningful multi-member decomposition with complementary
-responsibilities, distinct deliverables and explicit dependencies. One end-to-end
-member is a justified exception, not the default; a fixed roster or redundant work
-is not required. Membership and local briefs are selected per task. The default
-`leader_mode="coordinator"` has no domain tools, including file readers: domain work
-and execution checks belong to Workers. `leader_mode="full"` is an explicit comparison
-condition with all domain tools and the same coordination-first policy. No fixed roster
-or mandatory review. Messages can wake idle and dependency-waiting members with
-unchanged grants without starting their pending assignments. Workers end assignments
-using `finish_task(status, summary)`; only an explicit `completed` claim with a normal
-handoff unlocks dependencies. Plain final text is `unclaimed`, not inferred success.
-Single and Team submit `pipeline_path`; freeze records file metadata/hashes, and
-submit exports only the selected file after checking its frozen hash. Closing lists
-paths, hashes and file types; no code is inserted into the Leader's context by submission.
-Repeated indefinite waiting after a confirmed stall notice drains the team instead
-of idling until the deadline. Message activations retain their grants and have
-separate domain-usage accounting from task assignments.
-Generic domain checks are shared with Workers through `PROJECT_CONTEXT`.
-This proves identity, not execution or correctness. See the
-[current benchmark guide](docs/kramabench.md).
+- `harness/`: native CLI arguments, hooks, version checks and process transport.
+- `harness/claude_code_agent_team/` and `harness/claude_code_subagents/`: distinct
+  native Claude modes, sharing only argument/recording helpers.
+- `harness/claude_code_single_agent/`: isolated native strict Single adaptation.
+- `benchmarks/kramabench/`: pinned task data, versioned metrics and explicit judge.
+- `scripts/kramabench/run.py`: one plan/freeze/execute entry point per backend.
+- `scripts/kramabench/cli_runtime.py`: benchmark container/artifact/evidence helpers.
+- `scripts/kramabench/rescore_native.py`: immutable offline scoring overlays.
+- `scripts/kramabench/results.py`: checked 104-task publication and replacements.
+- `scripts/kramabench/native_evidence.py`: read-only native transcript/checkpoint readers.
+- `analysis/`: generic utilities and read-only historical-schema readers.
 
-Answer grading runs after attempts on the host, bound to exact submissions and the
-pinned upstream metric mapping. Numeric approximation uses continuous error/RAE
-metrics, not binary success. Lists retain F1/precision/recall. Semantic text grading
-requires an explicitly supplied judge; missing authorization yields pending_judge,
-not a false failure or an implicit paid call. Pipeline judging remains separate.
-A final report is not a success verdict.
+Old six-task, dual-backend and one-off continuation launchers have been retired.
+Their exact sources remain in archives and frozen run snapshots, not active
+imports. The custom Single/Team runtime, provider relay, role catalog and custom
+agent scheduler remain retired. [Retention details](docs/archive.md).
 
-The batch launcher supports `--all-tasks --dry-run` to inspect the 104-task,
-312-attempt scope without model calls or containers. Default question concurrency
-is 12 (maximum 32); numerical libraries use one thread per container to prevent
-oversubscription. See the guide before authorizing a paid run.
+## Plan A Benchmark
 
-## Verification
-
-Run only on the project server after inspecting processes:
+Run from an explicitly synced source checkout on the server, not locally.
+Existing data, images and CLI installations must already be available.
 
 ```sh
-scripts/server/sync.sh
-scripts/server/remote.sh '.venv/bin/python -m pytest -q'
-scripts/server/remote.sh '.venv/bin/python scripts/kramabench/offline.py --mode both --output outputs/team-fixture-NEW'
-scripts/server/remote.sh '.venv/bin/python scripts/kramabench/offline.py --mode leader-pair --output outputs/leader-pair-fixture-NEW'
+.venv/bin/python scripts/kramabench/run.py \
+  --backend deepagents --upstream benchmarks/kramabench/upstream \
+  --output outputs/FRESH-RUN --offline-proof SINGLE-GUARD-PROOF.json \
+  --judge-limit 10
 ```
 
-These checks use scripted clients, not paid models. The paid entry point is
-`scripts/kramabench/pilot.py`; every invocation needs run-specific authorization.
-`--mode leader-pair` explicitly selects two attempts, `team_coordinator` and
-`team_full`, each with the same per-attempt ceilings and independent workspace.
-It is not a third condition or an implicit extra run under `--mode team`.
-It creates only selected task containers from an existing image, records frozen
-settings and inputs, and removes only its own containers, never run evidence.
-Historical scores do not establish results for the new Team runtime.
+Use `--backend claude-code-agent-team` with its offline terminal proof for Team,
+or `--backend claude-code-subagents` with its offline native Subagents proof.
+Use `--backend claude-code-single-agent` with its offline native denial proof
+for the new Claude Single condition. It is not an alias of Subagents.
+Repeated `--task-id` selects a subset; otherwise all 104 pinned tasks are selected.
+Default judge limit is zero. Each selected task gets one attempt, with no automatic
+retries. Only a separately authorized study may use `--from-plan --execute`.
+Preflight may inspect native versions/help and existing containers but makes no
+model calls. Planning does not read provider credentials.
+
+The runner requires native/artifact admission evidence before parallel dispatch.
+Agent tools, contexts, communication and scheduling remain the native CLI's job.
+CLI exit, native Stop or enabled flags alone do not establish task correctness.
+
+## Results
+
+Retained current snapshot: `outputs/current/comparison/`.
+It uses the fresh 104-task strict Single baseline and replaces all five specified
+Claude problem cases with their repaired attempts. Original traces and receipts
+are retained. The Team result is **99 original + 5 repaired**, not a fresh full
+104-task rerun or causal architecture comparison. Failed/superseded attempts
+still count toward actual expenditure. Selected raw evidence is under
+`outputs/current/evidence/` on the server; older namespaces are relocated into
+the recorded output-cleanup archive, not permanently erased. New Subagents
+evidence/comparison stays under `outputs/current/`, rather than mixing historical runs.
+
+Completed three-condition comparison: `outputs/current/comparison-3way/`, with
+cost/evidence details at `outputs/current/reports/final-three-way-20261103-01/`.
+`compare_claude_single.py` adds a finished, verified Claude Single run to that
+exact retained comparison without rerunning or rewriting the other conditions.
+
+[Benchmark scoring and reporting](docs/kramabench.md) |
+[Audit and experiment history](docs/native-cli-audit-20261102.md)
+
+## Verification And Operations
+
+Tests run on the server with offline fake CLIs and existing dependencies. Inspect
+CPU/process ownership first. Use `scripts/server/sync.sh` for scoped source only,
+never `--delete`, credentials, outputs, environments or assets. Local edits do
+not deploy or clean production server source. New installs and paid runs require
+explicit authorization; old no-cap permission is not continuing permission.

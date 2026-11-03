@@ -5,13 +5,10 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "mas-information"
 version = "0.1.0"
-description = "Leader-led agent teams with task-scoped contexts and tool grants"
+description = "External Deep Agents and Claude Code Agent Teams CLI adapters"
 requires-python = ">=3.12,<3.14"
-# Native benchmark dependencies are optional; admission is a separate research gate.
-dependencies = [
-    "httpx>=0.27",
-    "jsonschema>=4.18,<5",
-]
+# Agent CLIs are installed independently, never imported as project libraries.
+dependencies = []
 
 [project.optional-dependencies]
 test = ["pytest>=8"]
