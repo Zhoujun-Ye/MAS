@@ -1,5 +1,23 @@
 # Historical Evidence
 
+## Local Organization Cleanup (2026-11-03)
+
+Completed study documents now live in [history/](history/README.md). Active
+instructions, reusable prompts, analysis tools and regression tests are retained.
+
+Local superseded `outputs/current/comparison/`, `comparison-3way/`, and
+`reports/subagents-interim-20261103-01/` and
+`reports/final-three-way-20261103-01/` were first relocated to a local archive,
+then their local copies were deleted with the user's explicit approval after
+confirming the four-way publication supersedes these summaries. The latest
+four-way publication, current run copies and final audit/pilot reports remain
+in `outputs/current/`. Server evidence and historical source snapshots are
+untouched; this cleanup does not re-evaluate results.
+
+Disposable `.cache/current-results-transfer/`, Python bytecode caches and
+`.DS_Store` files are removed locally. Native CLI tools, source snapshots,
+credentials, environments, prepared inputs and server files are untouched.
+
 ## README And Source Cleanup (2026-11-03)
 
 Pre-cleanup local source, including the uncommitted delegation audit, is retained

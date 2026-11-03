@@ -17,7 +17,7 @@ offline regression passed 177 tests before launch.
 ## Protocol and provenance
 
 - Prompt: `docs/prompts/subagents-evidence-judge-v1.md`.
-- Preregistered design: `docs/scoped-judge24-pilot-20261103.md`.
+- Preregistered design: [pilot protocol](scoped-judge24-pilot-20261103.md).
 - Selection: six domains, two easy and two hard tasks per domain, using a
   frozen SHA-256 ranking of IDs without scores or answers. 18 tasks have
   binary scores; six have continuous scores.

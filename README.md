@@ -120,7 +120,8 @@ failed runs and frozen sources remain in archives. The local four-way report is
 a copy of the completed server publication, not a new evaluation.
 
 [Benchmark scoring and reporting](docs/kramabench.md) |
-[CLI contracts](docs/cli-adapters.md) | [Historical retention](docs/archive.md)
+[CLI contracts](docs/cli-adapters.md) | [Completed studies](docs/history/README.md) |
+[Historical retention](docs/archive.md)
 
 ## Verification And Operations
 
