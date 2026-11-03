@@ -33,17 +33,6 @@ def contexts(events: list[dict], upto: int | None = None) -> dict[str, list[dict
     return histories
 
 
-def llm_inputs(events: list[dict], agent: str) -> list[list[dict]]:
-    """The exact message list sent in each of ``agent``'s LLM calls."""
-    history = contexts(events).get(agent, [])
-    return [
-        history[: event["context_len"]]
-        for event in events
-        if event.get("agent") == agent and (event["type"] == "llm_attempt" or
-            event["type"] == "llm_call" and "attempt_id" not in event)
-    ]
-
-
 def usage_summary(events: list[dict]) -> dict:
     """Token totals overall and per agent, plus the largest single context."""
 

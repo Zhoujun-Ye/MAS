@@ -100,7 +100,9 @@ IDs, mismatched scoring versions and an unverified Single condition. Each
 replacement records its old and new source, score and artifact hash. It never
 modifies raw runs or chooses a best-scoring answer after seeing scores.
 
-Current publication: `outputs/current/comparison/`. Single uses
+Current four-condition publication: `outputs/current/comparison-4way/`;
+the results table and accounting limitations are in [README](../README.md#results).
+The retained two-condition input is `outputs/current/comparison/`. Single uses
 the uniform 500-turn 104-task baseline, excluding the old 50-turn diagnostic.
 Team uses 99 original + 5 repaired cases. This mixed-protocol Team snapshot is
 not a clean full rerun. Costs of superseded/diagnostic attempts must not disappear
@@ -118,5 +120,5 @@ mode in the Subagents condition. Comparison/reporting makes no model calls.
 
 All tests/experiments run on the server. Historical pilot versions, failed probes,
 the old delegated dcode study and detailed audit receipts remain in
-[the audit](native-cli-audit-20261102.md) and [archives](archive.md), not active
+[archives](archive.md), not active
 study defaults. No old authorization carries over to future paid work.

@@ -111,36 +111,8 @@ Native `--max-budget-usd` is print-only and is rejected for interactive Team
 runs, rather than presented as an enforced shared budget. Full-run costs have
 their own explicit authorization.
 
-See [the audit and version rationale](native-cli-audit-20261102.md) for what was
-fixed, what was only observed, and how the frozen full-run gate is checked.
-
-### Historical v177 Pilot
-
-Version 2.1.177 is an existing server binary, not a claim that it is the latest
-or best release. Its offline `--version` and `--help` were inspected during
-the reset. This paragraph and the print-mode description below document the
-historical six-task pilot, not the active adapter after the authorized upgrade.
-
-The adapter uses `--print --verbose --output-format stream-json --model MODEL`.
-It sets `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1` and native
-`teammateMode=in-process`; see
-[the official team documentation](https://code.claude.com/docs/en/agent-teams).
-It does not install subagent templates, choose a roster, or rewrite the task.
-The supplied task must request native Agent Teams when the study requires them.
-
-Permissions remain native. Optional `allowed_tools` / repeated
-`--allowed-tool` entries become `--allowedTools`; permission bypass is never
-added automatically. Optional `max_budget_usd` is passed to the native CLI, not
-advertised as an adapter-enforced shared team budget. SDK/provider retries are
-requested off with `CLAUDE_CODE_MAX_RETRIES=0`; automatic updates and nonessential
-traffic are disabled. No model or endpoint is hard-coded, and credentials stay
-in the inherited environment or native CLI configuration.
-
-Raw stream-json stays in `stdout.log`. Native result usage and total cost are
-retained when present, without assuming full-team or per-role coverage.
-A zero process exit without a native
-successful result event becomes `cli_protocol_error` or `cli_error`, not task
-completion. A final event does not prove that teammates were created or drained.
+Historical transport audits and the retired v177 pilot description are retained
+in the source snapshots listed in [archive.md](archive.md), not active contracts.
 
 ## Invocation And Evidence
 

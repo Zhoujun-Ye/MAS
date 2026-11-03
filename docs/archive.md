@@ -1,5 +1,22 @@
 # Historical Evidence
 
+## README And Source Cleanup (2026-11-03)
+
+Pre-cleanup local source, including the uncommitted delegation audit, is retained
+in `archives/readme-cleanup-20261103/local-source-before.tgz`. No credentials,
+environments, outputs, assets or upstream checkouts are included.
+
+The dated `docs/native-cli-audit-20261102.md` and obsolete v177 pilot description
+were removed from active documentation; their full text remains in this snapshot
+and Git. Current CLI contracts and benchmark instructions stay in
+`cli-adapters.md` and `kramabench.md`. The independent uncommitted delegation
+audit is preserved. The unused legacy `llm_inputs` helper was removed; historical
+run reading, validation, cache/statistics utilities and active reproduction tools
+remain supported. No server source cleanup, deployment or paid call is implied.
+
+The completed server `outputs/current/comparison-4way/` publication was copied
+locally and summarized in README without changing source runs or grades.
+
 ## Claude Single Addition (2026-11-03)
 
 Before adding the fourth adapter and sharing print-only transport helpers,

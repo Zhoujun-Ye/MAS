@@ -66,23 +66,61 @@ CLI exit, native Stop or enabled flags alone do not establish task correctness.
 
 ## Results
 
-Retained current snapshot: `outputs/current/comparison/`.
-It uses the fresh 104-task strict Single baseline and replaces all five specified
-Claude problem cases with their repaired attempts. Original traces and receipts
-are retained. The Team result is **99 original + 5 repaired**, not a fresh full
-104-task rerun or causal architecture comparison. Failed/superseded attempts
-still count toward actual expenditure. Selected raw evidence is under
-`outputs/current/evidence/` on the server; older namespaces are relocated into
-the recorded output-cleanup archive, not permanently erased. New Subagents
-evidence/comparison stays under `outputs/current/`, rather than mixing historical runs.
+Completed four-condition snapshot (2026-11-03):
+[`outputs/current/comparison-4way/REPORT.md`](outputs/current/comparison-4way/REPORT.md),
+with artifact-bound rows and provenance in its `summary.json`.
+Each condition selects the same 104 KramaBench tasks, uses DeepSeek Flash and
+local `scale_aware_v3` scoring. Binary accuracy covers 84 tasks; the other 20
+retain continuous metrics and are not folded into an overall accuracy.
 
-Completed three-condition comparison: `outputs/current/comparison-3way/`, with
-cost/evidence details at `outputs/current/reports/final-three-way-20261103-01/`.
-`compare_claude_single.py` adds a finished, verified Claude Single run to that
-exact retained comparison without rerunning or rewriting the other conditions.
+| Metric | Deep Agents Single | Claude Single | Claude Subagents | Claude Agent Team |
+| --- | ---: | ---: | ---: | ---: |
+| Binary success | 55/84 (65.48%) | 60/84 (71.43%) | 59/84 (70.24%) | 61/84 (72.62%) |
+| Easy binary success | 28/35 | 31/35 | 30/35 | 31/35 |
+| Hard binary success | 27/49 | 29/49 | 29/49 | 30/49 |
+| Normal CLI exit | 104/104 | 104/104 | 104/104 | 104/104 |
+| Matching offline replay | 104/104 | 104/104 | 104/104 | 104/104 |
+| Mean CLI seconds | 161.1 | 248.7 | 435.6 | 914.3 |
+| Median CLI seconds | 103.1 | 142.6 | 322.3 | 798.1 |
+| Token-weighted cache reuse | 97.61% | 97.28% | 96.10% | 95.60% |
+| Solver USD estimate, off-peak / peak | 1.563706 / 3.127412 | 2.974133 / 5.948266 | 8.593499 / 17.186998 | 18.560251 / 37.120503 |
+
+| Answer Type / Metric | Tasks | Deep Agents Single | Claude Single | Claude Subagents | Claude Agent Team |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| numeric_exact / success | 54 | 0.611111 | 0.648148 | 0.629630 | 0.648148 |
+| string_exact / success | 20 | 0.750000 | 0.850000 | 0.850000 | 0.850000 |
+| string_approximate / semantic verdict | 10 | 0.700000 | 0.800000 | 0.800000 | 0.900000 |
+| list_approximate / approximate F1 | 2 | 0.000000 | 0.000000 | 0.000000 | 0.000000 |
+| list_exact / F1 | 12 | 0.805556 | 0.930556 | 0.930556 | 0.930556 |
+| numeric_approximate / RAE score | 6 | 0.918708 | 0.958317 | 0.917294 | 0.917282 |
+
+Both Single conditions have native zero-subagent evidence for all 104 selected
+attempts. Subagents used native workers in 104/104 tasks, with 180 starts and
+104/104 lifecycle checks passing. Lifecycle checks and successful replay do not
+establish scientific-method correctness.
+
+**Limits and accounting:**
+
+- Team is **99 original + 5 repaired**, not a fresh uniform 104-task rerun.
+  All five specified repairs replace their predecessors, not best-of selection.
+- Costs above cover retained solver messages for selected artifacts, exclude
+  semantic judges and superseded attempts, and are estimates, not invoices.
+  Linked solver attempts are 105 / 104 / 104 / 109 in table order. Each condition
+  also used ten semantic judges. Failed and superseded expenditure is retained
+  in the source receipts and three-way accounting report.
+- Claude Single's account-wide solver interval was CNY 39.45; its ten-judge
+  interval displayed CNY 0.00, which does not establish free judging. Account
+  intervals may include other use; overlapping intervals cannot be summed or
+  attributed as backend bills. Missing request/helper accounting is unknown.
+- Native contexts, prompts and tool policies differ. These are descriptive
+  results, not evidence of causal architecture superiority or significance.
+
+Raw selected evidence remains on the server under `outputs/current/`; historical
+failed runs and frozen sources remain in archives. The local four-way report is
+a copy of the completed server publication, not a new evaluation.
 
 [Benchmark scoring and reporting](docs/kramabench.md) |
-[Audit and experiment history](docs/native-cli-audit-20261102.md)
+[CLI contracts](docs/cli-adapters.md) | [Historical retention](docs/archive.md)
 
 ## Verification And Operations
 
