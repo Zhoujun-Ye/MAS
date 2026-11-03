@@ -67,6 +67,29 @@ def backend_instructions(backend):
             "This version uses implicit teams; TeamCreate/TeamDelete do not exist. Do not manufacture cleanup.")
 
 
+def organization_override(path, backend):
+    if path is None:
+        return None
+    if backend != "claude-code-subagents":
+        raise ValueError("Organization prompt overrides are only supported for Subagents studies")
+    if path.is_symlink() or not path.is_file() or path.stat().st_size > 32768:
+        raise ValueError("Organization prompt must be a regular file of at most 32768 bytes")
+    raw = path.read_bytes()
+    text = raw.decode("utf-8").strip()
+    if not text:
+        raise ValueError("Organization prompt must not be empty")
+    return dict(path=str(path.resolve()), sha256=hashlib.sha256(raw).hexdigest(), text=text)
+
+
+def condition_instructions(args, backend):
+    override = getattr(args, "organization_override", None)
+    if override is not None:
+        if backend != "claude-code-subagents":
+            raise ValueError("Organization prompt overrides are only supported for Subagents studies")
+        return override["text"]
+    return backend_instructions(backend)
+
+
 def now():
     return datetime.now(timezone.utc).isoformat()
 
@@ -229,7 +252,7 @@ def run_attempt(task, backend, args, key, stop, active, lock):
     profile.mkdir(mode=0o700)
     (profile / "home").mkdir()
     strict_single = backend == "deepagents"
-    instructions = INSTRUCTIONS + "\n" + backend_instructions(backend)
+    instructions = INSTRUCTIONS + "\n" + condition_instructions(args, backend)
     (work / "AGENTS.md").write_text(instructions)
     (work / "CLAUDE.md").write_text(instructions)
     subprocess.run(["git", "init", "--quiet", str(work)], check=True)
@@ -403,7 +426,8 @@ def preflight(args):
                 provenance=provenance, scoring=scoring, image_id=args.image,
                 inputs_sha256=fingerprint(inventory), instructions=INSTRUCTIONS,
                 backend_options={b: options(b) for b in backends},
-                backend_instructions={b: backend_instructions(b) for b in backends},
+                backend_instructions={b: condition_instructions(args, b) for b in backends},
+                organization_override=getattr(args, "organization_override", None),
                 native_environment={b: native_env(b) for b in backends}, cpu_per_attempt=2, memory_per_attempt="8g",
                 source=source_manifest(),
                 judge_limit=getattr(args, "judge_limit", 0),

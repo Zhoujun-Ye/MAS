@@ -90,6 +90,8 @@ def validate(args):
     tasks, _ = load_tasks(args.upstream)
     selected = tasks if args.all_tasks else [next(t for t in tasks if t.id == i) for i in args.selected_task_ids]
     if (plan["kind"] != "native_cli_benchmark" or plan["backend"] != args.backend or [asdict(t) for t in selected] != plan["tasks"]
+            or plan.get("organization_override") != getattr(args, "organization_override", None)
+            or plan["backend_instructions"] != {b: runtime.condition_instructions(args, b) for b in args.backends}
             or runtime.source_manifest() != plan["source"]
             or fingerprint(runtime.verify_inputs(args.upstream)) != plan["inputs_sha256"]
             or scoring_contract(args.upstream) != plan["scoring"]):
@@ -191,6 +193,8 @@ def main(argv=None):
     parser.add_argument("--upstream", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--offline-proof", type=Path, required=True)
+    parser.add_argument("--organization-prompt", type=Path,
+                        help="Explicit Subagents study instruction override; frozen with its SHA-256")
     parser.add_argument("--credentials", type=Path, default=Path("/home/zhoujunye/MAS-information/.env"))
     parser.add_argument("--image", default="mas-information/kramabench:20261101-v1")
     parser.add_argument("--concurrency", type=int, default=12)
@@ -203,6 +207,7 @@ def main(argv=None):
     if not 1 <= args.concurrency <= 12 or args.timeout <= 0 or args.replay_timeout <= 0:
         parser.error("Expected 1-12 CLIs and positive timeouts")
     args.upstream, args.output = args.upstream.resolve(), args.output.resolve()
+    args.organization_override = runtime.organization_override(args.organization_prompt, args.backend)
     tasks, _ = load_tasks(args.upstream)
     if len(args.task_id) != len(set(args.task_id)) or set(args.task_id) - {t.id for t in tasks}:
         parser.error("Task IDs must be unique members of the pinned workload")

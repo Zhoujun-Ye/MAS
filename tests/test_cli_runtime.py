@@ -1,8 +1,10 @@
 import json
+from types import SimpleNamespace
 
 import pytest
 
-from scripts.kramabench.cli_runtime import balance_deltas, credential, native_env, options, submission
+from scripts.kramabench.cli_runtime import (balance_deltas, backend_instructions, condition_instructions,
+    credential, native_env, options, organization_override, submission)
 from scripts.kramabench.native_evidence import read_evidence
 
 
@@ -63,3 +65,32 @@ def test_non_usd_balances_are_not_silently_zero():
     def receipt(amount):
         return dict(response=dict(balance_infos=[dict(currency="CNY", total_balance=amount)]))
     assert balance_deltas(receipt("30.00"), receipt("23.90")) == {"CNY": "6.10"}
+
+
+def test_organization_prompt_is_explicit_frozen_and_subagents_only(tmp_path):
+    path = tmp_path / "prompt.md"
+    path.write_text("  Judge the stated evidence only.\n")
+    override = organization_override(path, "claude-code-subagents")
+    assert override["text"] == "Judge the stated evidence only."
+    assert len(override["sha256"]) == 64
+    args = SimpleNamespace(organization_override=override)
+    assert condition_instructions(args, "claude-code-subagents") == override["text"]
+    assert condition_instructions(SimpleNamespace(), "claude-code-subagents") == backend_instructions("claude-code-subagents")
+    with pytest.raises(ValueError, match="only supported"):
+        organization_override(path, "claude-code-single-agent")
+    with pytest.raises(ValueError, match="only supported"):
+        condition_instructions(args, "claude-code-agent-team")
+    path.write_text("Changed instruction")
+    assert organization_override(path, "claude-code-subagents")["sha256"] != override["sha256"]
+
+
+def test_organization_prompt_rejects_empty_and_nonregular(tmp_path):
+    path = tmp_path / "prompt.md"
+    path.write_text("\n")
+    with pytest.raises(ValueError, match="empty"):
+        organization_override(path, "claude-code-subagents")
+    alias = tmp_path / "alias.md"
+    alias.symlink_to(path)
+    with pytest.raises(ValueError, match="regular"):
+        organization_override(alias, "claude-code-subagents")
+    assert organization_override(None, "claude-code-subagents") is None
