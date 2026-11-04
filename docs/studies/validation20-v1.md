@@ -4,6 +4,16 @@ Adopted by the user on 2026-11-04 for small-sample idea development and validati
 This is not an independent held-out final test. Repeated tuning on these questions
 must be disclosed; final claims require separate data and an appropriate design.
 
+## Current Status
+
+The user requested stopping experiments and deleting all current paid results on
+2026-11-04. The initial and partial extension results were deleted, along with
+their current summary reports. The fixed public task IDs/hashes below remain;
+there is no retained scored baseline to reuse. The output-default rerun discussed
+after the extension launch was not started. Do not resume or replace any attempt
+without fresh run-specific authorization. The run names/protocol below describe
+selection provenance and the previous plan, not retained results.
+
 ## Frozen Questions
 
 `validation20-v1-manifest.json` contains exactly 20 public task IDs per benchmark,
@@ -30,6 +40,13 @@ Changing any question requires a new named set version; do not silently edit v1.
 - Original batch: 60 attempts. Extension: 60 attempts; up to 52 paid judge calls,
   with SQL/numeric evaluation otherwise. No new authorization for future runs
   is implied by adopting this validation set.
+
+Both original batches explicitly set `CLAUDE_CODE_MAX_OUTPUT_TOKENS=16384`.
+The user subsequently requested removing that project-defined single-response
+cap and rerunning HDR `sql2s_047` / Single. That separate attempt uses the native
+CLI/model default, not unlimited output. Preserve the original failure and
+distinguish the new configuration from the uniform original baseline; do not
+silently mix its result into the original 120-attempt comparison.
 
 Native audit failures remain in raw assigned-condition summaries and are marked
 separately. They are not evidence of the intended native organization. Missing

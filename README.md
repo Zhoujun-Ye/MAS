@@ -19,21 +19,18 @@ evidence-review question.
 
 Deep Agents, Claude Code Agent Teams and Codex adapters are retired. Do not restore
 their active adapters or launch choices. Codex results were removed at the user's
-request. The current matched-10 batch and the preceding all-high Claude pilot are
-retained; older result batches were deleted explicitly. These remain engineering pilots.
+request. All current paid experiment results and their current summary reports were
+deleted at the user's request on 2026-11-04. Source, data, offline proofs and the
+fixed Validation20 task manifest remain.
 
 ## Current Results
 
-Current batch: `claude-matched10-v4-high-01-443a5f0`, ten matched tasks per benchmark,
-30 per condition, all solver requests at `high`, concurrency 6, no retries.
-Mean scores for Single / Subagents: DataClaw 0.80 / 0.75, HDR 0.50 / 0.40,
-Krama 0.6908 / 0.7908. One Krama Subagents attempt did not delegate and is explicitly
-unverified. Total estimates were USD 1.14769 / 1.77988; the shared-account balance
-decreased by CNY 19.71. These are single-attempt pilot observations, not a general
-superiority claim. The preceding six-task pilot is retained separately.
+There are no retained current paid results. The extension batch was stopped before
+cleanup; the subsequently discussed output-limit rerun was not launched. Future
+experiments require fresh run-specific authorization.
 
-See [the current results report](docs/current-results.md) for per-task scores,
-timing, cost components, role accounting, evidence paths and limitations.
+See [current result status](docs/current-results.md) and
+[the fixed validation set](docs/studies/validation20-v1.md).
 
 ## Layout
 

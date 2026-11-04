@@ -1,5 +1,17 @@
 # Server Benchmark Preparation
 
+## Latest Result Cleanup
+
+On 2026-11-04 the user requested stopping active experiments and deleting all
+current paid results. The active Validation20 extension runner stopped and all
+owned solver containers were removed before deletion. All three current paid
+batch directories, the extension driver log, local exported summaries and current
+report copies were deleted. No native-default replacement solver was launched.
+Code, datasets, environments, credentials, offline proofs and the frozen public
+Validation20 task manifest remain. No experiment may resume automatically.
+Receipt: `receipts/result-cleanup-20261104-validation20.json` under the external
+data root. Earlier preparation sections below are historical records.
+
 ## Credential Incident Cleanup
 
 On 2026-11-04 the user authorized deletion of recent smoke runs, their interrupted
