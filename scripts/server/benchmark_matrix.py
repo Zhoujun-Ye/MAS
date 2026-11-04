@@ -23,6 +23,35 @@ from benchmarks._external import digest
 from scripts.common.timeouts import TIMEOUT_SECONDS_BY_BENCHMARK, default_timeout, timeout_policy
 
 BACKENDS = ("claude-code-single-agent", "claude-code-subagents",)
+BENCHMARKS = ("dataclawbench", "hybriddeepresearch", "kramabench")
+
+
+def task_fingerprint(benchmark, task):
+    public = dict(benchmark=benchmark, id=task.id,
+                  question=getattr(task, "question", getattr(task, "query", None)),
+                  source_sha256=getattr(task, "source_sha256", None))
+    return hashlib.sha256(json.dumps(public, sort_keys=True).encode()).hexdigest()
+
+
+def manifest_selections(root, manifest, offset, count):
+    if manifest.get("kind") != "validation20-v1" or offset < 0 or offset + count > 20:
+        raise ValueError("Invalid validation manifest or task slice")
+    pools = dict(dataclawbench=dc_tasks(root / "dataclawbench/upstream"),
+                 hybriddeepresearch=hdr_tasks(root / "hybriddeepresearch/release/hybrid_ds_release/hybrid_ds_release.jsonl"),
+                 kramabench=krama_tasks(root / "kramabench/upstream")[0])
+    result = []
+    for benchmark in BENCHMARKS:
+        frozen = manifest["benchmarks"][benchmark]
+        ids = [row["task_id"] for row in frozen]
+        if len(ids) != 20 or len(set(ids)) != 20:
+            raise ValueError("Each validation benchmark must contain 20 unique IDs")
+        by_id = {t.id: t for t in pools[benchmark]}
+        for row in frozen:
+            task = by_id.get(row["task_id"])
+            if task is None or task_fingerprint(benchmark, task) != row["task_sha256"]:
+                raise ValueError("Frozen validation task changed or disappeared")
+        result.extend((benchmark, by_id[i]) for i in ids[offset:offset + count])
+    return result
 
 
 def balanced_sample(tasks, count, group, seed):
@@ -101,13 +130,19 @@ def main(argv=None):
     parser.add_argument("--organization-prompt", type=Path)
     parser.add_argument("--tasks-per-benchmark", type=int, default=2, choices=range(1, 101))
     parser.add_argument("--sample-seed", type=int, default=42)
+    parser.add_argument("--task-manifest", type=Path, help="Frozen public ID/hash manifest, never questions or gold")
+    parser.add_argument("--task-offset", type=int, default=0)
     parser.add_argument("--judge-concurrency", type=int, default=2, choices=range(1, 3))
     parser.add_argument("--authorized-attempts", type=int)
     parser.add_argument("--authorized-judges", type=int, default=0)
     parser.add_argument("--execute", action="store_true")
     args = parser.parse_args(argv)
     args.root, args.output, args.proofs = args.root.resolve(), args.output.resolve(), args.proofs.resolve()
-    selected = (selections(args.root) if args.tasks_per_benchmark == 2
+    manifest = json.loads(args.task_manifest.read_text()) if args.task_manifest else None
+    if args.task_offset and manifest is None:
+        raise ValueError("A task offset requires a frozen task manifest")
+    selected = (manifest_selections(args.root, manifest, args.task_offset, args.tasks_per_benchmark)
+                if manifest else selections(args.root) if args.tasks_per_benchmark == 2
                 else selections(args.root, args.tasks_per_benchmark, args.sample_seed))
     jobs = [(bench, task, backend, args.output / "solvers" / bench / task.id / backend)
             for bench, task in selected for backend in BACKENDS]
@@ -115,7 +150,9 @@ def main(argv=None):
                          if b != "hybriddeepresearch" or t.category != "search_to_sql")
     authorization = dict(attempts=len(jobs), maximum_judge_calls=maximum_judges, retries=0, effort=args.effort,
         tasks_per_benchmark=args.tasks_per_benchmark, sample_seed=args.sample_seed,
-        selection_policy="legacy-two" if args.tasks_per_benchmark == 2 else "seeded-public-strata-round-robin",
+        selection_policy="frozen-validation-manifest" if manifest else "legacy-two" if args.tasks_per_benchmark == 2 else "seeded-public-strata-round-robin",
+        task_offset=args.task_offset,
+        task_manifest_sha256=digest(args.task_manifest) if args.task_manifest else None,
         organization_override=runtime.organization_override(args.organization_prompt, "claude-code-subagents"),
         timeout_seconds_by_benchmark=dict(TIMEOUT_SECONDS_BY_BENCHMARK),
         timeout_policy_by_benchmark={b: timeout_policy(b) for b in TIMEOUT_SECONDS_BY_BENCHMARK},
@@ -126,9 +163,18 @@ def main(argv=None):
         return 0
     if len(jobs) != 6 * args.tasks_per_benchmark or args.authorized_attempts != len(jobs) or args.authorized_judges not in (0, maximum_judges):
         raise ValueError(f"Require exactly {len(jobs)} authorized solvers and zero or at most {maximum_judges} authorized judges")
+    if manifest:
+        expected = manifest["baseline_settings"]
+        observed = dict(effort=args.effort, organization_sha256={k: hashlib.sha256(runtime.backend_instructions(k).encode()).hexdigest() for k in BACKENDS},
+                        timeout_seconds_by_benchmark=dict(TIMEOUT_SECONDS_BY_BENCHMARK),
+                        solver_concurrency=args.concurrency, judge_concurrency=args.judge_concurrency)
+        if expected != observed or args.organization_prompt:
+            raise ValueError("Baseline settings differ from the frozen validation study")
     os.umask(0o077)
     args.output.mkdir(parents=True, exist_ok=False)
     write_json(args.output / "authorization.json", {**authorization, "authorized_judges": args.authorized_judges})
+    if manifest:
+        write_json(args.output / "task-manifest.json", manifest)
     args.image = json.loads(subprocess.check_output(["docker", "image", "inspect", args.image], text=True))[0]["Id"]
     for backend in BACKENDS:
         proof = json.loads((args.proofs / backend / "proof.json").read_text())

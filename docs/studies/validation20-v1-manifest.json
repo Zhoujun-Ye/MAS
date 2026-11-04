@@ -1,0 +1,390 @@
+{
+  "kind": "validation20-v1",
+  "sample_seed": 42,
+  "purpose": "Reusable development/validation set, not an independent held-out final test",
+  "selection_policy": "SHA256(seed:ID), round-robin public categories/domains; first 10 retained, next 10 appended",
+  "initial_batch": "claude-matched10-v4-high-01-443a5f0",
+  "initial_authorization_sha256": "8b22fc2f181350213954bd2e85f9336ba0a0842b8d985a13a14efed28aedd44c",
+  "baseline_settings": {
+    "effort": "high",
+    "organization_sha256": {
+      "claude-code-single-agent": "ff771193df12b53fc2aa3593355b07847f3993728d3f850c148bb825c77c5ce6",
+      "claude-code-subagents": "74e38f7a56cccf729d6c0fac31eda4c724f53c783100aa978eda69f886b52f50"
+    },
+    "timeout_seconds_by_benchmark": {
+      "dataclawbench": 1200,
+      "hybriddeepresearch": 1800,
+      "kramabench": 3600
+    },
+    "solver_concurrency": 6,
+    "judge_concurrency": 2
+  },
+  "benchmarks": {
+    "dataclawbench": [
+      {
+        "task_id": "task_487_risk_assessment_medium_medium006",
+        "task_sha256": "e8b59edc66504810d71bb0de0534a1d5219c80aca167812aeaae0d389fe86ef9",
+        "stratum": "risk_assessment",
+        "batch": "initial"
+      },
+      {
+        "task_id": "task_440_international_comparison_hard_hard011",
+        "task_sha256": "36dcb0c18b0d1cd591eb61c5628d157c3380f6ad10e9ffd5c249373bb17693b7",
+        "stratum": "international_comparison",
+        "batch": "initial"
+      },
+      {
+        "task_id": "task_397_hypothesis_verification_medium_medium010",
+        "task_sha256": "c66b143e68a2852c28f11df4c658f1d08637331724b906c3d39d2965fe210e99",
+        "stratum": "hypothesis_verification",
+        "batch": "initial"
+      },
+      {
+        "task_id": "task_404_industry_planning_hard_hard003",
+        "task_sha256": "a3d3b3e44d2af25c9cef7181937985c112370cce0de31da36c1579317542ed60",
+        "stratum": "industry_planning",
+        "batch": "initial"
+      },
+      {
+        "task_id": "task_290_enterprise_industry_analysis_medium_medium105",
+        "task_sha256": "72c30e3beafaf14e569d80107f74bf9893cc0cae2902ebbd203d09979be62dc0",
+        "stratum": "enterprise_industry_analysis",
+        "batch": "initial"
+      },
+      {
+        "task_id": "task_333_enterprise_industry_policy_analysis_medium_medium027",
+        "task_sha256": "dcc23e3c8ead29b69ddb8835319006ed24a35191744465fb99cee35037690baf",
+        "stratum": "enterprise_industry_policy_analysis",
+        "batch": "initial"
+      },
+      {
+        "task_id": "task_039_comprehensive_decision_medium_medium014",
+        "task_sha256": "121a32aa43f39c085b51fc13ad73a37d636fc4fc7a9bc23e97ac9ee274e453fa",
+        "stratum": "comprehensive_decision",
+        "batch": "initial"
+      },
+      {
+        "task_id": "task_471_risk_assessment_hard_hard003",
+        "task_sha256": "0c0932b94d2927ec6420e678d9b19e2685916ac35c44d719daa33e2b1f825a5a",
+        "stratum": "risk_assessment",
+        "batch": "initial"
+      },
+      {
+        "task_id": "task_451_international_comparison_medium_medium008",
+        "task_sha256": "906510593002b32feaf869e8c28d79d0984e3ae2edc8658dbf780b12637ed324",
+        "stratum": "international_comparison",
+        "batch": "initial"
+      },
+      {
+        "task_id": "task_377_hypothesis_verification_hard_hard005",
+        "task_sha256": "30faefe876762ea47317de342991f1ffdfc156e52e104ba77def5a262fd8ba26",
+        "stratum": "hypothesis_verification",
+        "batch": "initial"
+      },
+      {
+        "task_id": "task_423_industry_planning_medium_medium008",
+        "task_sha256": "2b02c4eb1b2cbeb4f35ae318789969b643fac8cbb96cea906271e11c5a6e20a2",
+        "stratum": "industry_planning",
+        "batch": "extension"
+      },
+      {
+        "task_id": "task_205_enterprise_industry_analysis_medium_medium020",
+        "task_sha256": "5c29f272cd2970d1a33ed9f3343ec7959d36daba456ca6ab447202bad1f2a689",
+        "stratum": "enterprise_industry_analysis",
+        "batch": "extension"
+      },
+      {
+        "task_id": "task_320_enterprise_industry_policy_analysis_medium_medium014",
+        "task_sha256": "e0ad88c3a9b344a66a5fc9ff3d2f73b8d6971c94df7fa7d8c53a975a07862201",
+        "stratum": "enterprise_industry_policy_analysis",
+        "batch": "extension"
+      },
+      {
+        "task_id": "task_069_comprehensive_decision_medium_medium044",
+        "task_sha256": "65bf3401958a893b331e3e66a87cc51072d2f8bd9cd8f86ed175e3767b7c37d0",
+        "stratum": "comprehensive_decision",
+        "batch": "extension"
+      },
+      {
+        "task_id": "task_482_risk_assessment_medium_medium001",
+        "task_sha256": "e733eaea1db5f6b536b3ea4d563cdf72e9bf3fc8b8fce2e85470fd59f185fc57",
+        "stratum": "risk_assessment",
+        "batch": "extension"
+      },
+      {
+        "task_id": "task_448_international_comparison_medium_medium005",
+        "task_sha256": "5d9d3c99df7ed813dc6fcd206a1e77c2013865b0a8e49a7fda0dd1b28eb42dd0",
+        "stratum": "international_comparison",
+        "batch": "extension"
+      },
+      {
+        "task_id": "task_389_hypothesis_verification_medium_medium002",
+        "task_sha256": "f622cf903e7c3a16017fa3cd86ec54d658dc76d77910cc55b935393575006b87",
+        "stratum": "hypothesis_verification",
+        "batch": "extension"
+      },
+      {
+        "task_id": "task_405_industry_planning_hard_hard004",
+        "task_sha256": "25fc43bb738c61a642ef2283f458c929b25abc54584f00790fe495beec48550f",
+        "stratum": "industry_planning",
+        "batch": "extension"
+      },
+      {
+        "task_id": "task_160_enterprise_industry_analysis_easy_easy092",
+        "task_sha256": "bc8686df0729446b21b3740db58c1b583d9e225ffbb7a75f19d68ee3afc83479",
+        "stratum": "enterprise_industry_analysis",
+        "batch": "extension"
+      },
+      {
+        "task_id": "task_350_enterprise_industry_policy_analysis_medium_medium044",
+        "task_sha256": "d1c020cb81610a156a39b30456f6161aa3d3ee6681fcd42cf97f5daad28b61c2",
+        "stratum": "enterprise_industry_policy_analysis",
+        "batch": "extension"
+      }
+    ],
+    "hybriddeepresearch": [
+      {
+        "task_id": "parallel_016",
+        "task_sha256": "0151616de91aaac3e1cced80edb1c9470658e28984599aae64d68f989194bf32",
+        "stratum": "parallel",
+        "batch": "initial"
+      },
+      {
+        "task_id": "s2sql_024",
+        "task_sha256": "8a487c76f6e0a9a3d8911340b5d4c4bdf8853ea077d1ca924a66a7eed9e075df",
+        "stratum": "search_to_sql",
+        "batch": "initial"
+      },
+      {
+        "task_id": "sql2s_112",
+        "task_sha256": "2b2d74341dde1826f78319789478b00ef260db589cc81784c5e1231de2da8e03",
+        "stratum": "sql_to_search",
+        "batch": "initial"
+      },
+      {
+        "task_id": "parallel_105",
+        "task_sha256": "6f16eac7aebba31569030b5c405ce0a69fdc0fa8704c6aae9b511e1ab8bac4af",
+        "stratum": "parallel",
+        "batch": "initial"
+      },
+      {
+        "task_id": "s2sql_008",
+        "task_sha256": "998a429c40784ed1047caf69249bb171d45ed35f62cf5980cff10d067cbb6d64",
+        "stratum": "search_to_sql",
+        "batch": "initial"
+      },
+      {
+        "task_id": "sql2s_063",
+        "task_sha256": "80407c0482f9826d8fecae124af6718a6dc6a931d2447a9ddd0939e0eb832663",
+        "stratum": "sql_to_search",
+        "batch": "initial"
+      },
+      {
+        "task_id": "parallel_056",
+        "task_sha256": "3a8bdd155fce0026b6d262acac9bbdf03fa0fe56fce34459bc6e0e7f560fe332",
+        "stratum": "parallel",
+        "batch": "initial"
+      },
+      {
+        "task_id": "s2sql_018",
+        "task_sha256": "89aa382d03af4049ddd002e7d9a82a77523462e9c24e363d4af5dbe1b5b6521d",
+        "stratum": "search_to_sql",
+        "batch": "initial"
+      },
+      {
+        "task_id": "sql2s_103",
+        "task_sha256": "73f8d3711ee2f62c3b39812ee8983a9610c25ed9cca5ff3c61acf4dee3bb7278",
+        "stratum": "sql_to_search",
+        "batch": "initial"
+      },
+      {
+        "task_id": "parallel_009",
+        "task_sha256": "37f8ae71edbf38f442c7c88251798f6c43a85669e512fefdd0059aa47381e23a",
+        "stratum": "parallel",
+        "batch": "initial"
+      },
+      {
+        "task_id": "s2sql_021",
+        "task_sha256": "581e47d16d4bce8070bffca67d5d585318e4869a23beae6b9c2d88398d627245",
+        "stratum": "search_to_sql",
+        "batch": "extension"
+      },
+      {
+        "task_id": "sql2s_047",
+        "task_sha256": "0b75901c1997d46a1d62d93aba1138e2681ac4a5bd7b502c751be2e0326fd4f6",
+        "stratum": "sql_to_search",
+        "batch": "extension"
+      },
+      {
+        "task_id": "parallel_026",
+        "task_sha256": "58aea9263c4c225108f39daa691c947c160edb793aee12b50fb2aab3f0a02933",
+        "stratum": "parallel",
+        "batch": "extension"
+      },
+      {
+        "task_id": "s2sql_030",
+        "task_sha256": "ec3d763979bf474d83b41ec2cc48d30102b907f18e047dbe20ca883ba293be63",
+        "stratum": "search_to_sql",
+        "batch": "extension"
+      },
+      {
+        "task_id": "sql2s_067",
+        "task_sha256": "1b1d91b768d51c7ed5482b223e6a2dd263ece06ee904222f4b84a9152b7e2d55",
+        "stratum": "sql_to_search",
+        "batch": "extension"
+      },
+      {
+        "task_id": "parallel_091",
+        "task_sha256": "b839e1d4187717c327dff2e45b961109fcbe0bbb916e13c35d1101e2c0d19c6f",
+        "stratum": "parallel",
+        "batch": "extension"
+      },
+      {
+        "task_id": "s2sql_004",
+        "task_sha256": "3b7e895390cecae3315e26777466255de5f9d5a0c5881c6a13b5e6fd005a6dbb",
+        "stratum": "search_to_sql",
+        "batch": "extension"
+      },
+      {
+        "task_id": "sql2s_199",
+        "task_sha256": "17396e0bf1025e53add676ce18dbd9c79372651efda59e87f459852700cbc012",
+        "stratum": "sql_to_search",
+        "batch": "extension"
+      },
+      {
+        "task_id": "parallel_104",
+        "task_sha256": "b6cefeafb6de9011f2ac927db5129f1bdb01427226dff3b2c85005fcd13d6313",
+        "stratum": "parallel",
+        "batch": "extension"
+      },
+      {
+        "task_id": "s2sql_039",
+        "task_sha256": "6fd429768bb84f74966c913676515743ebfb8a7a55b5595baed20501d62aceee",
+        "stratum": "search_to_sql",
+        "batch": "extension"
+      }
+    ],
+    "kramabench": [
+      {
+        "task_id": "wildfire-easy-9",
+        "task_sha256": "a69e448c07f278d76bc7e0307ef44a9c7977888bdcf2bc0426d4ade30ecd91d6",
+        "stratum": "wildfire",
+        "batch": "initial"
+      },
+      {
+        "task_id": "astronomy-easy-1",
+        "task_sha256": "877dd40ef1c9e834de444402915af4d934382cf8e471476f0acae61a6e3217d2",
+        "stratum": "astronomy",
+        "batch": "initial"
+      },
+      {
+        "task_id": "archeology-easy-11",
+        "task_sha256": "a6084e9875e460dbae25c8b717b29625a31b2ce215459e8b29392c0a57014bf0",
+        "stratum": "archeology",
+        "batch": "initial"
+      },
+      {
+        "task_id": "legal-hard-15",
+        "task_sha256": "2421c3a85978b9cdeb6a18b8f90e9109211748c7ff07f8762290e256c4aa5e55",
+        "stratum": "legal",
+        "batch": "initial"
+      },
+      {
+        "task_id": "biomedical-hard-4",
+        "task_sha256": "dff6303cec0595f120c25957286b2677eb129f84d08ab2d45c193eae797de0b2",
+        "stratum": "biomedical",
+        "batch": "initial"
+      },
+      {
+        "task_id": "environment-hard-7",
+        "task_sha256": "d16735d951f56838b8bca5640b3f279b1cc7ae4b9ddb635887812a84b1e57c32",
+        "stratum": "environment",
+        "batch": "initial"
+      },
+      {
+        "task_id": "wildfire-easy-13",
+        "task_sha256": "1c49be07dd7ab440fe17de4c9218fec2db5d1889b0d6ec623bd5f354abeba287",
+        "stratum": "wildfire",
+        "batch": "initial"
+      },
+      {
+        "task_id": "astronomy-hard-12",
+        "task_sha256": "c1cff561287219ae2d048f1f5560a06c2015da51676361c69c4fe2225f93f7ec",
+        "stratum": "astronomy",
+        "batch": "initial"
+      },
+      {
+        "task_id": "archeology-hard-5",
+        "task_sha256": "3754bd49bca96390d506d5c32e537a27957028800cd51dfd9429857c43159322",
+        "stratum": "archeology",
+        "batch": "initial"
+      },
+      {
+        "task_id": "legal-hard-28",
+        "task_sha256": "7e2c488d9c1928a587617be896587954f38161919415e0c2fc9178fdad79c1bf",
+        "stratum": "legal",
+        "batch": "initial"
+      },
+      {
+        "task_id": "biomedical-easy-2",
+        "task_sha256": "80e747a9f33b42cb3af68e69092fcc254ffbfda8414014384cabaaa0188032a8",
+        "stratum": "biomedical",
+        "batch": "extension"
+      },
+      {
+        "task_id": "environment-hard-11",
+        "task_sha256": "e5ee758e83b09a37937f74e0b1baac68c9c49e0d3387cdf3c50c80c3ef582adf",
+        "stratum": "environment",
+        "batch": "extension"
+      },
+      {
+        "task_id": "wildfire-easy-1",
+        "task_sha256": "ba2ea3385af850b5209dd6a49265a5e9aef6cf4ad51e11767d2686ebadab53d1",
+        "stratum": "wildfire",
+        "batch": "extension"
+      },
+      {
+        "task_id": "astronomy-hard-10",
+        "task_sha256": "187a54253555447095386fe607467eb122fc6f8a5f73db5b70e20cf053d3aa3d",
+        "stratum": "astronomy",
+        "batch": "extension"
+      },
+      {
+        "task_id": "archeology-easy-8",
+        "task_sha256": "1095df8f25fe37c09e7c6d6e05030841e80de4367879f7a90f4c386326f9bcf4",
+        "stratum": "archeology",
+        "batch": "extension"
+      },
+      {
+        "task_id": "legal-easy-13",
+        "task_sha256": "f12b10b9b6990a1cf424ec28b04caff414d242c32027a539bfa175c7e686cef7",
+        "stratum": "legal",
+        "batch": "extension"
+      },
+      {
+        "task_id": "biomedical-hard-8",
+        "task_sha256": "056632a1baae9aaa78390e9c9a522c7906a29bf020959d006bbf3a4b4a56d53a",
+        "stratum": "biomedical",
+        "batch": "extension"
+      },
+      {
+        "task_id": "environment-hard-8",
+        "task_sha256": "a61bf6a0d68747b7c54ca82643be671feade46f91647a6df4829d88cec2fd240",
+        "stratum": "environment",
+        "batch": "extension"
+      },
+      {
+        "task_id": "wildfire-easy-3",
+        "task_sha256": "7a470cb4ca67d9259f85f0402504468eb11d73874526e65678af8a49f54289d5",
+        "stratum": "wildfire",
+        "batch": "extension"
+      },
+      {
+        "task_id": "astronomy-hard-11",
+        "task_sha256": "a2c4a1b9529c7bd488bed14bf45bcb290c6068424e464db0cead77e06b11a1b0",
+        "stratum": "astronomy",
+        "batch": "extension"
+      }
+    ]
+  }
+}

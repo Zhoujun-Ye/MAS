@@ -45,6 +45,10 @@ coordinator/full modes, capability catalogs, or custom scheduling semantics.
   `benchmarks/organization.py` retains a research-intervention renderer only;
   bounded evidence-judge pilots are not native baseline results.
 - `analysis/` retains generic utilities and read-only historical-schema readers.
+- Validation20 v1 is the user-adopted reusable development/validation set: exactly
+  20 frozen questions per active benchmark. See `docs/studies/validation20-v1.md`
+  and its public ID/hash manifest. Do not reroll questions based on results, silently
+  replace failures, or describe this repeatedly used set as an independent final test.
 - CooperBench is retired; preserve its evidence and retention exceptions in
   `docs/archive.md`, not an active dependency.
 - Preserve unrelated changes and historical evidence. Snapshot overlapping
