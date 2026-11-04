@@ -9,7 +9,7 @@ Agent Teams disabled. Interactive Agent Teams is retired, including the KramaBen
 
 The Subagents baseline uses the explicitly user-selected orchestrator-worker lead
 prompt in `scripts/common/runtime.py`. Workers do substantive work; the lead plans,
-delegates and synthesizes. Codex 0.159.3 changes only CLI/tool names in that prompt.
+delegates and synthesizes. Only Claude Code conditions remain active.
 It specifies at least one worker, but no specialist roster or cost-reduction method.
 The organization prompt is not placed in shared worker-visible rule files. Admission
 requires observed delegation and completion; non-delegating attempts are retained

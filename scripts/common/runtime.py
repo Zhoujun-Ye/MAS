@@ -17,8 +17,6 @@ from benchmarks._io import write_json
 from harness._claude_hooks import BLOCKED_TOOLS
 
 CLAUDE = Path("/home/zhoujunye/.local/bin/claude").resolve()
-CODEX = Path("/home/zhoujunye/MAS-information-data/environments/codex-0.159.3/package/vendor/x86_64-unknown-linux-musl/bin/codex")
-CODEX_CATALOG = CODEX.parents[4] / "deepseek-models.json"
 
 TOOLS = ("Bash", "Read", "Write", "Edit", "Glob", "Grep", "Agent", "Task", "SendMessage",
          "TaskCreate", "TaskUpdate", "TaskGet", "TaskList", "TaskStop", "TaskOutput")
@@ -27,8 +25,6 @@ THREADS = {name: "1" for name in ("OMP_NUM_THREADS", "OPENBLAS_NUM_THREADS", "MK
                                   "NUMEXPR_NUM_THREADS", "VECLIB_MAXIMUM_THREADS")}
 
 def backend_instructions(backend):
-    if backend.startswith("codex-"):
-        return backend_instructions(backend.replace("codex-", "claude-code-", 1)).replace("Claude Code", "Codex").replace("native Agent tool", "native spawn_agent tool")
     if backend == "claude-code-single-agent":
         return ("This is the strict SINGLE-AGENT condition. Complete all work yourself. Native delegation "
                 "is disabled by policy. Do not call task, spawn any subagent, or launch other model/agent "
@@ -135,8 +131,6 @@ def snapshot(work):
     return files
 
 def options(backend):
-    if backend in {"codex-single-agent", "codex-subagents"}:
-        return dict(model="deepseek-flash", model_catalog="/native-models.json")
     if backend not in {"claude-code-single-agent", "claude-code-subagents"}:
         raise ValueError("Only Claude Code conditions are active")
     tools = tuple(t for t in TOOLS if t not in BLOCKED_TOOLS) if backend == "claude-code-single-agent" else TOOLS
@@ -145,8 +139,6 @@ def options(backend):
 
 def native_env(backend):
     options(backend)
-    if backend.startswith("codex-"):
-        return dict(THREADS, HOME="/native/home", CODEX_HOME="/native/codex")
     return dict(THREADS, HOME="/native/home",
                 CLAUDE_CONFIG_DIR="/native/claude", ANTHROPIC_BASE_URL="https://api.deepseek.com/anthropic",
                 ANTHROPIC_MODEL="deepseek-flash[1m]", ANTHROPIC_DEFAULT_OPUS_MODEL="deepseek-flash[1m]",
@@ -193,11 +185,6 @@ def container(work, profile, dataset, image, key=None, network="bridge", backend
     mounts = [(work, "/workspace", False), (profile, "/native", False),
                                     (CLAUDE, str(CLAUDE), True),
                                     (Path(__file__).resolve().parents[2] / "harness/_claude_hooks.py", "/adapter-hooks.py", True)]
-    if backend.startswith("codex-"):
-        mounts = [(work, "/workspace", False), (profile, "/native", False),
-                  (CODEX.parents[1], str(CODEX.parents[1]), True),
-                  (CODEX_CATALOG.with_name("deepseek-single-models.json") if backend == "codex-single-agent" else CODEX_CATALOG,
-                   "/native-models.json", True)]
     mounts.extend(dataset_mounts if dataset_mounts is not None else [(dataset, "/data", True)])
     if gateway is not None and gateway.unix_path is not None:
         mounts += [(gateway.unix_path, "/host-gateway.sock", True),
@@ -210,12 +197,10 @@ def container(work, profile, dataset, image, key=None, network="bridge", backend
         args += ["--env", variable]
     # Values are inherited through docker's environment, never placed in argv or receipts.
     args += ["--env", "ANTHROPIC_AUTH_TOKEN"]
-    if backend.startswith("codex-"):
-        args += ["--env", "DEEPSEEK_API_KEY"]
     args += [image, "sleep", "infinity"]
     token = gateway.token if gateway is not None else "offline-placeholder"
     docker_env = {name: os.environ[name] for name in ("PATH", "HOME", "LANG") if name in os.environ}
-    docker_env.update(ANTHROPIC_AUTH_TOKEN=token, DEEPSEEK_API_KEY=token)
+    docker_env.update(ANTHROPIC_AUTH_TOKEN=token)
     # Persist ownership before Docker can create anything, including when its
     # client is interrupted before returning the assigned container ID.
     ownership = profile / "container-ownership.json"

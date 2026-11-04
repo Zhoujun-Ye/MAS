@@ -16,7 +16,7 @@ def test_team_is_not_exported_or_launchable():
     assert error.value.code == 2
 
 
-@pytest.mark.parametrize("backend", ["claude-code-agent-team", "codex-agent-team", "unknown"])
+@pytest.mark.parametrize("backend", ["claude-code-agent-team", "codex-agent-team", "codex-single-agent", "codex-subagents", "unknown"])
 @pytest.mark.parametrize("build", [backend_instructions, native_env, options])
 def test_retired_and_unknown_backends_fail_closed(backend, build):
     with pytest.raises(ValueError):

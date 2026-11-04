@@ -3,7 +3,7 @@
 ## Active Runtime
 
 The externally installed Claude runtime is pinned to **Claude Code 2.1.286**.
-Codex 0.159.3 adapters are described in [Codex adapters](codex-adapters.md).
+Codex adapters and launch choices were retired at the user's request.
 
 | Condition | Adapter | Native Transport |
 | --- | --- | --- |

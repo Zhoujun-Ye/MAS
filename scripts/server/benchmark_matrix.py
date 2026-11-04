@@ -1,4 +1,4 @@
-"""Explicit 24-attempt benchmark matrix; bounded independent CLI processes, no retries."""
+"""Explicit 12-attempt Claude benchmark matrix; independent processes, no retries."""
 
 import argparse
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -21,7 +21,7 @@ from scripts.common.proof import validate_runtime
 from benchmarks._external import digest
 from scripts.common.timeouts import TIMEOUT_SECONDS_BY_BENCHMARK, default_timeout, timeout_policy
 
-BACKENDS = ("claude-code-single-agent", "claude-code-subagents", "codex-single-agent", "codex-subagents")
+BACKENDS = ("claude-code-single-agent", "claude-code-subagents",)
 
 
 def selections(root):
@@ -39,8 +39,6 @@ def solver_command(args, benchmark, task, backend, output, *, execute=False):
                "--backend", backend, "--task-id", task.id, "--image", args.image, "--output", str(output),
                "--credentials", str(args.credentials), "--timeout", str(default_timeout(benchmark)),
                "--offline-proof", str(args.proofs / backend / "proof.json")]
-    if backend.startswith("codex-"):
-        command.append("--codex-docker-isolated")
     if benchmark == "kramabench":
         command += ["--concurrency", "1", "--replay-timeout", "180", "--judge-limit", "0"]
         if execute:
@@ -73,7 +71,7 @@ def main(argv=None):
     selected = selections(args.root)
     jobs = [(bench, task, backend, args.output / "solvers" / bench / task.id / backend)
             for bench, task in selected for backend in BACKENDS]
-    authorization = dict(attempts=len(jobs), maximum_judge_calls=20, retries=0,
+    authorization = dict(attempts=len(jobs), maximum_judge_calls=10, retries=0,
         timeout_seconds_by_benchmark=dict(TIMEOUT_SECONDS_BY_BENCHMARK),
         timeout_policy_by_benchmark={b: timeout_policy(b) for b in TIMEOUT_SECONDS_BY_BENCHMARK},
         solver_concurrency=args.concurrency, judge_concurrency=args.judge_concurrency,
@@ -81,19 +79,16 @@ def main(argv=None):
     if not args.execute:
         print(json.dumps(authorization, indent=2))
         return 0
-    if len(jobs) != 24 or args.authorized_attempts != 24 or args.authorized_judges not in (0, 20):
-        raise ValueError("Require exactly 24 authorized solvers and zero or at most 20 authorized judges")
+    if len(jobs) != 12 or args.authorized_attempts != 12 or args.authorized_judges not in (0, 10):
+        raise ValueError("Require exactly 12 authorized solvers and zero or at most 10 authorized judges")
     os.umask(0o077)
     args.output.mkdir(parents=True, exist_ok=False)
     write_json(args.output / "authorization.json", {**authorization, "authorized_judges": args.authorized_judges})
     args.image = json.loads(subprocess.check_output(["docker", "image", "inspect", args.image], text=True))[0]["Id"]
     for backend in BACKENDS:
         proof = json.loads((args.proofs / backend / "proof.json").read_text())
-        codex = backend.startswith("codex-")
-        catalog = runtime.CODEX_CATALOG.with_name("deepseek-single-models.json") if backend.endswith("single-agent") else runtime.CODEX_CATALOG
         validate_runtime(proof, backend, image_id=args.image,
-            binary_sha256=digest(runtime.CODEX if codex else runtime.CLAUDE),
-            catalog_sha256=digest(catalog) if codex else None)
+            binary_sha256=digest(runtime.CLAUDE))
     active, lock, stop = set(), threading.Lock(), threading.Event()
 
     def command_run(command, log):
@@ -224,7 +219,7 @@ def main(argv=None):
             accounting_scope="Whole shared-account interval, not attributable per-condition charges",
             interrupted=stop.is_set(), finished_at=runtime.now()))
         grades_ok = all(g["status"] not in {"missing_summary", "missing_predictions", "grading_failed", "judge_error", "not_started"} for g in grades)
-        return 0 if len(rows) == 24 and all(r["status"] == "cli_exited" for r in rows) and grades_ok and not stop.is_set() else 1
+        return 0 if len(rows) == 12 and all(r["status"] == "cli_exited" for r in rows) and grades_ok and not stop.is_set() else 1
     except BaseException as error:
         interrupt(None, None)
         write_json(args.output / "failure.json", dict(error_type=type(error).__name__,

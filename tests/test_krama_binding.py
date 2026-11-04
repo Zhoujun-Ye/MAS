@@ -11,137 +11,22 @@ from scripts.kramabench import cli_runtime as runtime
 from scripts.kramabench import run
 
 
-@pytest.mark.parametrize("backend", ["codex-single-agent", "codex-subagents"])
-@pytest.mark.parametrize("passed", [True, False])
-def test_codex_attempt_uses_gateway_and_native_evidence(tmp_path, monkeypatch, backend, passed):
-    captured = {}
-
-    class Gateway:
-        url = "http://127.0.0.1:8765"
-        def __init__(self, key, **kwargs):
-            assert key == "synthetic-secret" and kwargs["web_limit"] == 0
-        def __enter__(self):
-            return self
-        def __exit__(self, *args):
-            captured["gateway_closed"] = True
-
-    class Adapter:
-        def __init__(self, binary):
-            assert binary == str(runtime.CODEX)
-        def run(self, prompt, **kwargs):
-            captured.update(kwargs)
-            return dict(status="cli_exited")
-
-    def container(*args, **kwargs):
-        assert len(args) == 4 and "key" not in kwargs
-        assert isinstance(kwargs["gateway"], Gateway)
-        return "fixture-container"
-
-    monkeypatch.setattr(runtime, "CredentialGateway", Gateway)
-    monkeypatch.setattr(runtime, "CodexSingleAgentCLI", Adapter)
-    monkeypatch.setattr(runtime, "CodexSubagentsCLI", Adapter)
-    monkeypatch.setattr(runtime, "container", container)
-    monkeypatch.setattr(runtime, "codex_evidence", lambda path, single: dict(passed=passed, single=single))
-    monkeypatch.setattr(runtime, "stop_container", lambda identity: dict(stopped=True))
-    monkeypatch.setattr(runtime.subprocess, "run", lambda *a, **kw: SimpleNamespace(returncode=0))
-    args = SimpleNamespace(output=tmp_path / "outputs", upstream=tmp_path, image="fake", timeout=900,
-                           codex_docker_isolated=True)
-    active = set()
-    report = runtime.run_attempt(Task("probe", "astronomy", "Fixture"), backend, args,
-        "synthetic-secret", threading.Event(), active, threading.Lock())
-    assert captured["base_url"] == Gateway.url
-    assert captured["docker_isolated"] is True
-    assert captured["timeout"] == 900
-    assert captured["profile_target"] == "/native/codex"
-    assert "observer_dir" not in captured
-    assert captured["gateway_closed"]
-    assert not active
-    assert report["native_codex"]["single"] == backend.endswith("single-agent")
-    assert report["status"] == ("cli_exited" if passed else "native_condition_unverified")
-    assert "synthetic-secret" not in json.dumps(report)
-
-
-@pytest.mark.parametrize("backend", ["codex-single-agent", "codex-subagents"])
-def test_codex_admission_uses_codex_reader(tmp_path, monkeypatch, backend):
-    monkeypatch.setattr(runtime, "submission", lambda path: {})
-    monkeypatch.setattr(run, "codex_evidence", lambda path, single: dict(passed=True, single=single))
-    assert not hasattr(run, "native_team")
-    audit = run.admission(tmp_path, dict(task_id="probe", backend=backend, status="cli_exited"))
-    assert audit["passed"]
-    assert audit["native_codex"]["single"] == backend.endswith("single-agent")
-
-
-def test_codex_cli_parse_and_default_timeout(tmp_path, monkeypatch):
-    task = Task("probe", "astronomy", "Fixture")
-    monkeypatch.setattr(run, "load_tasks", lambda path: ([task], {}))
-    captured = {}
-    def freeze(args):
-        captured.update(vars(args))
-        return [task], {}
-    monkeypatch.setattr(run, "freeze", freeze)
-    run.main(["--backend", "codex-subagents", "--task-id", "probe", "--upstream", str(tmp_path),
-              "--output", str(tmp_path / "out"), "--offline-proof", str(tmp_path / "proof.json"),
-              "--codex-docker-isolated"])
-    assert captured["timeout"] == 3600
-    assert captured["codex_docker_isolated"]
-    assert runtime.backend_options(SimpleNamespace(codex_docker_isolated=True), "codex-subagents")["docker_isolated"]
-
-
-def test_codex_preflight_freezes_binary_catalog_and_sandbox(tmp_path, monkeypatch):
-    task = Task("probe", "astronomy", "Fixture")
-    binary, catalog = tmp_path / "codex", tmp_path / "deepseek-models.json"
-    binary.write_text("fixture-binary")
-    catalog.write_text("{}")
-    single_catalog = catalog.with_name("deepseek-single-models.json")
-    single_catalog.write_text('{"multi_agent_version":null}')
-    monkeypatch.setattr(runtime, "CODEX", binary)
-    monkeypatch.setattr(runtime, "CODEX_CATALOG", catalog)
-    monkeypatch.setattr(runtime, "load_tasks", lambda path: ([task], {}))
-    monkeypatch.setattr(runtime, "scoring_contract", lambda path: {})
-    monkeypatch.setattr(runtime, "verify_inputs", lambda path: {})
-    monkeypatch.setattr(runtime, "source_manifest", lambda: {})
-    monkeypatch.setattr(runtime, "source_files", lambda: iter(()))
-    captured = {}
-    def container(*args, **kwargs):
-        captured.update(kwargs)
-        return "fixture-container"
-    monkeypatch.setattr(runtime, "container", container)
-    monkeypatch.setattr(runtime, "stop_container", lambda *a: {})
-    monkeypatch.setattr(runtime.subprocess, "run", lambda *a, **kw: SimpleNamespace(returncode=0))
-    monkeypatch.setattr(runtime.subprocess, "check_output", lambda command, **kwargs:
-        '[{"Id":"fixture-image"}]' if command[:3] == ["docker", "image", "inspect"] else "fixture-version")
-    args = SimpleNamespace(upstream=tmp_path, output=tmp_path / "out", selected_task_ids=[task.id],
-        backends=("codex-single-agent",), image="fake", concurrency=1, timeout=900, codex_docker_isolated=True)
-    selected, plan = runtime.preflight(args)
-    assert selected == [task]
-    assert set(plan["cli_binaries"]) == {"codex"}
-    assert plan["model_catalogs"]["codex-single-agent"]["path"] == str(single_catalog)
-    assert plan["backend_options"]["codex-single-agent"]["docker_isolated"]
-    assert plan["strict_single"]
-    assert captured["backend"] == "codex-single-agent" and captured["network"] == "none"
-
-
 def bound_proof(backend):
-    codex = backend.startswith("codex-")
     single = backend.endswith("single-agent")
     binding = dict(image_id="fixture-image", binary_sha256="fixture-binary-hash")
-    if codex:
-        binding["catalog_sha256"] = "fixture-catalog-hash"
     proof = dict(backend=backend, passed=True, network="none", paid_calls=0,
                  runtime_binding=binding, shell_verified=True, tool_exposure_verified=True)
-    if codex:
-        proof["native_codex"] = dict(passed=True, subagent_starts=0 if single else 1)
-    elif single:
+    if single:
         proof["native_single_agent"] = dict(passed=True, subagent_starts=0, executed_delegation_tools=0)
         proof["delegation_rejections_observed"] = 2
     else:
         proof["native_subagents"] = dict(passed=True, subagent_starts=1, native_team_configs=0, teammate_idle_events=0)
-    plan = dict(image_id="fixture-image", cli_binaries={"codex" if codex else "claude": dict(sha256="fixture-binary-hash")},
-                model_catalogs={backend: dict(sha256="fixture-catalog-hash")} if codex else {})
+    plan = dict(image_id="fixture-image", cli_binaries={"claude": dict(sha256="fixture-binary-hash")},
+                model_catalogs={})
     return proof, plan
 
 
-@pytest.mark.parametrize("backend", ["claude-code-single-agent", "claude-code-subagents", "codex-single-agent", "codex-subagents"])
+@pytest.mark.parametrize("backend", ["claude-code-single-agent", "claude-code-subagents"])
 def test_freeze_requires_runtime_bound_proof(tmp_path, monkeypatch, backend):
     proof, plan = bound_proof(backend)
     path = tmp_path / "proof.json"
@@ -161,11 +46,11 @@ def test_freeze_requires_runtime_bound_proof(tmp_path, monkeypatch, backend):
 
 @pytest.mark.parametrize("changed_proof", [False, True])
 def test_from_plan_revalidates_proof_binding(tmp_path, monkeypatch, changed_proof):
-    backend = "codex-subagents"
+    backend = "claude-code-subagents"
     proof, plan = bound_proof(backend)
     path = tmp_path / "proof.json"
     if not changed_proof:
-        proof["runtime_binding"]["catalog_sha256"] = "stale-catalog"
+        proof["runtime_binding"]["binary_sha256"] = "stale-binary"
     path.write_text(json.dumps(proof))
     plan["offline_proof_sha256"] = hashlib.sha256(path.read_bytes()).hexdigest()
     (tmp_path / "plan.json").write_text(json.dumps(plan))
@@ -178,7 +63,7 @@ def test_from_plan_revalidates_proof_binding(tmp_path, monkeypatch, changed_proo
         run.validate(args)
 
 
-@pytest.fixture(params=["claude-code-single-agent", "claude-code-subagents", "codex-single-agent", "codex-subagents"])
+@pytest.fixture(params=["claude-code-single-agent", "claude-code-subagents"])
 def roundtrip_plan(request, tmp_path, monkeypatch):
     backend = request.param
     task = Task("probe", "astronomy", "Fixture")
@@ -186,20 +71,14 @@ def roundtrip_plan(request, tmp_path, monkeypatch):
     binary = tmp_path / "native-cli"
     binary.write_text("fixture-binary")
     binary_hash = hashlib.sha256(binary.read_bytes()).hexdigest()
-    name = "codex" if backend.startswith("codex-") else "claude"
+    name = "claude"
     plan["cli_binaries"][name] = dict(path=str(binary), sha256=binary_hash)
     proof["runtime_binding"]["binary_sha256"] = binary_hash
-    if backend.startswith("codex-"):
-        catalog = tmp_path / "catalog.json"
-        catalog.write_text("{}")
-        catalog_hash = hashlib.sha256(catalog.read_bytes()).hexdigest()
-        plan["model_catalogs"][backend] = dict(path=str(catalog), sha256=catalog_hash)
-        proof["runtime_binding"]["catalog_sha256"] = catalog_hash
     proof_path = tmp_path / "proof.json"
     proof_path.write_text(json.dumps(proof))
     args = SimpleNamespace(backend=backend, backends=(backend,), output=tmp_path / "out",
         upstream=tmp_path, offline_proof=proof_path, all_tasks=False, selected_task_ids=[task.id],
-        codex_docker_isolated=True, concurrency=1, timeout=3600, judge_limit=1, replay_timeout=180)
+        concurrency=1, timeout=3600, judge_limit=1, replay_timeout=180)
     plan.update(attempts=1, tasks=[dict(id=task.id, domain=task.domain, query=task.query)],
         organization_override=None, backend_instructions={backend: run.shared.condition_instructions(args, backend)},
         backend_options={backend: runtime.backend_options(args, backend)}, source={"fixture": "source-hash"},
@@ -266,7 +145,7 @@ def test_startup_failure_preserves_owned_container(tmp_path, monkeypatch, remove
     monkeypatch.setattr(runtime.subprocess, "run", lambda *a, **kw: SimpleNamespace(returncode=0))
     args = SimpleNamespace(output=tmp_path / "out", upstream=tmp_path, image="fixture")
     active, stop = set(), threading.Event()
-    report = runtime.run_attempt(Task("probe", "astronomy", "Fixture"), "codex-subagents", args,
+    report = runtime.run_attempt(Task("probe", "astronomy", "Fixture"), "claude-code-subagents", args,
         "synthetic-secret", stop, active, threading.Lock())
     assert report["container_id"] == "owned-fixture"
     assert report["startup_cleanup"] == details

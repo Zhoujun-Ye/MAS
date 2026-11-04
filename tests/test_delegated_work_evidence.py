@@ -4,7 +4,6 @@ from types import SimpleNamespace
 
 import pytest
 
-from analysis.codex_evidence import inspect as codex_evidence
 from analysis.native_evidence import native_subagents, read_evidence
 from benchmarks.kramabench.tasks import Task
 from scripts.kramabench import cli_runtime
@@ -54,31 +53,7 @@ def test_missing_child_transcripts_do_not_become_zero_tool_claims(tmp_path):
     assert audit["substantive_work_status"] == "unverified"
 
 
-def codex_session(root, identity, child, calls):
-    rows = [dict(type="session_meta", payload=dict(id=identity,
-        source={"subagent": {"parent_thread_id": "root"}} if child else "cli"))]
-    rows.extend(dict(type="response_item", payload=call) for call in calls)
-    rows.append(dict(type="event_msg", payload=dict(type="task_complete")))
-    write_rows(root / ("rollout-" + identity + ".jsonl"), rows)
-
-
-def test_codex_structural_completion_is_not_semantic_contribution(tmp_path):
-    codex_session(tmp_path, "root", False, [dict(type="function_call", call_id="spawn", name="spawn_agent")])
-    call = dict(type="function_call", call_id="shell", name="exec_command")
-    codex_session(tmp_path, "compute", True, [call, call,
-        dict(type="custom_tool_call", call_id="patch", name="apply_patch")])
-    codex_session(tmp_path, "reason", True, [])
-    audit = codex_evidence(tmp_path, single=False)
-    assert audit["passed"] and audit["structural_delegation_complete"]
-    assert audit["substantive_work_status"] == "unverified"
-    children = {row["id"]: row for row in audit["sessions"] if row["child"]}
-    assert children["compute"]["tool_counts"] == {"exec_command": 1, "apply_patch": 1}
-    assert children["compute"]["tool_calls_observed"] == 2
-    assert children["reason"]["tool_calls_observed"] == 0
-    assert children["reason"]["substantive_work_status"] == "unverified"
-
-
-@pytest.mark.parametrize("backend", ["claude-code-subagents", "codex-subagents"])
+@pytest.mark.parametrize("backend", ["claude-code-subagents"])
 def test_lead_organization_is_not_written_to_worker_workspace_rules(tmp_path, monkeypatch, backend):
     captured = {}
     lead_prompt = "Lead-only organization instructions"
@@ -101,11 +76,9 @@ def test_lead_organization_is_not_written_to_worker_workspace_rules(tmp_path, mo
     monkeypatch.setattr(cli_runtime, "condition_instructions", lambda *a: lead_prompt)
     monkeypatch.setattr(cli_runtime, "CredentialGateway", Gateway)
     monkeypatch.setattr(cli_runtime, "ClaudeCodeSubagentsCLI", Adapter)
-    monkeypatch.setattr(cli_runtime, "CodexSubagentsCLI", Adapter)
     monkeypatch.setattr(cli_runtime, "container", lambda *a, **kw: "fixture-container")
     monkeypatch.setattr(cli_runtime, "stop_container", lambda *a: dict(stopped=True))
     monkeypatch.setattr(cli_runtime, "native_subagents", lambda *a: dict(passed=True, native_team_configs=0, teammate_idle_events=0))
-    monkeypatch.setattr(cli_runtime, "codex_evidence", lambda *a, **kw: dict(passed=True))
     monkeypatch.setattr(cli_runtime.subprocess, "run", lambda *a, **kw: SimpleNamespace(returncode=0))
     args = SimpleNamespace(output=tmp_path / "out", upstream=tmp_path, image="fixture", timeout=900)
     result = cli_runtime.run_attempt(Task("probe", "astronomy", "Fixture"), backend, args,

@@ -18,8 +18,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from benchmarks._external import asset_manifest, digest, verify_sources, write_jsonl
 from benchmarks.dataclawbench.tasks import load_tasks as dataclaw_tasks, REVISION as DC_REVISION
 from benchmarks.hybriddeepresearch.tasks import load_tasks as hybrid_tasks, REVISION as HDR_REVISION
-from harness import ClaudeCodeSingleAgentCLI, ClaudeCodeSubagentsCLI, CodexSingleAgentCLI, CodexSubagentsCLI
-from analysis.codex_evidence import inspect as codex_evidence
+from harness import ClaudeCodeSingleAgentCLI, ClaudeCodeSubagentsCLI
 from analysis.run_integrity import inspect_run
 from scripts.common import runtime
 from scripts.common.credential_gateway import CredentialGateway
@@ -27,8 +26,7 @@ from scripts.common.proof import validate as validate_proof, validate_runtime
 from scripts.common.timeouts import default_timeout, timeout_policy
 from analysis.native_evidence import native_single_agent, native_subagents
 
-BACKENDS = {"claude-code-single-agent": ClaudeCodeSingleAgentCLI, "claude-code-subagents": ClaudeCodeSubagentsCLI,
-            "codex-single-agent": CodexSingleAgentCLI, "codex-subagents": CodexSubagentsCLI}
+BACKENDS = {"claude-code-single-agent": ClaudeCodeSingleAgentCLI, "claude-code-subagents": ClaudeCodeSubagentsCLI}
 
 
 @contextmanager
@@ -118,7 +116,6 @@ def plan(args, tasks):
                 web_search=args.web_search,
                 native_environment=runtime.native_env(args.backend),
                 max_budget_usd=getattr(args, "max_budget_usd", None),
-                codex_docker_isolated=getattr(args, "codex_docker_isolated", False),
                 max_web_requests=getattr(args, "max_web_requests", None),
                 organization_prompt=runtime.condition_instructions(args, args.backend),
                 organization_override=getattr(args, "organization_override", None),
@@ -144,15 +141,11 @@ def attempt(task, args, key):
     if task.benchmark == "dataclawbench":
         (work / "database").symlink_to("/data", target_is_directory=True)
     single = args.backend.endswith("single-agent")
-    codex = args.backend.startswith("codex-")
     opts = runtime.options(args.backend)
-    if codex:
-        opts["docker_isolated"] = getattr(args, "codex_docker_isolated", False)
     if getattr(args, "max_budget_usd", None) is not None:
         opts["max_budget_usd"] = args.max_budget_usd
     # The explicit helper keeps search-provider behavior consistent across modes.
-    if not codex:
-        opts["disallowed_tools"] = ("WebSearch", "WebFetch")
+    opts["disallowed_tools"] = ("WebSearch", "WebFetch")
     prompt = task.question + "\n\n" + instructions(task, args.backend, getattr(args, "organization_override", None))
     result = dict(instance_id=task.id, final_answer="", status="not_started", cost_usd=None)
     runtime.write_json(folder / "report.json", result)
@@ -168,19 +161,14 @@ def attempt(task, args, key):
         gateway = CredentialGateway(key, unix_path=folder / "gateway.sock",
                                     ledger_path=folder / "gateway-requests.jsonl", web_limit=web_limit)
         gateway.__enter__()
-        if codex:
-            opts["base_url"] = gateway.url
         identity = runtime.container(work, profile, args.data, args.image, backend=args.backend, gateway=gateway,
             dataset_mounts=inputs, environment_overrides=environment,
             forwarded_env=("TAVILY_API_KEY",) if task.web and args.web_search == "tavily" else ())
         result.update(status="running", container_id=identity, started_at=runtime.now())
         runtime.write_json(folder / "report.json", result)
         kwargs = dict(command_prefix=("docker", "exec", "-i", "--workdir", "/workspace", identity))
-        if codex:
-            kwargs.update(profile=profile / "codex", profile_target="/native/codex")
-        else:
-            kwargs.update(observer_dir=profile / "observer", observer_target="/native/observer", hook_script="/adapter-hooks.py")
-        adapter = BACKENDS[args.backend](str(runtime.CODEX if codex else runtime.CLAUDE))
+        kwargs.update(observer_dir=profile / "observer", observer_target="/native/observer", hook_script="/adapter-hooks.py")
+        adapter = BACKENDS[args.backend](str(runtime.CLAUDE))
         native = adapter.run(prompt, workspace=work, output=folder / "cli", timeout=args.timeout,
                              execute=True, **opts, **kwargs)
         result.update(status=native["status"], cli=native)
@@ -211,7 +199,7 @@ def attempt(task, args, key):
     result["integrity_audit"] = inspect_run(folder, args.backend)
     try:
         evidence = subprocess.run([sys.executable, "-I",
-            str(Path(__file__).resolve().parents[2] / ("analysis/codex_evidence.py" if codex else "analysis/native_evidence.py")),
+            str(Path(__file__).resolve().parents[2] / ("analysis/native_evidence.py")),
             "--backend", args.backend, "--profile", str(profile)], capture_output=True, text=True, timeout=120)
         if evidence.returncode == 0:
             result["accounting"] = json.loads(evidence.stdout)
@@ -220,11 +208,11 @@ def attempt(task, args, key):
     except (OSError, ValueError, subprocess.TimeoutExpired):
         result["accounting_status"] = "native_reader_unavailable; usage and costs unknown"
     try:
-        audit = codex_evidence(profile / "codex", single=single) if codex else (native_single_agent if single else native_subagents)(folder)
+        audit = (native_single_agent if single else native_subagents)(folder)
         result["native_audit"] = audit
         if result["status"] == "cli_exited" and not audit["passed"]:
             result["status"] = "native_condition_unverified"
-        if single and not codex and result["status"] == "cli_exited":
+        if single and result["status"] == "cli_exited":
             accounting = result.get("accounting", {})
             if not accounting.get("observed_messages"):
                 result["status"] = "single_agent_evidence_unverified"
@@ -275,7 +263,6 @@ def main(argv=None, *, benchmark=None):
     parser.add_argument("--execute", action="store_true")
     parser.add_argument("--organization-prompt", type=Path,
                         help="Explicit lead-only Claude Subagents study prompt override")
-    parser.add_argument("--codex-docker-isolated", action="store_true", help="Authorized opt-out of inner Codex sandbox; Docker isolation remains")
     args = parser.parse_args(argv)
     args.organization_override = runtime.organization_override(args.organization_prompt, args.backend)
     if args.timeout is None:
@@ -284,8 +271,6 @@ def main(argv=None, *, benchmark=None):
         args.max_web_requests = 4
     if args.execute and args.web_search == "tavily":
         parser.error("Paid Tavily execution is disabled until host-side credential isolation is implemented")
-    if args.backend.startswith("codex-") and args.max_budget_usd is not None:
-        parser.error("Codex does not support the Claude dollar-budget option")
     if args.max_budget_usd is not None and (not math.isfinite(args.max_budget_usd) or args.max_budget_usd <= 0):
         parser.error("--max-budget-usd must be positive and finite")
     if args.max_web_requests is not None and args.max_web_requests < 1:
@@ -313,14 +298,10 @@ def main(argv=None, *, benchmark=None):
     key = runtime.credential(args.credentials)
     args.image = json.loads(subprocess.check_output(["docker", "image", "inspect", args.image]))[0]["Id"]
     frozen.update(image_id=args.image, offline_proof_sha256=digest(args.offline_proof))
-    binary = runtime.CODEX if args.backend.startswith("codex-") else runtime.CLAUDE
+    binary = runtime.CLAUDE
     frozen["cli_binary"] = dict(path=str(binary), sha256=digest(binary))
-    if args.backend.startswith("codex-"):
-        frozen["model_catalog_sha256"] = digest(runtime.CODEX_CATALOG.with_name("deepseek-single-models.json")
-                                                if args.backend == "codex-single-agent" else runtime.CODEX_CATALOG)
     validate_runtime(proof, args.backend, image_id=args.image,
-                     binary_sha256=frozen["cli_binary"]["sha256"],
-                     catalog_sha256=frozen.get("model_catalog_sha256"))
+                     binary_sha256=frozen["cli_binary"]["sha256"])
     os.umask(0o077)
     args.output.mkdir(parents=True, exist_ok=False)
     runtime.write_json(args.output / "plan.json", frozen)

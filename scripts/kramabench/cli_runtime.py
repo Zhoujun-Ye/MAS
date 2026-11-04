@@ -15,28 +15,18 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from benchmarks._io import fingerprint, write_json
 from benchmarks.kramabench.evaluation import grade_answer, scoring_contract
 from benchmarks.kramabench.tasks import load_tasks
-from harness import (ClaudeCodeSubagentsCLI, ClaudeCodeSingleAgentCLI,
-                     CodexSingleAgentCLI, CodexSubagentsCLI)
-from scripts.common.runtime import (
-    CLAUDE, CODEX, CODEX_CATALOG, THREADS, condition_instructions, container, native_env, now, options,
-    snapshot, source_files, source_manifest, stop_container,
-)
+from harness import ClaudeCodeSubagentsCLI, ClaudeCodeSingleAgentCLI
+from scripts.common.runtime import CLAUDE, THREADS, condition_instructions, container, native_env, now, options, snapshot, source_files, source_manifest, stop_container
 from scripts.kramabench.prepare import verify_inputs
 from scripts.common.credential_gateway import CredentialGateway
 from analysis.native_evidence import native_single_agent, native_subagents
 from analysis.run_integrity import inspect_run
-from analysis.codex_evidence import inspect as codex_evidence
 
 
 def backend_options(args, backend):
     result = options(backend)
-    if backend.startswith("codex-"):
-        result["docker_isolated"] = getattr(args, "codex_docker_isolated", False)
     return result
 
-
-def model_catalog(backend):
-    return CODEX_CATALOG.with_name("deepseek-single-models.json") if backend.endswith("single-agent") else CODEX_CATALOG
 
 INSTRUCTIONS = """Solve the public data-analysis question using only the supplied input lake at /data.
 The Python data-analysis environment is python3 at /usr/local/bin/python3.
@@ -74,7 +64,6 @@ def submission(work):
 
 
 def run_attempt(task, backend, args, key, stop, active, lock):
-    codex = backend.startswith("codex-")
     folder = args.output / task.id / backend
     work, profile = folder / "workspace", folder / "native-profile"
     work.mkdir(parents=True)
@@ -100,30 +89,18 @@ def run_attempt(task, backend, args, key, stop, active, lock):
                              gateway=gateway, backend=backend)
         with lock:
             active.add(identity)
-        adapter = ({"claude-code-subagents": ClaudeCodeSubagentsCLI,
-                    "claude-code-single-agent": ClaudeCodeSingleAgentCLI,
-                    "codex-single-agent": CodexSingleAgentCLI,
-                    "codex-subagents": CodexSubagentsCLI}[backend](str(CODEX if codex else CLAUDE)))
+        adapter = ({"claude-code-subagents": ClaudeCodeSubagentsCLI, "claude-code-single-agent": ClaudeCodeSingleAgentCLI}[backend](str(CLAUDE)))
         prefix = ("docker", "exec", "-i", "--workdir", "/workspace", identity)
         terminal_options = {}
-        if codex:
-            terminal_options = dict(command_prefix=prefix, profile=profile / "codex", profile_target="/native/codex")
-        else:
-            terminal_options = dict(command_prefix=prefix)
-            terminal_options.update(observer_dir=profile/"observer", observer_target="/native/observer",
-                                    hook_script="/adapter-hooks.py")
+        terminal_options = dict(command_prefix=prefix)
+        terminal_options.update(observer_dir=profile/"observer", observer_target="/native/observer",
+                                hook_script="/adapter-hooks.py")
         report.update(status="running", started_at=now(), container_id=identity)
         write_json(folder / "report.json", report)
         opts = backend_options(args, backend)
-        if codex:
-            opts["base_url"] = gateway.url
         result = adapter.run(prompt, workspace=work, output=folder / "cli", timeout=args.timeout,
                              execute=True, **terminal_options, **opts)
         report.update(status=result["status"], cli=result, finished_at=now())
-        if codex:
-            report["native_codex"] = codex_evidence(profile / "codex", single=backend.endswith("single-agent"))
-            if result["status"] == "cli_exited" and not report["native_codex"]["passed"]:
-                report["status"] = "native_condition_unverified"
         if backend == "claude-code-subagents":
             report["subagents_audit"] = native_subagents(folder)
             if report["subagents_audit"]["native_team_configs"] or report["subagents_audit"]["teammate_idle_events"]:
@@ -186,7 +163,7 @@ def collect_attempt(folder, report, args):
     backend, task_id = report["backend"], report["task_id"]
     if report["status"] == "not_started":
         return report
-    reader = "analysis/codex_evidence.py" if backend.startswith("codex-") else "analysis/native_evidence.py"
+    reader = "analysis/native_evidence.py"
     evidence = subprocess.run([sys.executable, "-I", str(Path(__file__).resolve().parents[2] / reader),
                               "--backend", backend, "--profile", str(folder / "native-profile")],
                              capture_output=True, text=True, timeout=120)
@@ -258,7 +235,7 @@ def preflight(args):
     selected = tasks if getattr(args, "all_tasks", False) else [next(task for task in tasks if task.id == identity) for identity in selected_ids]
     backends = args.backends
     strict_single = any(b.endswith("single-agent") for b in backends)
-    binaries = {"codex" if b.startswith("codex-") else "claude": CODEX if b.startswith("codex-") else CLAUDE for b in backends}
+    binaries = {"claude": CLAUDE for b in backends}
     scoring = scoring_contract(args.upstream)
     image = json.loads(subprocess.check_output(["docker", "image", "inspect", args.image]))[0]
     args.image = image["Id"]
@@ -277,8 +254,6 @@ def preflight(args):
                 replay_timeout_seconds=getattr(args, "replay_timeout", 180),
                 cli_binaries={name: dict(path=str(path), sha256=hashlib.sha256(path.read_bytes()).hexdigest())
                               for name, path in binaries.items()},
-                model_catalogs={b: dict(path=str(model_catalog(b)), sha256=hashlib.sha256(model_catalog(b).read_bytes()).hexdigest())
-                                for b in backends if b.startswith("codex-")},
                 requested_scope=f"{len(backends) * len(selected)} solver attempts and at most {getattr(args, 'judge_limit', 0)} semantic judge calls; explicit user authorization still required",
                 comparison="Engineering pilot; native organizations differ; not causal architecture evidence")
     args.output.mkdir(parents=True, exist_ok=False)
@@ -294,7 +269,7 @@ def preflight(args):
     profile.mkdir()
     (profile / "home").mkdir()
     backend = backends[0]
-    binary = CODEX if backend.startswith("codex-") else CLAUDE
+    binary = CLAUDE
     identity = container(work, profile, args.upstream / "data", args.image, backend=backend, network="none")
     try:
         commands = [[str(binary), "--version"],

@@ -8,12 +8,9 @@ coordinator/full modes, capability catalogs, or custom scheduling semantics.
 
 ## Ownership And Scope
 
-- Active CLI pins are Claude Code 2.1.286 and Codex CLI 0.159.3:
-  `harness/codex_single_agent/` and `harness/codex_subagents/`, with shared
-  transport/configuration in `harness/_codex_cli.py`. They use native DeepSeek
-  Responses through a fixed-destination host credential gateway, not a semantic
-  provider relay or SDK. Offline native delegation is validated separately from
-  real-provider correctness/accounting; tool exposure alone is not delegation.
+- The active CLI pin is Claude Code 2.1.286. Codex adapters, launch choices and
+  results were retired at the user's request. Do not restore active Codex paths.
+  Read-only historical evidence readers may remain; preserve Claude comparisons.
 
 - `harness/claude_code_subagents/`: print-mode ordinary native Claude subagents, with Teams disabled.
 - `harness/claude_code_single_agent/`: print-mode strict Single, with native delegation tools removed and denied.
@@ -38,7 +35,7 @@ coordinator/full modes, capability catalogs, or custom scheduling semantics.
   fields host-side. The latter decodes the public release in memory; never publish
   decrypted questions, gold SQL, answers, or evaluation logs.
 - The user explicitly selected the orchestrator-worker lead prompt on 2026-11-04.
-  Preserve that exact prompt; the Codex variant changes only CLI/tool names.
+  Preserve that exact baseline prompt; study overrides require user authorization.
   This is a prompted native baseline, not untouched default CLI behavior. Do not
   add our specialist roles, fixed roster, judge mechanism or cost-reduction policy.
   Lead-only instructions belong in the lead prompt, not worker-visible rule files.

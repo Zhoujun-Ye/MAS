@@ -20,22 +20,22 @@ def cli_args(tmp_path, *extra):
             "--proofs", str(tmp_path / "proofs"), "--image", "fixture-image", *extra]
 
 
-def test_plan_is_exact_24_scope_and_never_executes(tmp_path, monkeypatch, capsys):
+def test_plan_is_exact_12_scope_and_never_executes(tmp_path, monkeypatch, capsys):
     monkeypatch.setattr(matrix, "selections", lambda root: selected_tasks())
     monkeypatch.setattr(matrix.subprocess, "Popen", lambda *a, **kw: pytest.fail("Plan must not launch processes"))
     monkeypatch.setattr(matrix.runtime, "credential", lambda *a: pytest.fail("Plan must not load credentials"))
     assert matrix.main(cli_args(tmp_path)) == 0
     plan = json.loads(capsys.readouterr().out)
-    assert plan["attempts"] == 24
-    assert plan["maximum_judge_calls"] == 20
+    assert plan["attempts"] == 12
+    assert plan["maximum_judge_calls"] == 10
     assert plan["retries"] == 0
     assert plan["timeout_seconds_by_benchmark"] == {
         "dataclawbench": 1200, "hybriddeepresearch": 1800, "kramabench": 3600}
     assert plan["solver_concurrency"] == 8 and plan["judge_concurrency"] == 2
-    assert len({(r["benchmark"], r["task_id"], r["backend"]) for r in plan["selections"]}) == 24
+    assert len({(r["benchmark"], r["task_id"], r["backend"]) for r in plan["selections"]}) == 12
     for benchmark in ("dataclawbench", "hybriddeepresearch", "kramabench"):
         rows = [r for r in plan["selections"] if r["benchmark"] == benchmark]
-        assert len(rows) == 8
+        assert len(rows) == 4
         assert len({r["task_id"] for r in rows}) == 2
         assert {r["backend"] for r in rows} == set(matrix.BACKENDS)
     assert not (tmp_path / "output").exists()
@@ -56,7 +56,6 @@ def test_all_solver_commands_share_scope_and_benchmark_timeout(tmp_path, execute
             assert command[command.index("--credentials") + 1] == str(args.credentials)
             assert command[command.index("--offline-proof") + 1] == str(args.proofs / backend / "proof.json")
             assert ("--execute" in command) is execute
-            assert ("--codex-docker-isolated" in command) is backend.startswith("codex-")
             assert all("API_KEY" not in part and "AUTH_TOKEN" not in part for part in command)
             if benchmark == "kramabench":
                 assert ("--from-plan" in command) is execute
@@ -69,12 +68,12 @@ def test_all_solver_commands_share_scope_and_benchmark_timeout(tmp_path, execute
                 assert command[command.index("--max-web-requests") + 1] == "4"
 
 
-@pytest.mark.parametrize("attempts,judges", [(23, 20), (25, 20), (24, 21), (24, -1)])
+@pytest.mark.parametrize("attempts,judges", [(11, 10), (13, 10), (12, 11), (12, -1)])
 def test_execution_rejects_other_authorization_scope(tmp_path, monkeypatch, attempts, judges):
     monkeypatch.setattr(matrix, "selections", lambda root: selected_tasks())
     monkeypatch.setattr(matrix.subprocess, "Popen", lambda *a, **kw: pytest.fail("Invalid scope must not launch"))
     monkeypatch.setattr(matrix.runtime, "credential", lambda *a: pytest.fail("Invalid scope must not load credentials"))
-    with pytest.raises(ValueError, match="24 authorized solvers"):
+    with pytest.raises(ValueError, match="12 authorized solvers"):
         matrix.main(cli_args(tmp_path, "--execute", "--authorized-attempts", str(attempts),
                              "--authorized-judges", str(judges)))
     assert not (tmp_path / "output").exists()

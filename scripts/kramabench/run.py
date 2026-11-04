@@ -23,7 +23,6 @@ from scripts.common import runtime as shared
 from scripts.common.runtime import monitor, safe_balance
 from analysis.native_evidence import native_single_agent, native_subagents
 from scripts.common.proof import validate_runtime
-from analysis.codex_evidence import inspect as codex_evidence
 
 
 
@@ -35,10 +34,7 @@ def admission(root, report):
         result["valid_submission"] = True
     except (OSError, ValueError, TypeError) as error:
         result["artifact_error"] = str(error)
-    if report["backend"].startswith("codex-"):
-        result["native_codex"] = codex_evidence(folder / "native-profile/codex", single=report["backend"].endswith("single-agent"))
-        native_ok = result["native_codex"]["passed"]
-    elif report["backend"] == "claude-code-single-agent":
+    if report["backend"] == "claude-code-single-agent":
         result["native_single_agent"] = native_single_agent(folder)
         native_ok = result["native_single_agent"]["passed"]
     elif report["backend"] == "claude-code-subagents":
@@ -57,12 +53,9 @@ def validate_native_proof(args, plan, *, frozen=False):
         raise ValueError("Offline proof changed after freeze")
     proof = json.loads(raw)
     offline_ok = proof.get("paid_calls") == 0 and proof.get("network") == "none"
-    codex = args.backend.startswith("codex-")
-    binary = plan["cli_binaries"]["codex" if codex else "claude"]
-    catalog = plan.get("model_catalogs", {}).get(args.backend)
+    binary = plan["cli_binaries"]["claude"]
     validate_runtime(proof, args.backend, image_id=plan["image_id"],
-                     binary_sha256=binary["sha256"],
-                     catalog_sha256=catalog["sha256"] if catalog else None)
+                     binary_sha256=binary["sha256"])
     if not offline_ok:
         raise ValueError("Missing successful offline native guard/transport proof")
     return proof_digest
@@ -102,9 +95,6 @@ def validate(args):
     for value in plan["cli_binaries"].values():
         if hashlib.sha256(Path(value["path"]).read_bytes()).hexdigest() != value["sha256"]:
             raise ValueError("CLI changed after freeze")
-    for value in plan.get("model_catalogs", {}).values():
-        if hashlib.sha256(Path(value["path"]).read_bytes()).hexdigest() != value["sha256"]:
-            raise ValueError("Model catalog changed after freeze")
     if (args.concurrency, args.timeout, args.judge_limit, args.replay_timeout) != (
             plan["concurrency"], plan["timeout_seconds"], plan["judge_limit"], plan["replay_timeout_seconds"]):
         raise ValueError("Frozen settings changed")
@@ -194,9 +184,7 @@ def execute(args, tasks, plan):
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--backend", choices=("claude-code-subagents", "claude-code-single-agent",
-                                             "codex-single-agent", "codex-subagents"), required=True)
-    parser.add_argument("--codex-docker-isolated", action="store_true")
+    parser.add_argument("--backend", choices=("claude-code-subagents", "claude-code-single-agent",), required=True)
     parser.add_argument("--task-id", action="append", default=[])
     parser.add_argument("--upstream", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)

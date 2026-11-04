@@ -14,11 +14,6 @@ def test_claude_subagents_matches_requested_prompt_exactly():
     assert backend_instructions("claude-code-subagents") == CLAUDE_PROMPT
 
 
-def test_codex_changes_only_cli_and_native_tool_names():
-    expected = CLAUDE_PROMPT.replace("Claude Code", "Codex").replace("native Agent tool", "native spawn_agent tool")
-    assert backend_instructions("codex-subagents") == expected
-
-
 def test_single_and_team_do_not_receive_orchestrator_worker_prompt():
-    for backend in ("claude-code-single-agent", "codex-single-agent"):
+    for backend in ("claude-code-single-agent",):
         assert "orchestrator-worker" not in backend_instructions(backend)

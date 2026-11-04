@@ -14,7 +14,7 @@ It is not a benchmark accuracy or cost result.
 | Lost upstream errors/headers | Sanitized JSON errors and request-ID/rate/retry headers are forwarded. Credential-bearing headers, redirects and cookies are not. Non-JSON/oversized errors are safely wrapped/truncated. |
 | Krama timeout regression | Restored 3600 seconds; DataClaw uses upstream 1200; HDR uses provisional 1800. |
 | Prompt/instructions conflict | AGENTS documents the explicitly authorized orchestrator-worker prompt and distinguishes it from unprompted native behavior. |
-| Stale CLI/transport documentation | Claude 2.1.286 and Codex 0.159.3; native wire protocols through the credential gateway; no SDK orchestration. |
+| Stale CLI/transport documentation | Claude 2.1.286; native wire protocol through the credential gateway; no SDK orchestration. Codex is retired. |
 | Lead rules visible to workers | Shared Krama rule files contain only generic task rules; lead organization instructions stay in the lead prompt. Native context inheritance is not eliminated. |
 
 Additional checks cover runtime-bound proof admission, independent task outputs,
@@ -28,7 +28,7 @@ declared unbilled merely because a local process was stopped.
 Server receipts under `/home/zhoujunye/MAS-information-data/receipts/`:
 
 The engineering stage regression suite passed 298 tests on 2026-11-04, using the
-existing server evaluation environment and pinned native Codex fixture binary.
+existing server evaluation environment. Earlier Codex fixture checks are historical only.
 
 - `native-gateway-offline-02/summary.json`: all four real native CLI modes passed
   through the gateway in parallel, with native delegation/denial and shell checks.

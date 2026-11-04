@@ -62,7 +62,7 @@ print(json.dumps({'snapshot':snapshot, 'results':results,
 '''
     proofs = []
     with patch.object(credential_gateway, "open_upstream", upstream):
-        for backend in ("claude-code-single-agent", "codex-single-agent"):
+        for backend in ("claude-code-single-agent", "claude-code-subagents"):
             folder = args.output / backend
             work, profile = folder / "workspace", folder / "native-profile"
             work.mkdir(parents=True)

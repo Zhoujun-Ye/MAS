@@ -35,7 +35,7 @@ def test_claude_container_has_no_retired_runtime_dependency(tmp_path, monkeypatc
     assert "ANTHROPIC_AUTH_TOKEN" in captured["command"]
     assert "ANTHROPIC_API_KEY" not in captured["command"]
     assert "TAVILY_API_KEY" not in captured["environment"]
-    assert captured["environment"]["DEEPSEEK_API_KEY"] == "offline-placeholder"
+    assert "DEEPSEEK_API_KEY" not in captured["environment"]
     assert "synthetic-host-secret" not in json.dumps(captured)
 
 

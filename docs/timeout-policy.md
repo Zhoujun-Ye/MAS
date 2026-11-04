@@ -26,7 +26,7 @@ timeouts are separate settings and are not changed by this policy.
 `scripts/common/timeouts.py` owns the default mapping and provenance. DataClaw
 and HDR resolve their default after the benchmark is known; Krama defaults to
 3600 seconds. An explicit positive `--timeout` remains supported and is recorded
-in the run plan. Within a benchmark, all four CLI conditions use the same timeout.
+in the run plan. Within a benchmark, both active Claude CLI conditions use the same timeout.
 
 The matrix launcher passes the benchmark timeout explicitly and records
 `timeout_seconds_by_benchmark` and `timeout_policy_by_benchmark` in its

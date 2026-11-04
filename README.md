@@ -1,6 +1,6 @@
 # MAS Information
 
-Benchmark adapters for externally installed Claude Code and Codex CLIs.
+Benchmark adapters for the externally installed Claude Code CLI.
 No upstream agent runtime is vendored or imported as an SDK.
 
 ## Active Conditions
@@ -8,17 +8,15 @@ No upstream agent runtime is vendored or imported as an SDK.
 | CLI | Single | Subagents |
 | --- | --- | --- |
 | Claude Code 2.1.286 | Native delegation disabled and audited | Native Agent; Teams disabled |
-| Codex 0.159.3 | Native multi-agent features disabled and audited | Native spawn_agent |
 
 The user-selected Subagents prompt asks for an orchestrator-worker organization.
 This is a prompted native baseline, not an unmodified default CLI policy. It adds
-no specialist roster or cost-reduction method. Only CLI/tool names differ between
-the two prompt variants. Structural worker completion does not prove substantive
+no specialist roster or cost-reduction method. Structural worker completion does not prove substantive
 contribution; that remains a separate evidence-review question.
 
-Deep Agents and Claude Code Agent Teams are retired. Do not restore their active
-adapters or launch choices. Historical benchmark result artifacts were deleted
-at the user's request on 2026-11-04; there is no current validated result table.
+Deep Agents, Claude Code Agent Teams and Codex adapters are retired. Do not restore
+their active adapters or launch choices. Codex results were removed at the user's
+request; retained Claude runs and prompt-study comparisons remain engineering pilots.
 
 ## Layout
 
@@ -55,7 +53,7 @@ environments, outputs or `--delete`. Do not touch the unrelated Agent-Team proje
 
 ## Documentation
 
-- [Claude CLI contracts](docs/cli-adapters.md) and [Codex adapters](docs/codex-adapters.md)
+- [Claude CLI contracts](docs/cli-adapters.md)
 - [Benchmark structure](docs/benchmark-adaptation.md)
 - [KramaBench](docs/kramabench.md) and [DataClaw/HDR](docs/research-benchmarks.md)
 - [Server preparation](docs/server-preparation.md)

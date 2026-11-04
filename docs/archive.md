@@ -305,3 +305,16 @@ and Team-only tests. Historical results, study readers and native evidence reade
 are retained, as are negative checks that keep Single/Subagents out of Team mode.
 No pre-removal source backup is retained, at the user's explicit request.
 No remote cleanup or deployment is implied by this local retirement.
+# Codex Retirement (2026-11-04)
+
+The user retired the Codex Single/Subagents adapters and authorized deletion of
+their dedicated results, while retaining Claude comparisons. Active Codex
+adapters, probes, mounts, model-catalog configuration and launch choices are
+removed. Read-only historical readers and source-only snapshots remain for
+provenance, not execution. The installed CLI environment and unrelated server
+resources are not result artifacts and were not removed.
+
+Mixed result indexes retain Claude rows. Shared-account balance intervals can
+still include deleted Codex usage and must not be relabeled as Claude-only fees.
+Server cleanup receipt: external data `receipts/claude-only-retirement-20261104.json`.
+It records exact deletion paths and verifies retained Claude raw files by hash.
