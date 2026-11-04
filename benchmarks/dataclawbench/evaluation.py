@@ -20,7 +20,26 @@ def outcome_rubric(answer):
     return dict(parts=1, keys=["match"], rule="binary semantic equivalence")
 
 
+def normalize_verdict(answer, verdict):
+    """Accept nested or flat rubric scores, never infer missing or conflicting parts."""
+    if not isinstance(verdict, dict):
+        raise ValueError("Judge verdict must be an object")
+    keys = set(outcome_rubric(answer)["keys"])
+    if "scores" in verdict:
+        if set(verdict) - {"scores", "total", "notes"}:
+            raise ValueError("Unexpected or mixed judge score fields")
+        scores = verdict["scores"]
+    else:
+        if set(verdict) - {"total", "notes"} != keys:
+            raise ValueError("Expected complete flat rubric scores")
+        scores = {key: verdict[key] for key in outcome_rubric(answer)["keys"]}
+    if not isinstance(scores, dict):
+        raise ValueError("Judge scores must be an object")
+    return dict(scores=scores, total=verdict.get("total"), notes=verdict.get("notes", ""))
+
+
 def validate_verdict(answer, verdict):
+    verdict = normalize_verdict(answer, verdict)
     rubric = outcome_rubric(answer)
     scores = verdict.get("scores", {})
     if set(scores) != set(rubric["keys"]) or any(type(v) not in (int, float) or v not in (0, 1) for v in scores.values()):
