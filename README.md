@@ -16,7 +16,19 @@ contribution; that remains a separate evidence-review question.
 
 Deep Agents, Claude Code Agent Teams and Codex adapters are retired. Do not restore
 their active adapters or launch choices. Codex results were removed at the user's
-request; retained Claude runs and prompt-study comparisons remain engineering pilots.
+request. Only the current all-high Claude batch is retained; older result batches
+were deleted explicitly. The retained study remains an engineering pilot.
+
+## Current Results
+
+The sole retained batch is `claude-all-high-01-21a0cdb`: six tasks each for Single
+and MAS, all solver requests at `high`, solver concurrency 12, no retries.
+Single scored fully on 4/6 tasks; MAS on 6/6. Total estimated costs were USD 0.11310
+and USD 0.23288 respectively; the shared-account balance decreased by CNY 2.07.
+These are single-attempt pilot observations, not a general superiority claim.
+
+See [the current results report](docs/current-results.md) for per-task scores,
+timing, cost components, role accounting, evidence paths and limitations.
 
 ## Layout
 

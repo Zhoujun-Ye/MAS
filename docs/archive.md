@@ -318,3 +318,17 @@ Mixed result indexes retain Claude rows. Shared-account balance intervals can
 still include deleted Codex usage and must not be relabeled as Claude-only fees.
 Server cleanup receipt: external data `receipts/claude-only-retirement-20261104.json`.
 It records exact deletion paths and verifies retained Claude raw files by hash.
+
+## Current-Only Result Retention (2026-11-04)
+
+The user subsequently requested retaining only `claude-all-high-01-21a0cdb`.
+This supersedes the earlier retention of Claude comparison batches: the old
+dual-matrix, supplementary Krama, scaled-prompt and judge-recovery outputs were
+explicitly deleted. They are not additional retained trials or current baselines.
+The canonical report is [Current Results](current-results.md).
+
+The current run's raw evidence, frozen plans, source snapshots, submissions,
+gateway accounting and evaluations remain on the server with hash verification.
+Supporting offline proofs, datasets, environments, credentials and source-only
+or engineering archives are retained. Cleanup is scoped to named result batches,
+never the whole `outputs/current` directory or a blanket non-current match.
