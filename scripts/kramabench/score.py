@@ -6,7 +6,7 @@ import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from benchmarks.kramabench.evaluation import NUMERIC_POLICIES, NUMERIC_POLICY, grade_answer, scoring_contract
-from benchmarks.kramabench._io import write_json
+from benchmarks._io import write_json
 
 
 def main(argv=None):

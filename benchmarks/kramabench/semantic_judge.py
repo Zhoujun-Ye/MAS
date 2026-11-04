@@ -5,7 +5,7 @@ from pathlib import Path
 import urllib.error
 import urllib.request
 
-from ._io import fingerprint, write_json
+from .._io import fingerprint, write_json
 from .evaluation import grade_answer
 
 SYSTEM = ("You evaluate whether a candidate answer conveys the same answer as a reference. "

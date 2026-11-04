@@ -6,7 +6,7 @@ import shlex
 
 from ._cli import positive, run_cli
 
-VERSION = "2.1.225"
+VERSION = "2.1.286"
 HOOK_EVENTS = ("SessionStart", "SessionEnd", "UserPromptSubmit", "Stop", "SubagentStart",
                "SubagentStop", "TeammateIdle", "PreToolUse", "PostToolUse", "PostToolUseFailure")
 
@@ -19,24 +19,22 @@ def hook_settings(target, script, python="python3", *, single_agent=False):
     return {event: [{"hooks": [{"type": "command", "command": command}]}] for event in HOOK_EVENTS}
 
 
-def environment(teams):
-    return {"CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS": "1" if teams else "0",
+def environment():
+    return {"CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS": "0",
             "CLAUDE_CODE_MAX_RETRIES": "0", "DISABLE_AUTOUPDATER": "1",
             "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1"}
 
 
-def command(executable, model, *, teams, allowed_tools=(), disallowed_tools=(), settings=None,
+def command(executable, model, *, allowed_tools=(), disallowed_tools=(), settings=None,
             isolated_settings=False, max_budget_usd=None):
     if not model.strip() or model.startswith("-"):
         raise ValueError("An explicit model is required")
     native = dict(settings or {})
-    native["env"] = dict(native.get("env") or {}, CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS="1" if teams else "0")
-    if teams:
-        native["teammateMode"] = "in-process"
-    else:
-        native.pop("teammateMode", None)
-    args = [str(executable), "--ax-screen-reader"] if teams else [
-        str(executable), "--print", "--verbose", "--output-format", "stream-json"]
+    native["env"] = dict(native.get("env") or {}, CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS="0")
+    native.pop("teammateMode", None)
+    args = [
+        str(executable), "--print", "--verbose", "--output-format", "stream-json",
+        "--permission-mode", "default"]
     args.extend(["--model", model, "--settings", json.dumps(native, separators=(",", ":"))])
     for flag, tools in (("--allowedTools", allowed_tools), ("--disallowedTools", disallowed_tools)):
         if tools:
@@ -44,8 +42,6 @@ def command(executable, model, *, teams, allowed_tools=(), disallowed_tools=(), 
                 raise ValueError("Tools must be a sequence of nonempty names")
             args.extend([flag, ",".join(tools)])
     if max_budget_usd is not None:
-        if teams:
-            raise ValueError("Native --max-budget-usd is print-only, not an interactive Team ceiling")
         positive(max_budget_usd, "max_budget_usd")
         args.extend(["--max-budget-usd", str(max_budget_usd)])
     if isolated_settings:
@@ -86,6 +82,6 @@ def run_print(adapter, prompt, *, backend, model, workspace, output, timeout=360
         argv=adapter.command(model, allowed_tools=allowed_tools, disallowed_tools=disallowed_tools,
             max_budget_usd=max_budget_usd, settings=native, isolated_settings=isolated_settings),
         version=VERSION, version_pattern=r"^(\d+\.\d+\.\d+) \(Claude Code\)\s*$",
-        environment=environment(False), prompt=prompt, workspace=workspace, output=output,
+        environment=environment(), prompt=prompt, workspace=workspace, output=output,
         timeout=timeout, execute=execute,
         parse_result=lambda path: result_event(path, single_agent=single_agent), command_prefix=command_prefix)

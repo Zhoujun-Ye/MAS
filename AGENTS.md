@@ -1,29 +1,49 @@
 # Project Instructions
 
-The user reset the runtime on 2026-11-02. The active harness contains four
-adapters for two externally installed CLIs: Deep Agents Single, Claude Code
-Agent Teams, Claude Code Subagents and Claude Code Single Agent. Research orchestration remains separate. Do not
+The user retired Deep Agents on 2026-11-03. The active Claude Code harness contains Subagents and Single Agent adapters.
+Claude Code Agent Teams was retired on 2026-11-04; preserve historical evidence,
+but do not restore its adapter, probes or launch choices. Research orchestration remains separate. Do not
 restore the retired custom Team runtime, provider relay, Single/Team launchers,
 coordinator/full modes, capability catalogs, or custom scheduling semantics.
 
 ## Ownership And Scope
 
-- `harness/deepagents/`: Deep Agents Code (`dcode`) arguments and CLI adaptation.
-- `harness/claude_code_agent_team/`: interactive native Claude Code Agent Teams adaptation.
+- Active CLI pins are Claude Code 2.1.286 and Codex CLI 0.159.3:
+  `harness/codex_single_agent/` and `harness/codex_subagents/`, with shared
+  transport/configuration in `harness/_codex_cli.py`. They use native DeepSeek
+  Responses through a fixed-destination host credential gateway, not a semantic
+  provider relay or SDK. Offline native delegation is validated separately from
+  real-provider correctness/accounting; tool exposure alone is not delegation.
+
 - `harness/claude_code_subagents/`: print-mode ordinary native Claude subagents, with Teams disabled.
 - `harness/claude_code_single_agent/`: print-mode strict Single, with native delegation tools removed and denied.
 - `harness/_claude_cli.py` and `_claude_hooks.py`: shared native arguments/observations and opt-in Single permission policy.
 - `harness/_cli.py`: CLI preflight, process lifetime, stdin and raw evidence only.
 - Agent contexts, tools, communication and scheduling belong to the external CLI.
-- Do not clone or vendor either upstream runtime, or import its SDK here.
-- Do not silently equate Deep Agents subagents with Claude Code Agent Teams.
-- Do not turn the Team adapter into print mode or label ordinary subagents as a native Agent Team.
-- For the active KramaBench comparison, Deep Agents and Claude Single are strict single-agent
-  baselines. Use explicit native single policies, not prompt-only discouragement
-  or default dcode delegation. Earlier runs with subagents are not single baselines.
+- Do not clone or vendor the upstream runtime, or import its SDK here.
+- Deep Agents is retired. Keep historical evidence/readers, not active adapters,
+  executable requirements, mounts, environment settings, probes or launch choices.
+- Do not label ordinary subagents as a native Agent Team.
+- Claude Single is a strict single-agent baseline. Use explicit native single
+  policies, not prompt-only discouragement. Subagent runs are not single baselines.
 - Do not impose a new roster, decomposition policy, benchmark protocol or solver
-  prompt as part of CLI adaptation.
+  prompt as part of CLI adaptation without explicit user authorization.
 - `benchmarks/` owns task data and evaluation, independently of the adapters.
+- Each benchmark owns `tasks.py`/`evaluation.py` and matching
+  `scripts/<benchmark>/{catalog,run,score}.py` entry points. Shared CLI environment,
+  unchanged baseline prompts and containers belong in `scripts/common/`;
+  read-only native evidence belongs in `analysis/native_evidence.py`.
+  Historical study utilities live in `scripts/studies/`, not baseline defaults.
+- `benchmarks/dataclawbench/` and `benchmarks/hybriddeepresearch/` keep gold/reference
+  fields host-side. The latter decodes the public release in memory; never publish
+  decrypted questions, gold SQL, answers, or evaluation logs.
+- The user explicitly selected the orchestrator-worker lead prompt on 2026-11-04.
+  Preserve that exact prompt; the Codex variant changes only CLI/tool names.
+  This is a prompted native baseline, not untouched default CLI behavior. Do not
+  add our specialist roles, fixed roster, judge mechanism or cost-reduction policy.
+  Lead-only instructions belong in the lead prompt, not worker-visible rule files.
+  `benchmarks/organization.py` retains a research-intervention renderer only;
+  bounded evidence-judge pilots are not native baseline results.
 - `analysis/` retains generic utilities and read-only historical-schema readers.
 - CooperBench is retired; preserve its evidence and retention exceptions in
   `docs/archive.md`, not an active dependency.
@@ -36,13 +56,32 @@ See `docs/cli-adapters.md` for pinned versions, references and limitations.
 
 - Local `/Users/zhoujun/Desktop/MAS-information`; server
   `zhoujunye@10.123.4.30:22`, `/home/zhoujunye/MAS-information`.
+- External server data and evaluation environment: `/home/zhoujunye/MAS-information-data`.
+  The old server KramaBench upstream path is a compatibility symlink. Current
+  provisioning receipts and source-stage location are in `docs/server-preparation.md`.
 - Run tests and experiments on the server, not locally. Inspect live processes and
   CPU ownership first. Never modify `/home/zhoujunye/agent-team` or its resources.
+- Prefer bounded parallel execution for independent experiment conditions and
+  independent grading jobs to reduce wall-clock time. Choose concurrency after
+  checking server capacity and provider rate limits; isolate workspaces and outputs,
+  and preserve the authorized total attempts and cost scope. Serialize only when
+  dependencies, shared mutable resources, or measurement validity require it, and
+  explain that reason before launching. Record concurrency for timing comparisons.
 - Use `scripts/server/sync.sh` for scoped source only. Never sync credentials,
   environments, caches, checkouts, assets, archives or outputs; never `--delete`.
 - A sync does not remove retired files. Remote source cleanup or deployment needs
   explicit authorization; local cleanup is not automatic remote deployment.
 - `.env` stays ignored and mode 0600. Never print or commit credentials.
+- Never pass real provider keys into solver containers, tool subprocesses or
+  solver-visible mounts. Live DataClaw/HDR calls use a per-run host credential
+  gateway over a mounted Unix socket; the container receives only an ephemeral
+  run token. Live solver containers use network=none. Authoritative request
+  accounting is host-side; solver-writable logs are not a billing ledger.
+  Token access does not authenticate which same-UID process made a request;
+  record that limitation rather than claiming OS-level model-call isolation.
+  The gateway must preserve native wire protocols, fixed destinations,
+  and no retries; it must not implement model orchestration or scheduling.
+  A leaked provider key must be revoked before paid experiments resume.
 - Installs use the Tsinghua PyPI mirror. Do not provision environments, CLIs,
   Docker or cloud resources implicitly. Preserve historical images/assets and runs.
 - Deploy, launch jobs and clean server files only within user authorization.

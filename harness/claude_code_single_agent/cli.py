@@ -17,7 +17,7 @@ class ClaudeCodeSingleAgentCLI:
         if isinstance(disallowed_tools, str):
             raise ValueError("Tools must be a sequence of names")
         native = dict(settings or {}, disableAllHooks=False)
-        argv = command(self.executable, model, teams=False, allowed_tools=allowed_tools,
+        argv = command(self.executable, model, allowed_tools=allowed_tools,
             disallowed_tools=tuple(dict.fromkeys((*BLOCKED_TOOLS, *disallowed_tools))), settings=native,
             isolated_settings=True, max_budget_usd=max_budget_usd)
         return [*argv, "--tools", ",".join(SINGLE_TOOLS), "--disable-slash-commands"]

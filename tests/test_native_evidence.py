@@ -1,6 +1,6 @@
 import json
 
-from scripts.kramabench import native_evidence
+from analysis import native_evidence
 
 def test_payload_rejection_is_not_hidden_by_native_is_error_false(tmp_path):
     events = [dict(message=dict(content=[dict(type="tool_use", id="a", name="TeamDelete", input={})])),

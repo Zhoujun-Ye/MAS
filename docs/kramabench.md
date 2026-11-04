@@ -8,7 +8,7 @@ CLI pin, task data, V3 scoring, common instructions, container limits, concurren
 timeout and one-request judge policy remain aligned with the current comparison.
 The native tool surface/permission guard and condition instruction differ.
 
-`compare_claude_single.py --baseline outputs/current/comparison-3way/summary.json
+`scripts/studies/compare_claude_single.py --baseline outputs/current/comparison-3way/summary.json
 --single-run FRESH-RUN --output FRESH-COMPARISON` joins completed 104-task results.
 It checks matched task sets, exact scoring/artifact hashes, strict Single
 observations and zero member transcript messages, without new model/judge calls.
@@ -19,6 +19,30 @@ Pinned upstream: `mitdbg/Kramabench` at
 The task loader exposes only public IDs/domains/questions to solvers, never
 references, private subtasks or reference code.
 
+## External Data Layout
+
+The upstream checkout is an external data/evaluation dependency, not adapter source.
+It need not live inside `benchmarks/kramabench/`. Pass its location through
+`--upstream`; the loader still verifies the pinned revision and input content.
+Local checkout location: `/Users/zhoujun/Desktop/MAS-information-data/kramabench/upstream`.
+The server checkout is now `/home/zhoujunye/MAS-information-data/kramabench/upstream`;
+its old path remains a compatibility symlink for historical commands.
+
+Use the same convention for all three benchmarks outside the source repository:
+
+```text
+MAS-information-data/
+  kramabench/upstream/
+  dataclawbench/upstream/          when explicitly provisioned
+  hybriddeepresearch/upstream/    when explicitly provisioned
+  hybriddeepresearch/data/        DB/KB assets, separately provisioned
+```
+
+Only the existing local KramaBench checkout was relocated; no other datasets were
+downloaded. Do not delete it if local task loading or scoring is needed. For server
+offline integration tests, set `KRAMABENCH_UPSTREAM` to the existing server path;
+tests no longer require a checkout or symlink inside the source tree.
+
 ## Conditions And Execution
 
 `scripts/kramabench/run.py` is the active launch entry point. Select one backend
@@ -27,16 +51,12 @@ and optional repeated `--task-id` arguments. Its default freezes a plan; only
 The default judge limit is zero; at most ten explicit semantic verdicts per
 backend are supported. No automatic retries or replacement attempts are made.
 
-Deep Agents is always strict Single in this benchmark: the native task/async
-delegation hook denies delegation, and MCP, interpreter and extensions are
-disabled. A native 500-turn cap is explicit. SessionStart/End, zero SubagentStart,
-zero executed delegation tools and zero checkpoint member messages are checked.
-Missing evidence is not a pass. This is not an adversarial shell/network sandbox.
+Claude Single removes and denies native delegation tools, with observed policy
+and zero-delegation checks. Missing evidence is not a pass. Deep Agents is retired;
+its historical 500-turn results remain evidence, not an active execution choice.
+The native tool policy is not an adversarial shell/network sandbox.
 
-`claude-code-agent-team` uses an interactive native team. Automatic native teammate-message input
-after Stop invalidates that Stop; a nonempty submission file is also required
-before automatic /exit. No custom roster, message replay or scheduling is added.
-These observations do not prove strict workspace quiescence or model correctness.
+Agent Teams is retired as an execution condition; historical results remain readable.
 
 `claude-code-subagents` uses the separate print-mode adapter and explicitly
 disables Agent Teams. Native SubagentStart/Stop and root SessionEnd, no Team
@@ -78,9 +98,10 @@ can be reused for offline rescoring; no new judge is called implicitly.
 ## Reporting
 
 - `catalog.py` and `prepare.py`: validate public task/input provenance; provisioning
-  remains separately authorized.
-- `cli_preflight.py` and `single_native_probe.py`: offline native transport/policy
-  probes. The Single probe uses only a loopback fake provider and dummy key.
+  remains separately authorized. `prepare.py` plans by default; an image build
+  additionally requires `--execute`.
+- `scripts/probes/`: offline native transport/policy probes shared by benchmarks.
+  The Single/Subagents probes use only a loopback fake provider and dummy key.
 - `score.py`: versioned offline scoring of historical attempt layouts.
 - `rescore_native.py`: reproduce original grades and write a fresh V3 overlay,
   retaining exact source-summary/submission hashes and reused semantic verdicts.
@@ -100,20 +121,17 @@ IDs, mismatched scoring versions and an unverified Single condition. Each
 replacement records its old and new source, score and artifact hash. It never
 modifies raw runs or chooses a best-scoring answer after seeing scores.
 
-Current four-condition publication: `outputs/current/comparison-4way/`;
-the results table and accounting limitations are in [README](../README.md#results).
-The retained two-condition input is `outputs/current/comparison/`. Single uses
-the uniform 500-turn 104-task baseline, excluding the old 50-turn diagnostic.
-Team uses 99 original + 5 repaired cases. This mixed-protocol Team snapshot is
-not a clean full rerun. Costs of superseded/diagnostic attempts must not disappear
-from expenditure reporting. Per-case USD estimates cover visible messages only;
-overlapping CNY account intervals cannot be allocated or summed as backend bills.
+The historical publication and run artifacts were deleted at the user's request
+on 2026-11-04. There is no current four-condition result table. The publishers
+below remain reusable source tools, not evidence that their old input paths exist.
+Future per-case USD estimates cover observed usage only; overlapping shared-account
+balance intervals cannot be allocated or summed as backend bills.
 
 `retain_current.py` plans cleanup by default. On explicit execution it copies and
 hash-checks the selected 208 raw attempts into `current/evidence/`, relocates old
 namespaces to an archive outside outputs, and records a relocation map. Frozen
 logs and source summaries are not rewritten. Local reports-only retention does
-not pretend remote raw evidence is present locally. `compare_subagents.py`
+not pretend remote raw evidence is present locally. `scripts/studies/compare_subagents.py`
 joins a finished 104-task native Subagents run with these retained baselines;
 it rejects mismatched task/scoring sets, changed artifacts and evidence of Team
 mode in the Subagents condition. Comparison/reporting makes no model calls.

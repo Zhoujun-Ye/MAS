@@ -7,7 +7,7 @@ import math
 from pathlib import Path
 import subprocess
 
-from ._io import fingerprint
+from .._io import fingerprint
 from .tasks import DOMAINS, load_tasks, UPSTREAM_COMMIT
 
 METRICS = {

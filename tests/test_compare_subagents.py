@@ -3,7 +3,7 @@ import json
 
 import pytest
 
-from scripts.kramabench.compare_subagents import compare
+from scripts.studies.compare_subagents import compare
 from scripts.kramabench.results import summarize
 
 

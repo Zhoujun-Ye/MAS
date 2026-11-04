@@ -10,7 +10,7 @@ class ClaudeCodeSubagentsCLI:
     executable: str = "claude"
 
     def command(self, model, **options):
-        return command(self.executable, model, teams=False, **options)
+        return command(self.executable, model, **options)
 
     def run(self, prompt, *, model, workspace, output, timeout=3600, allowed_tools=(),
             disallowed_tools=(), max_budget_usd=None, settings=None, isolated_settings=False,

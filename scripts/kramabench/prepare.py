@@ -13,7 +13,7 @@ import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from benchmarks.kramabench.tasks import DOMAINS, UPSTREAM_COMMIT, load_tasks
-from benchmarks.kramabench._io import write_json
+from benchmarks._io import write_json
 
 REQUIREMENTS = """numpy==2.2.6
 pandas==2.2.3
@@ -123,10 +123,16 @@ def main():
     parser.add_argument('--output', type=Path, required=True)
     parser.add_argument('--base-image', required=True, help='Already pulled, digest-pinned base image')
     parser.add_argument('--image', required=True, help='New dedicated image tag; existing tags refused')
+    parser.add_argument('--execute', action='store_true', help='Build only after explicit provisioning authorization')
     args = parser.parse_args()
+    inventory = verify_inputs(args.upstream.resolve())
+    if not args.execute:
+        print(json.dumps(dict(status='planned', input_files=inventory['total_files'],
+                              input_bytes=inventory['total_bytes'], image=args.image,
+                              paid_calls=0, environment_changed=False), indent=2))
+        return
     args.output.mkdir(parents=True, exist_ok=False)
     try:
-        inventory = verify_inputs(args.upstream.resolve())
         write_json(args.output / 'inputs.json', inventory)
         existing = subprocess.run(['docker', 'image', 'inspect', args.image], capture_output=True)
         if existing.returncode == 0:

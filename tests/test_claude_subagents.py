@@ -1,16 +1,14 @@
 import json
 
-from harness import ClaudeCodeAgentTeamCLI, ClaudeCodeSubagentsCLI
-from scripts.kramabench.native_evidence import native_subagents
+from harness import ClaudeCodeSubagentsCLI
+from analysis.native_evidence import native_subagents
 
 
 def test_native_modes_cannot_be_switched_by_settings():
     sub = ClaudeCodeSubagentsCLI().command('model', settings=dict(env=dict(CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS='1')))
-    team = ClaudeCodeAgentTeamCLI().command('model', settings=dict(env=dict(CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS='0')))
-    for command, flag in ((sub,'0'), (team,'1')):
-        settings = json.loads(command[command.index('--settings')+1])
-        assert settings['env']['CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS'] == flag
-    assert '--print' in sub and '--print' not in team
+    settings = json.loads(sub[sub.index('--settings')+1])
+    assert settings['env']['CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS'] == '0'
+    assert '--print' in sub
     assert 'teammateMode' not in json.loads(sub[sub.index('--settings')+1])
 
 

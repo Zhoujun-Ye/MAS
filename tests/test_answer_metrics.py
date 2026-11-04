@@ -67,10 +67,8 @@ def test_semantic_judging_is_explicit_and_never_replaced_by_exact_matching():
         score_answer('a', 'b', 'string_approximate', paraphrase=lambda *args: 'yes')
 
 
-def test_actual_pinned_workload_coverage_and_reference_self_scores():
-    root = Path(__file__).resolve().parents[1] / 'benchmarks/kramabench/upstream'
-    if not root.exists():
-        pytest.skip('Pinned checkout required for reference-contract verification')
+def test_actual_pinned_workload_coverage_and_reference_self_scores(kramabench_upstream):
+    root = kramabench_upstream
     contract = scoring_contract(root)
     assert contract['task_count'] == 104 and contract['offline_tasks'] == 94
     assert contract['semantic_judge_tasks'] == 10
@@ -81,10 +79,8 @@ def test_actual_pinned_workload_coverage_and_reference_self_scores():
             assert result['score'] == (None if row['answer_type'] == 'string_approximate' else 1), row['id']
 
 
-def test_ports_agree_with_pinned_upstream_on_valid_metric_inputs():
-    root = Path(__file__).resolve().parents[1] / 'benchmarks/kramabench/upstream'
-    if not root.exists():
-        pytest.skip('Pinned checkout required for differential verification')
+def test_ports_agree_with_pinned_upstream_on_valid_metric_inputs(kramabench_upstream):
+    root = kramabench_upstream
     scoring_contract(root)
     module = ast.parse((root / 'benchmark/metrics.py').read_text())
     # Extract only reviewed metric definitions; never import the paid interfaces.

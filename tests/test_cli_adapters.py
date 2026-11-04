@@ -9,7 +9,7 @@ import time
 
 import pytest
 
-from harness import ClaudeCodeAgentTeamCLI, ClaudeCodeSubagentsCLI, ClaudeCodeSingleAgentCLI, DeepAgentsCLI
+from harness import ClaudeCodeSubagentsCLI, ClaudeCodeSingleAgentCLI
 from harness.__main__ import main
 
 
@@ -23,12 +23,10 @@ def workspace(tmp_path):
 @pytest.fixture
 def stub(tmp_path):
     def build(backend, *, version=None, stdout=None, exit_code=0, delay=0, child=False):
-        is_claude = backend == "claude"
-        version = version or ("2.1.225 (Claude Code)" if is_claude else
-                              "deepagents-code 0.2.2\ndeepagents (SDK) 0.7.32")
+        version = version or "2.1.286 (Claude Code)"
         if stdout is None:
-            stdout = (json.dumps(dict(type="result", subtype="success", is_error=False,
-                                      result="native reply")) + "\n" if is_claude else "native reply\n")
+            stdout = json.dumps(dict(type="result", subtype="success", is_error=False,
+                                     result="native reply")) + "\n"
         script = tmp_path / ("stub-" + backend)
         script.write_text(f'''#!{sys.executable}
 import json, os, subprocess, sys, time
@@ -38,8 +36,7 @@ if '--version' in sys.argv:
     sys.exit(0)
 record = dict(argv=sys.argv[1:], prompt=sys.stdin.read(), cwd=os.getcwd(),
               team=os.environ.get('CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS'),
-              retries=os.environ.get('CLAUDE_CODE_MAX_RETRIES'),
-              updates=os.environ.get('DEEPAGENTS_CODE_AUTO_UPDATE'))
+              retries=os.environ.get('CLAUDE_CODE_MAX_RETRIES'))
 if {child!r}:
     worker = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(60)'])
     record['child_pid'] = worker.pid
@@ -51,11 +48,11 @@ time.sleep({delay!r})
 sys.exit({exit_code!r})
 ''')
         script.chmod(0o755)
-        return (ClaudeCodeSubagentsCLI if is_claude else DeepAgentsCLI)(str(script))
+        return ClaudeCodeSubagentsCLI(str(script))
     return build
 
 
-@pytest.mark.parametrize("adapter", [DeepAgentsCLI(), ClaudeCodeAgentTeamCLI(), ClaudeCodeSubagentsCLI(), ClaudeCodeSingleAgentCLI()])
+@pytest.mark.parametrize("adapter", [ClaudeCodeSubagentsCLI(), ClaudeCodeSingleAgentCLI()])
 def test_default_is_side_effect_free_plan(adapter, workspace, tmp_path, monkeypatch):
     def forbidden(*args, **kwargs):
         pytest.fail("Planning must not launch any subprocess")
@@ -67,24 +64,12 @@ def test_default_is_side_effect_free_plan(adapter, workspace, tmp_path, monkeypa
     assert "task" not in plan["argv"]
 
 
-def test_deepagents_command_and_explicit_shell_grant():
-    adapter = DeepAgentsCLI()
-    command = adapter.command("provider:model")
-    assert command == ["dcode", "--stdin", "--quiet", "--no-stream", "--model",
-                       "provider:model", "--max-retries", "0"]
-    assert adapter.command("provider:model", shell_allow_list="python,git")[-2:] == [
-        "--shell-allow-list", "python,git"]
-    assert "--auto-approve" not in command and "--shell-allow-list" not in command
-
-
 def test_native_deepseek_options_and_transport_plan(workspace, tmp_path):
-    plan = DeepAgentsCLI().run("task", model="anthropic:deepseek-flash", workspace=workspace,
-        output=tmp_path / "out", model_params={"output_config": {"effort": "max"}},
-        profile_override={"max_input_tokens": 1000000}, summarization_model="anthropic:deepseek-flash",
-        no_mcp=True, command_prefix=("docker", "exec", "-i", "owned-container"))
+    plan = ClaudeCodeSubagentsCLI().run("task", model="deepseek-flash[1m]", workspace=workspace,
+        output=tmp_path / "out", command_prefix=("docker", "exec", "-i", "owned-container"))
     assert plan["command_prefix"] == ["docker", "exec", "-i", "owned-container"]
-    assert "--no-mcp" in plan["argv"] and "--model-params" in plan["argv"]
-    command = ClaudeCodeAgentTeamCLI().command("deepseek-flash[1m]", isolated_settings=True,
+    assert "--print" in plan["argv"]
+    command = ClaudeCodeSubagentsCLI().command("deepseek-flash[1m]", isolated_settings=True,
                                                disallowed_tools=("WebSearch", "WebFetch"))
     assert command[command.index("--setting-sources") + 1] == ""
     assert "--strict-mcp-config" in command
@@ -100,7 +85,7 @@ def test_subagent_command_uses_print_mode_and_native_permissions():
     assert "--dangerously-skip-permissions" not in command and "--agents" not in command
 
 
-@pytest.mark.parametrize("adapter", [DeepAgentsCLI(), ClaudeCodeAgentTeamCLI(), ClaudeCodeSubagentsCLI(), ClaudeCodeSingleAgentCLI()])
+@pytest.mark.parametrize("adapter", [ClaudeCodeSubagentsCLI(), ClaudeCodeSingleAgentCLI()])
 @pytest.mark.parametrize("model", ["", " ", "--fake-option"])
 def test_model_is_required_and_not_an_option(adapter, model):
     with pytest.raises(ValueError):
@@ -110,17 +95,17 @@ def test_model_is_required_and_not_an_option(adapter, model):
 @pytest.mark.parametrize("value", [0, -1, float("inf"), float("nan"), True])
 def test_invalid_timeouts_rejected(value, workspace, tmp_path):
     with pytest.raises(ValueError):
-        DeepAgentsCLI().run("task", model="model", workspace=workspace,
+        ClaudeCodeSubagentsCLI().run("task", model="model", workspace=workspace,
                             output=tmp_path / "out", timeout=value)
 
 
 @pytest.mark.parametrize("value", [0, -1, float("inf"), float("nan"), True])
 def test_invalid_native_budget_rejected(value):
     with pytest.raises(ValueError):
-        ClaudeCodeAgentTeamCLI().command("model", max_budget_usd=value)
+        ClaudeCodeSubagentsCLI().command("model", max_budget_usd=value)
 
 
-@pytest.mark.parametrize("backend", ["deepagents", "claude"])
+@pytest.mark.parametrize("backend", ["claude"])
 def test_native_process_receipts_and_private_environment(backend, stub, workspace, tmp_path, monkeypatch):
     monkeypatch.setenv("TEST_PROVIDER_TOKEN", "must-not-appear-in-receipts")
     output = tmp_path / "output"
@@ -139,22 +124,17 @@ def test_native_process_receipts_and_private_environment(backend, stub, workspac
     assert "must-not-appear" not in "".join(p.read_text() for p in output.iterdir())
     version = json.loads((output / "cli-version.json").read_text())
     assert len(version["launcher_sha256"]) == 64
-    if backend == "claude":
-        assert record["team"] == "0" and record["retries"] == "0"
-        assert report["native_result"]["result"] == "native reply"
-    else:
-        assert record["updates"] == "0"
-        assert (output / "stdout.log").read_bytes() == b"native reply\n"
+    assert record["team"] == "0" and record["retries"] == "0"
+    assert report["native_result"]["result"] == "native reply"
     before = {p.name: p.read_bytes() for p in output.iterdir()}
     with pytest.raises(FileExistsError):
         stub(backend).run("new", model="model", workspace=workspace, output=output, execute=True)
     assert before == {p.name: p.read_bytes() for p in output.iterdir()}
 
 
-@pytest.mark.parametrize("backend", ["deepagents", "claude"])
+@pytest.mark.parametrize("backend", ["claude"])
 def test_version_mismatch_stops_before_dispatch(backend, stub, workspace, tmp_path):
-    adapter = stub(backend, version="deepagents-code 9.0.0" if backend == "deepagents" else
-                   "9.0.0 (Claude Code)")
+    adapter = stub(backend, version="9.0.0 (Claude Code)")
     report = adapter.run("task", model="model", workspace=workspace,
                          output=tmp_path / "out", execute=True)
     assert report["status"] == "preflight_error" and report["model_calls_started"] is False
@@ -164,7 +144,7 @@ def test_version_mismatch_stops_before_dispatch(backend, stub, workspace, tmp_pa
 
 def test_missing_cli_leaves_failure_evidence(workspace, tmp_path):
     output = tmp_path / "out"
-    result = DeepAgentsCLI(str(tmp_path / "missing")).run(
+    result = ClaudeCodeSubagentsCLI(str(tmp_path / "missing")).run(
         "task", model="model", workspace=workspace, output=output, execute=True)
     assert result["status"] == "preflight_error"
     assert json.loads((output / "result.json").read_text())["error"]["type"] == "FileNotFoundError"
@@ -184,10 +164,10 @@ def test_claude_final_text_is_not_silent_completion(stdout, status, stub, worksp
 
 
 def test_nonzero_exit_keeps_raw_logs(stub, workspace, tmp_path):
-    report = stub("deepagents", exit_code=7).run("task", model="model", workspace=workspace,
+    report = stub("claude", exit_code=7).run("task", model="model", workspace=workspace,
                                                 output=tmp_path / "out", execute=True)
     assert report["status"] == "cli_error" and report["returncode"] == 7
-    assert (tmp_path / "out/stdout.log").read_text() == "native reply\n"
+    assert "native reply" in (tmp_path / "out/stdout.log").read_text()
 
 
 def test_native_accounting_is_preserved_without_imputing_role_coverage(stub, workspace, tmp_path):
@@ -202,16 +182,16 @@ def test_native_accounting_is_preserved_without_imputing_role_coverage(stub, wor
 
 def test_blank_prompt_does_not_dispatch(stub, workspace, tmp_path):
     with pytest.raises(ValueError, match="Prompt"):
-        stub("deepagents").run(" \n ", model="model", workspace=workspace,
+        stub("claude").run(" \n ", model="model", workspace=workspace,
                                output=tmp_path / "out", execute=True)
     assert not (tmp_path / "out").exists()
 
 
 def test_timeout_stops_process_group_and_preserves_partial_output(stub, workspace, tmp_path):
-    report = stub("deepagents", delay=60, child=True).run(
+    report = stub("claude", delay=60, child=True).run(
         "task", model="model", workspace=workspace, output=tmp_path / "out", timeout=0.5, execute=True)
     assert report["status"] == "timed_out" and report["returncode"] < 0
-    assert (tmp_path / "out/stdout.log").read_text() == "native reply\n"
+    assert "native reply" in (tmp_path / "out/stdout.log").read_text()
     pid = json.loads((workspace / "invocation.json").read_text())["child_pid"]
     deadline = time.monotonic() + 2
     while time.monotonic() < deadline:
@@ -239,7 +219,7 @@ def test_interrupt_is_recorded_and_propagated(stub, workspace, tmp_path, monkeyp
         return original(process, *args, **kwargs)
     monkeypatch.setattr(subprocess.Popen, "wait", wait)
     with pytest.raises(KeyboardInterrupt):
-        stub("deepagents", delay=60).run("task", model="model", workspace=workspace,
+        stub("claude", delay=60).run("task", model="model", workspace=workspace,
                                         output=tmp_path / "out", execute=True)
     assert json.loads((tmp_path / "out/result.json").read_text())["status"] == "interrupted"
 
@@ -248,18 +228,18 @@ def test_interrupt_is_recorded_and_propagated(stub, workspace, tmp_path, monkeyp
 def test_output_must_not_overlap_workspace(location, workspace):
     output = {"inside": workspace / "out", "ancestor": workspace.parent, "equal": workspace}[location]
     with pytest.raises(ValueError, match="overlap"):
-        DeepAgentsCLI().run("task", model="model", workspace=workspace, output=output)
+        ClaudeCodeSubagentsCLI().run("task", model="model", workspace=workspace, output=output)
 
 
 def test_main_plans_without_cli_and_rejects_cross_backend_flags(workspace, tmp_path, capsys):
     prompt = tmp_path / "task.txt"
     prompt.write_text("task")
-    args = ["deepagents", "--workspace", str(workspace), "--output", str(tmp_path / "out"),
+    args = ["claude-code-subagents", "--workspace", str(workspace), "--output", str(tmp_path / "out"),
             "--prompt-file", str(prompt), "--model", "provider:model"]
     assert main(args) == 0
     assert json.loads(capsys.readouterr().out)["status"] == "planned"
     with pytest.raises(SystemExit):
-        main(args + ["--max-budget-usd", "1"])
+        main(args + ["--shell-allow-list", "python"])
 
 
 def test_no_direct_provider_or_custom_runtime_dependencies():

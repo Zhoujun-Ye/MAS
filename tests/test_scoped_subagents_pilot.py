@@ -1,4 +1,4 @@
-from scripts.kramabench.scoped_subagents_pilot import metrics, select_tasks
+from scripts.studies.scoped_subagents_pilot import metrics, select_tasks
 
 
 def test_selection_is_balanced_order_invariant_and_ignores_answers():

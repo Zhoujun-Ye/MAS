@@ -1,5 +1,78 @@
 # Historical Evidence
 
+## Result Retirement (2026-11-04)
+
+The user explicitly authorized deletion of previous benchmark results after the
+harness changes, including historical full runs. This supersedes the result
+retention statements below, which describe earlier cleanup events rather than
+the current artifact inventory. Local/server `outputs/current`, archived run and
+comparison directories, interrupted dual-matrix batches and old paid connectivity
+receipts were removed. Source-only snapshots, datasets, dependencies, credentials,
+preparation receipts and useful offline regression proofs remain. New failures
+are retained unless separately authorized for deletion. No replacement paid run
+is authorized by this cleanup.
+
+Nineteen stale server source files for retired adapters/probes and moved entry
+points were removed after a private source-only snapshot at
+`archives/engineering-cleanup-20261104/retired-source.tgz`. This snapshot is not
+a retained experiment result and contains no dataset or environment directory.
+
+## External Checkout Organization (2026-11-03)
+
+The clean local pinned KramaBench checkout was moved intact from
+`benchmarks/kramabench/upstream/` to
+`/Users/zhoujun/Desktop/MAS-information-data/kramabench/upstream`.
+No data or Git history was deleted. The adapter uses explicit `--upstream`, and
+integration tests use `KRAMABENCH_UPSTREAM` instead of a source-tree dependency.
+Server paths and frozen historical manifests were not rewritten or moved.
+
+## Benchmark Structure Cleanup (2026-11-03)
+
+Before changing overlapping uncommitted work, source/docs/tests were retained in
+`.retired_sources/benchmark-unification-20261103/source-before.tgz`, SHA-256
+`0fbd621580718cd40ae08d7b1a195bb39766b381c3fb23f39f9a080b6ccd3bf5`.
+No credentials, environments, inputs/checkouts, outputs or older archives are included.
+
+Shared CLI configuration/container helpers moved from KramaBench into
+`scripts/common/runtime.py`; native readers moved to `analysis/native_evidence.py`.
+DataClawBench/HDR now have matching task/evaluation modules and script entry points;
+the former `scripts/research_benchmarks/` directory is replaced by common helpers
+and benchmark-specific entries. Comparison and scoped-judge pilot utilities moved
+to `scripts/studies/`; native probes moved to `scripts/probes/`.
+These are relocations, not deletion of historical reproducibility tools.
+
+Historical docs, prompts, outputs, source archives, native tool caches and upstream
+assets remain. Only disposable local Finder metadata is removed. No server
+production source cleanup, uninstall or dataset removal is implied; verification
+uses a fresh temporary source stage. Old frozen run source paths remain historical.
+
+## Deep Agents Retirement (2026-11-03)
+
+The user chose Claude Code exclusively after inspecting native asynchronous
+delegation support. Active dcode adapters, CLI options, native probes, container
+mounts and interpreter/executable dependencies were removed locally. Claude
+Single and Subagents remain; interactive Agent Teams was retired on 2026-11-04. Historical results,
+comparison scripts and read-only checkpoint readers are preserved.
+
+Before removing overlapping uncommitted work, including the new Single/Subagents
+split and async feasibility probe, source/docs/tests were snapshotted at:
+`.retired_sources/deepagents-retirement-20261103/source-before-removal.tgz`.
+SHA-256: `d02d6472c921ac27fde3d87290eaa679c9505435b4ab65dad0d12a889a384adf`.
+No credentials, environments, datasets, checkouts or run outputs are included.
+
+Prior version pins and installation receipts are retained in
+[historical CLI contracts](history/cli-adapters-through-deepagents-20261103.md).
+The native local async experiment was network-disabled with dummy credentials:
+`/tmp/mas-deepagents-benchmarks.jtNcUW/async-native-04/native-profile/probe/proof.json`
+on the server. Dcode 0.2.2 exposed start/check tools, but the child failed before
+any child model request (`passed=false`, 3 fake parent requests, 0 paid calls).
+It was never enabled as a successful benchmark condition. No CLI upgrade occurred.
+
+Server-installed dcode, historical source stages/images/assets/results and the
+production source tree were not removed or altered. Current verification uses
+a fresh Claude-only temporary source stage; local removal is not deployment or
+permission to uninstall server tools.
+
 ## Local Organization Cleanup (2026-11-03)
 
 Completed study documents now live in [history/](history/README.md). Active
@@ -61,7 +134,7 @@ likewise archived; full raw evidence stays on the server.
 
 Before the adapter rename/addition, overlapping local source was preserved in
 `archives/claude-subagents-20261102/local-source-before.tgz`.
-The active Claude Team adapter is now `harness/claude_code_agent_team/`; the
+The historical Claude Team adapter was `harness/claude_code_agent_team/`; the
 separate native print-mode adapter is `harness/claude_code_subagents/`.
 
 ## CLI Results Cleanup (2026-11-02)
@@ -203,7 +276,7 @@ The cleanup does not authorize any new paid benchmark, judge or retry. A full
 At the user's request, the custom harness, domain-tool loop, provider clients,
 team scheduler/mailboxes, role catalogs, semantic-judge client and their launchers,
 documentation and tests were removed from active local source. Only external
-Deep Agents Code and Claude Code Agent Teams CLI adaptation remains in `harness/`.
+Deep Agents and Claude Code Agent Teams adapters are retired; historical evidence remains.
 Current contracts and limitations are in [cli-adapters.md](cli-adapters.md).
 
 Before deletion, the complete local source tree, including the pre-existing
@@ -224,3 +297,11 @@ rewritten. No production server source was synchronized or cleaned by this reset
 Server tests use a fresh temporary source directory and the existing project
 Python environment. No paid run, CLI install/upgrade, environment provisioning,
 image operation or deployment is authorized by this refactor.
+
+## Agent Teams Retirement (2026-11-04)
+
+Removed the local interactive Claude Code Agent Teams adapter, probe, launch choices,
+and Team-only tests. Historical results, study readers and native evidence readers
+are retained, as are negative checks that keep Single/Subagents out of Team mode.
+No pre-removal source backup is retained, at the user's explicit request.
+No remote cleanup or deployment is implied by this local retirement.

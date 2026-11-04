@@ -3,20 +3,40 @@ from types import SimpleNamespace
 
 import pytest
 
-from scripts.kramabench.cli_runtime import (balance_deltas, backend_instructions, condition_instructions,
-    credential, native_env, options, organization_override, submission)
-from scripts.kramabench.native_evidence import read_evidence
+from scripts.common.runtime import (balance_deltas, backend_instructions, condition_instructions,
+    credential, native_env, options, organization_override)
+from scripts.kramabench.cli_runtime import submission
+from analysis.native_evidence import read_evidence
 
 
 def test_scope_and_no_secrets_in_native_plan():
-    assert options("deepagents")["single_agent"] is True
-    assert options("deepagents")["max_turns"] == 500
-    assert not any("KEY" in key or "TOKEN" in key for key in native_env("both")
+    assert "Agent" not in options("claude-code-single-agent")["allowed_tools"]
+    assert not any("KEY" in key or "TOKEN" in key for key in native_env("claude-code-subagents")
                    if key not in {"CLAUDE_CODE_MAX_OUTPUT_TOKENS"})
-    assert options("deepagents")["model"] == "anthropic:deepseek-flash"
-    assert options("claude-code-agent-team")["model"] == "deepseek-flash[1m]"
-    assert native_env("claude-code-agent-team")["CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS"] == "1"
+    with pytest.raises(ValueError, match="Only Claude"):
+        options("deepagents")
+    assert options("claude-code-subagents")["model"] == "deepseek-flash[1m]"
     assert native_env("claude-code-subagents")["CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS"] == "0"
+    assert native_env("claude-code-subagents")["CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS"] == "0"
+
+
+def test_claude_container_has_no_retired_runtime_dependency(tmp_path, monkeypatch):
+    from scripts.common import runtime
+    captured = {}
+    def check(command, **kwargs):
+        captured.update(command=command, environment=kwargs["env"])
+        return "owned-test-container\n"
+    monkeypatch.setattr(runtime.subprocess, "check_output", check)
+    monkeypatch.setenv("TAVILY_API_KEY", "synthetic-unrelated-secret")
+    monkeypatch.setenv("DEEPSEEK_API_KEY", "synthetic-host-secret")
+    assert runtime.container(tmp_path, tmp_path, tmp_path, "existing-image", backend="claude-code-subagents") == "owned-test-container"
+    command = " ".join(captured["command"])
+    assert "deepagents" not in command and "dcode" not in command
+    assert "ANTHROPIC_AUTH_TOKEN" in captured["command"]
+    assert "ANTHROPIC_API_KEY" not in captured["command"]
+    assert "TAVILY_API_KEY" not in captured["environment"]
+    assert captured["environment"]["DEEPSEEK_API_KEY"] == "offline-placeholder"
+    assert "synthetic-host-secret" not in json.dumps(captured)
 
 
 def test_protected_credentials_are_not_shell_executed(tmp_path):
@@ -94,3 +114,57 @@ def test_organization_prompt_rejects_empty_and_nonregular(tmp_path):
     with pytest.raises(ValueError, match="regular"):
         organization_override(alias, "claude-code-subagents")
     assert organization_override(None, "claude-code-subagents") is None
+
+
+@pytest.mark.parametrize("failure", [None, "container", "adapter", "cleanup"])
+def test_krama_gateway_lifecycle_without_provider(tmp_path, monkeypatch, failure):
+    import threading
+    from benchmarks.kramabench.tasks import Task
+    from scripts.kramabench import cli_runtime as krama
+    state = {}
+    key = "synthetic-host-secret"
+
+    class Gateway:
+        def __init__(self, supplied, **kwargs):
+            assert supplied == key and kwargs["web_limit"] == 0
+        def __enter__(self):
+            state["open"] = True
+            return self
+        def __exit__(self, *args):
+            state["closed"] = True
+
+    def container(*args, **kwargs):
+        assert len(args) == 4 and "key" not in kwargs
+        assert isinstance(kwargs["gateway"], Gateway)
+        if failure == "container":
+            raise RuntimeError(key)
+        return "fake-container"
+
+    class Adapter:
+        def __init__(self, *args):
+            pass
+        def run(self, *args, **kwargs):
+            if failure == "adapter":
+                raise RuntimeError(key)
+            return dict(status="cli_exited")
+
+    def cleanup(identity):
+        if failure == "cleanup":
+            raise RuntimeError(key)
+        return dict(stopped=True)
+
+    monkeypatch.setattr(krama, "CredentialGateway", Gateway)
+    monkeypatch.setattr(krama, "container", container)
+    monkeypatch.setattr(krama, "ClaudeCodeSingleAgentCLI", Adapter)
+    monkeypatch.setattr(krama, "native_single_agent", lambda *a: dict(passed=True))
+    monkeypatch.setattr(krama, "stop_container", cleanup)
+    monkeypatch.setattr(krama.subprocess, "run", lambda *a, **kw: SimpleNamespace(returncode=0))
+    args = SimpleNamespace(output=tmp_path / "outputs", upstream=tmp_path, image="fake", timeout=30)
+    active = set()
+    stop = threading.Event()
+    result = krama.run_attempt(Task("probe", "astronomy", "Offline fixture"),
+        "claude-code-single-agent", args, key, stop, active, threading.Lock())
+    assert state == dict(open=True, closed=True)
+    assert not active
+    assert key not in json.dumps(result)
+    assert result["status"] == ("cleanup_failed" if failure == "cleanup" else "launcher_error" if failure else "cli_exited")

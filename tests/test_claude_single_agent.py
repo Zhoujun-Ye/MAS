@@ -6,7 +6,7 @@ import pytest
 
 from harness import ClaudeCodeSingleAgentCLI
 from harness._claude_hooks import BLOCKED_TOOLS, SINGLE_TOOLS, delegation_tool, single_decision
-from scripts.kramabench.native_evidence import claude_delegation_tool, native_single_agent
+from analysis.native_evidence import claude_delegation_tool, native_single_agent
 from scripts.kramabench.run import admission
 
 

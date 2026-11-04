@@ -3,7 +3,7 @@ import json
 
 import pytest
 
-from scripts.kramabench.compare_claude_single import compare
+from scripts.studies.compare_claude_single import compare
 from scripts.kramabench.results import summarize
 
 

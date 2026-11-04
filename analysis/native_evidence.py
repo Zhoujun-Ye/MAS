@@ -1,0 +1,353 @@
+"""Read native CLI evidence without executing serialized constructors or code."""
+
+import argparse
+from collections import Counter
+import json
+import re
+from pathlib import Path
+import sqlite3
+
+
+def claude_delegation_tool(name):
+    # Keep this evidence reader standalone under the decoder's isolated Python.
+    return (name in {"Agent", "Task", "SendMessage", "Workflow", "CronCreate", "CronDelete", "CronList", "ScheduleWakeup"}
+            or "subagent" in name.lower())
+
+def checkpoint_messages(root, message_types=("AIMessage", "AIMessageChunk")):
+    import ormsgpack
+
+    def extension(code, data):
+        if code in {0, 1, 2, 3, 4, 5, 7}:
+            value = ormsgpack.unpackb(data, ext_hook=extension, option=ormsgpack.OPT_NON_STR_KEYS)
+            if code in {2, 4, 5} and isinstance(value, (list, tuple)) and len(value) >= 3:
+                return dict(serialized_type=value[1], fields=value[2])
+            return value
+        return None
+
+    def walk(value):
+        if isinstance(value, dict):
+            if value.get("serialized_type") in message_types:
+                yield value["fields"]
+            else:
+                for item in value.values():
+                    yield from walk(item)
+        elif isinstance(value, (list, tuple)):
+            for item in value:
+                yield from walk(item)
+
+    for path in root.rglob("*.db"):
+        connection = sqlite3.connect(path.as_uri() + "?mode=ro", uri=True)
+        try:
+            tables = {r[0] for r in connection.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+            for table, column in (("checkpoints", "checkpoint"), ("writes", "value"), ("checkpoint_blobs", "blob")):
+                if table not in tables:
+                    continue
+                columns = {r[1] for r in connection.execute(f'PRAGMA table_info("{table}")')}
+                if column not in columns or "type" not in columns:
+                    continue
+                ns = 'checkpoint_ns' if 'checkpoint_ns' in columns else "''"
+                query = f'SELECT {ns}, type, "{column}" FROM "{table}"'
+                for namespace, kind, payload in connection.execute(query):
+                    if kind != "msgpack" or not isinstance(payload, bytes):
+                        continue
+                    try:
+                        value = ormsgpack.unpackb(payload, ext_hook=extension,
+                                                 option=ormsgpack.OPT_NON_STR_KEYS)
+                    except Exception:
+                        continue
+                    for message in walk(value):
+                        yield message, str(namespace or "leader")
+        finally:
+            connection.close()
+
+
+
+def read_json(path, default=None):
+    return json.loads(path.read_text()) if path.exists() else default
+
+def native_team(folder, original):
+    configs = read_json(folder / "cli/native-team-before-exit.json", [])
+    history = folder / "cli/native-team-history.jsonl"
+    if history.exists():
+        for line in history.read_text().splitlines():
+            configs.extend(json.loads(line).get("configs", []))
+    names = sorted({m.get("name") for cfg in configs for m in cfg.get("data", {}).get("members", [])
+                    if m.get("agentType") != "team-lead" and m.get("name")})
+    cli = original.get("cli", {})
+    return dict(named_member_names=names,
+                native_stop_before_exit=cli.get("native_before_exit", {}).get("ready_to_exit", False),
+                session_end=cli.get("native_lifecycle", {}).get("root_session_end_observed", False))
+
+
+def child_tool_evidence(profile):
+    """Count retained child requests without treating tool use as semantic contribution."""
+    children = {}
+    root = Path(profile)
+    for path in sorted(root.rglob("*.jsonl")):
+        if "subagents" not in path.relative_to(root).parts or path.is_symlink():
+            continue
+        identity = path.stem.removeprefix("agent-")
+        child = children.setdefault(identity, dict(agent_id=identity, transcript_files=[], calls={}, malformed_rows=0))
+        child["transcript_files"].append(str(path.relative_to(root)))
+        for index, line in enumerate(path.read_text(errors="replace").splitlines()):
+            try:
+                row = json.loads(line)
+            except ValueError:
+                child["malformed_rows"] += 1
+                continue
+            message = row.get("message", {}) if isinstance(row, dict) else {}
+            if not isinstance(message, dict) or message.get("role") != "assistant":
+                continue
+            content = message.get("content", [])
+            for block_index, block in enumerate(content if isinstance(content, list) else []):
+                if not isinstance(block, dict) or block.get("type") != "tool_use":
+                    continue
+                call_id = block.get("id") or (str(path), index, block_index)
+                child["calls"][call_id] = block.get("name", "unknown")
+    return [dict(agent_id=child["agent_id"], transcript_files=child["transcript_files"],
+                 tool_calls_observed=len(child["calls"]), tool_counts=dict(Counter(child["calls"].values())),
+                 malformed_rows=child["malformed_rows"], substantive_work_status="unverified")
+            for child in children.values()]
+
+
+def native_subagents(folder):
+    events = Path(folder)/"native-profile/observer/events.jsonl"
+    rows = [json.loads(line) for line in events.read_text().splitlines()] if events.exists() else []
+    starts, stops, active = set(), set(), set()
+    start_events = stop_events = 0
+    root = next((r.get("session_id") for r in rows if r.get("hook_event_name") == "SessionStart"), None)
+    root_end = False
+    for event in rows:
+        kind = event.get("hook_event_name")
+        identity = event.get("agent_id") or event.get("agentId")
+        if kind == "SubagentStart" and identity:
+            starts.add(identity)
+            active.add(identity)
+            start_events += 1
+        elif kind == "SubagentStop" and identity:
+            stops.add(identity)
+            active.discard(identity)
+            stop_events += 1
+        elif (kind == "SessionEnd" and event.get("session_id") == root and not identity
+              and "/subagents/" not in str(event.get("transcript_path", ""))):
+            root_end = True
+    configs = list((Path(folder)/"native-profile/claude/teams").glob("*/config.json"))
+    teammate_idle = sum(r.get("hook_event_name") == "TeammateIdle" for r in rows)
+    children = child_tool_evidence(Path(folder) / "native-profile")
+    return dict(passed=bool(root and root_end and starts and not active and not configs and not teammate_idle),
+                subagent_starts=start_events, subagent_stops=stop_events, unique_subagents=len(starts),
+                active_subagent_ids=sorted(active),
+                native_team_configs=len(configs), teammate_idle_events=teammate_idle, session_end=root_end,
+                structural_delegation_observed=bool(starts),
+                structural_delegation_complete=bool(starts) and not active and root_end,
+                child_tool_evidence=children,
+                child_tool_evidence_status="observed_transcripts" if children else "unavailable",
+                substantive_work_status="unverified",
+                delegation_evidence_scope="Native lifecycle and retained tool-call requests only; no semantic contribution or result incorporation verification",
+                tool_count_scope="Deduplicated retained child tool-call requests, not proof of successful execution; zero calls does not imply no useful reasoning")
+
+
+def native_single_agent(folder):
+    folder = Path(folder)
+    events = folder/"native-profile/observer/events.jsonl"
+    rows = [json.loads(line) for line in events.read_text().splitlines()] if events.exists() else []
+    native = native_subagents(folder)
+    tools = None
+    stdout = folder/"cli/stdout.log"
+    for line in stdout.open(errors="replace") if stdout.exists() else ():
+        try:
+            value = json.loads(line)
+        except ValueError:
+            continue
+        if isinstance(value, dict) and value.get("type") == "system" and value.get("subtype") == "init":
+            tools = value.get("tools")
+    exposed = sorted(t for t in (tools or []) if claude_delegation_tool(t))
+    member_files = sum("subagents" in p.relative_to(folder/"native-profile").parts
+                       for p in (folder/"native-profile").rglob("*.jsonl"))
+    executed = sum(r.get("hook_event_name") in {"PostToolUse", "PostToolUseFailure"}
+                   and claude_delegation_tool(str(r.get("tool_name", ""))) for r in rows)
+    policy = bool(rows) and all(r.get("single_agent_policy") is True for r in rows)
+    start = any(r.get("hook_event_name") == "SessionStart" and r.get("session_id") for r in rows)
+    passed = (start and native["session_end"] and policy and isinstance(tools, list) and not exposed
+              and not native["subagent_starts"] and not executed and not member_files
+              and not native["native_team_configs"] and not native["teammate_idle_events"])
+    return dict(passed=bool(passed), policy_verified=policy, session_start=bool(start),
+                session_end=native["session_end"], subagent_starts=native["subagent_starts"],
+                executed_delegation_tools=executed, exposed_delegation_tools=exposed,
+                member_transcript_files=member_files, native_team_configs=native["native_team_configs"],
+                teammate_idle_events=native["teammate_idle_events"],
+                blocked_delegation_attempts=sum(bool(r.get("single_policy_blocked")) for r in rows))
+
+
+def tool_errors(profile, backend, stdout):
+    errors, calls, retry_events = {}, {}, 0
+    rejections, deletes, shutdowns, acknowledgements = {}, set(), set(), set()
+    state_writes = {}
+    if backend == "deepagents":
+        for message, scope in checkpoint_messages(profile.resolve(), ("ToolMessage",)):
+            if message.get("status") == "error":
+                identity = message.get("tool_call_id") or message.get("id")
+                errors[identity] = message.get("name", "unknown")
+    else:
+        for path in profile.rglob("*.jsonl"):
+            for line in path.read_text(errors="replace").splitlines():
+                try:
+                    event = json.loads(line)
+                except ValueError:
+                    continue
+                message = event.get("message") or {}
+                if not isinstance(message, dict):
+                    continue
+                for block in message.get("content", []) if isinstance(message.get("content"), list) else []:
+                    if not isinstance(block, dict):
+                        continue
+                    if block.get("type") == "tool_use":
+                        calls[block.get("id")] = block.get("name")
+                        command = (block.get("input") or {}).get("command", "")
+                        if (block.get("name") == "Bash" and isinstance(command, str)
+                                and any(path in command for path in
+                                        ("/native/claude/teams", "/native/claude/tasks", ".claude/teams/", ".claude/tasks/"))
+                                and re.search(r"rm\s+-[rf]*[rf]|json\.dump\(|write_text\(|shutil\.rmtree\(|sed\s+-i", command)):
+                            state_writes[block.get("id")] = command
+                        if block.get("name") == "SendMessage":
+                            kind = (block.get("input") or {}).get("type")
+                            if kind == "shutdown_request":
+                                shutdowns.add(block.get("id"))
+                            if kind == "shutdown_response" and (block.get("input") or {}).get("approve"):
+                                acknowledgements.add(block.get("id"))
+                    if block.get("type") == "tool_result" and block.get("is_error"):
+                        errors[block.get("tool_use_id")] = "unknown"
+                    if block.get("type") == "tool_result":
+                        content = block.get("content")
+                        texts = ([content] if isinstance(content, str) else
+                                 [b.get("text", "") for b in content if isinstance(b, dict)]
+                                 if isinstance(content, list) else [])
+                        for text in texts:
+                            try:
+                                payload = json.loads(text)
+                            except (ValueError, TypeError):
+                                continue
+                            if isinstance(payload, dict) and payload.get("success") is False:
+                                rejections[block.get("tool_use_id")] = "unknown"
+                            if isinstance(payload, dict) and payload.get("success") is True:
+                                deletes.add(block.get("tool_use_id"))
+        for identity in errors:
+            errors[identity] = calls.get(identity, "unknown")
+        for line in stdout.read_text(errors="replace").splitlines() if stdout.exists() else []:
+            try:
+                event = json.loads(line)
+            except ValueError:
+                continue
+            if isinstance(event, dict) and event.get("type") == "system" and "retry" in str(event.get("subtype", "")):
+                retry_events += 1
+    return dict(reported_tool_errors=len(errors), by_tool=dict(Counter(errors.values())),
+                payload_rejections_by_tool=dict(Counter(calls.get(i, "unknown") for i in rejections)),
+                team_delete_success_count=sum(calls.get(i) == "TeamDelete" for i in deletes),
+                shutdown_requests=len(shutdowns), shutdown_acknowledgements=len(acknowledgements),
+                native_state_write_commands=[dict(tool_call_id=key, command=value)
+                                             for key, value in state_writes.items()],
+                native_retry_events_observed=retry_events if backend != "deepagents" else None,
+                scope="Explicit native error flags only; not proof that other errors or failed requests were absent")
+
+
+def read_evidence(profile, backend):
+    root = Path(profile).resolve()
+    messages, tools, errors, files = {}, Counter(), [], []
+    if backend == "deepagents":
+        for message, scope in checkpoint_messages(root):
+            identity = message.get("id")
+            if identity:
+                previous = messages.get(identity)
+                if previous is None or (previous[1] == "leader" and scope != "leader"):
+                    messages[identity] = (message, scope)
+        for message, scope in messages.values():
+            for call in message.get("tool_calls", []):
+                tools[call.get("name", "unknown")] += 1
+    else:
+        for path in root.rglob("*.jsonl"):
+            files.append(str(path.relative_to(root)))
+            scope = "member" if "subagents" in path.parts else "leader"
+            with path.open(encoding="utf-8", errors="replace") as stream:
+                for line in stream:
+                    try:
+                        event = json.loads(line)
+                    except ValueError:
+                        continue
+                    message = event.get("message", {}) if isinstance(event, dict) else {}
+                    if not isinstance(message, dict) or not message.get("id") or message.get("role") != "assistant":
+                        continue
+                    identity = message["id"]
+                    if identity in messages:
+                        previous, previous_scope = messages[identity]
+                        merged = dict(previous.get("usage", {}))
+                        for key, value in message.get("usage", {}).items():
+                            if isinstance(value, (int, float)):
+                                merged[key] = max(merged.get(key, 0), value)
+                        blocks = {json.dumps(b, sort_keys=True): b for b in
+                                  [*previous.get("content", []), *message.get("content", [])]}
+                        message = dict(message, usage=merged, content=list(blocks.values()))
+                        scope = "member" if "member" in {scope, previous_scope} else scope
+                    messages[identity] = (message, scope)
+        tool_ids = set()
+        for message, scope in messages.values():
+            for block in message.get("content", []):
+                if isinstance(block, dict) and block.get("type") == "tool_use":
+                    identity = block.get("id", json.dumps(block, sort_keys=True))
+                    if identity not in tool_ids:
+                        tool_ids.add(identity)
+                        tools[block.get("name", "unknown")] += 1
+    rows = []
+    for identity, (message, scope) in messages.items():
+        if backend == "deepagents":
+            usage = message.get("usage_metadata") or {}
+            details = usage.get("input_token_details") or {}
+            input_tokens, output = usage.get("input_tokens"), usage.get("output_tokens")
+            hit = details.get("cache_read", 0)
+            model = (message.get("response_metadata") or {}).get("model_name")
+        else:
+            usage = message.get("usage") or {}
+            hit = usage.get("cache_read_input_tokens", 0)
+            input_tokens = (usage.get("input_tokens", 0) + hit + usage.get("cache_creation_input_tokens", 0)
+                            if "input_tokens" in usage else None)
+            output, model = usage.get("output_tokens"), message.get("model")
+        rows.append(dict(id=identity, scope=scope, model=model, input_tokens=input_tokens,
+                         output_tokens=output, cache_hit_tokens=hit, native_usage=usage))
+    groups = {}
+    for row in rows:
+        role = "leader" if row["scope"] == "leader" else "member"
+        bucket = groups.setdefault(role, dict(observed_messages=0, messages_with_usage=0,
+                                             input_tokens=0, output_tokens=0, cache_hit_tokens=0))
+        bucket["observed_messages"] += 1
+        if row["input_tokens"] is not None and row["output_tokens"] is not None:
+            bucket["messages_with_usage"] += 1
+            for field in ("input_tokens", "output_tokens", "cache_hit_tokens"):
+                bucket[field] += row[field]
+    for bucket in groups.values():
+        bucket["token_weighted_cache_hit_rate"] = (bucket["cache_hit_tokens"] / bucket["input_tokens"]
+                                                  if bucket["input_tokens"] else None)
+    # Prices checked against the official rate card on 2026-11-02. Native CLI
+    # cost estimates for Anthropic model names are not DeepSeek billing receipts.
+    totals = {key: sum(b[key] for b in groups.values())
+              for key in ("input_tokens", "output_tokens", "cache_hit_tokens")}
+    estimated = ((totals["input_tokens"] - totals["cache_hit_tokens"]) * 0.15
+                 + totals["cache_hit_tokens"] * 0.003 + totals["output_tokens"] * 0.6) / 1e6
+    delegates = sum(tools.get(name, 0) for name in ("task", "Agent", "Task"))
+    known = sum(b["messages_with_usage"] for b in groups.values())
+    return dict(backend=backend, by_role=groups, observed_totals=totals, tools=dict(tools),
+                observed_delegation_calls=delegates, native_team_create_calls=tools.get("TeamCreate", 0),
+                observed_messages=rows, native_jsonl_files=files, errors=errors,
+                estimated_usd_off_peak=estimated if known else None,
+                estimated_usd_peak=estimated * 2 if known else None,
+                accounting_coverage="Observed retained messages only; failed requests, compaction or native helper calls may be missing",
+                price_source="https://api-docs.deepseek.com/quick_start/pricing/",
+                child_tool_evidence=child_tool_evidence(root) if backend != "deepagents" else None,
+                substantive_work_status="unverified",
+                team_correctness_verified=False)
+
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--profile", type=Path, required=True)
+    parser.add_argument("--backend", choices=("deepagents", "claude-code", "claude-code-agent-team", "claude-code-subagents", "claude-code-single-agent"), required=True)
+    args = parser.parse_args()
+    print(json.dumps(read_evidence(args.profile, args.backend), ensure_ascii=False, indent=2))

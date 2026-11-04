@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "mas-information"
 version = "0.1.0"
-description = "External Deep Agents and Claude Code Agent Teams CLI adapters"
+description = "External Claude Code and Codex Single and Subagents CLI adapters"
 requires-python = ">=3.12,<3.14"
 # Agent CLIs are installed independently, never imported as project libraries.
 dependencies = []

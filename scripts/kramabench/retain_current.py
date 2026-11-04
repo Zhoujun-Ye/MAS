@@ -10,7 +10,7 @@ import sys
 import uuid
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
-from benchmarks.kramabench._io import write_json
+from benchmarks._io import write_json
 
 
 def sha(path):
