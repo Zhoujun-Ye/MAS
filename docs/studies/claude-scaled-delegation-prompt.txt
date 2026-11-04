@@ -1,0 +1,8 @@
+Use Claude Code's native subagents as an orchestrator-worker team. You are the lead agent: plan the work, delegate it, and synthesize the results. Delegate where subagents add value: independent parts that can run in parallel, or self-contained parts whose details you do not need in your own context. Do the remaining work yourself.
+
+1. Scale delegation to the task. Use one subagent for a focused task and two to four for clearly independent parts; use more only when the task has many separable components. Prefer fewer, more capable subagents over many narrow ones, since each adds overhead. Use at least one.
+2. Delegate early and in parallel. After a quick look at the inputs, launch the subagents together with the native Agent tool. Do not delegate trivial steps, simple calculations, or the final answer.
+3. Give each subagent a complete, self-contained assignment: one core objective, the task requirements and constraints that apply, what you have already learned (such as file paths, structures, or values), boundaries that keep assignments from overlapping, and the exact result to return.
+4. Ask for compact results: the answer to the objective, the key evidence, and any unresolved issue, not a long report.
+5. While subagents work, do not repeat their assignments; do non-overlapping work instead. Wait for results through the native tools, without repeated status checks or shell polling.
+6. Evaluate the results critically. Delegate a follow-up only for a specific missing or conflicting item that would change the answer. Time and tool limits are shared by all agents: when further work has diminishing returns or a limit is near, stop delegating and write the final answer yourself from the evidence you have.

@@ -12,6 +12,7 @@ import signal
 import subprocess
 import sys
 import tarfile
+from types import SimpleNamespace
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from benchmarks._external import asset_manifest, digest, verify_sources, write_jsonl
@@ -57,7 +58,7 @@ def load(args):
     return [by_id[i] for i in ids]
 
 
-def instructions(task, backend):
+def instructions(task, backend, organization_override=None):
     common = "Do not install packages or seek benchmark questions, gold answers, reference SQL or solutions.\n"
     if task.benchmark == "dataclawbench":
         common += "The supplied database is read-only at /data; ./database points to it. Follow the original output guidelines.\n"
@@ -70,7 +71,8 @@ def instructions(task, backend):
                "python3 /benchmark-tools.py fetch --url URL.\n" if task.web else "No web search, fetching, or other external data access.\n")
     common += ('Write /workspace/submission.json with exactly {"final_answer": "your answer as text"}. '
                'If incomplete, use empty final_answer and explain in the CLI final response.\n')
-    return common + runtime.backend_instructions(backend)
+    return common + runtime.condition_instructions(
+        SimpleNamespace(organization_override=organization_override), backend)
 
 
 def mounts(task, args):
@@ -103,7 +105,7 @@ def plan(args, tasks):
     for task in tasks:
         for source, target, _ in mounts(task, args):
             assets[str(source)] = asset_manifest(source) if source.is_dir() else digest(source)
-    prompts = {t.id: t.question + "\n\n" + instructions(t, args.backend) for t in tasks}
+    prompts = {t.id: t.question + "\n\n" + instructions(t, args.backend, getattr(args, "organization_override", None)) for t in tasks}
     options = runtime.options(args.backend)
     if any(t.web for t in tasks) and not args.web_search:
         raise ValueError("This selection requires explicit --web-search; no silent web-free substitution")
@@ -118,7 +120,8 @@ def plan(args, tasks):
                 max_budget_usd=getattr(args, "max_budget_usd", None),
                 codex_docker_isolated=getattr(args, "codex_docker_isolated", False),
                 max_web_requests=getattr(args, "max_web_requests", None),
-                organization_prompt=runtime.backend_instructions(args.backend),
+                organization_prompt=runtime.condition_instructions(args, args.backend),
+                organization_override=getattr(args, "organization_override", None),
                 data_variant=args.data_variant if args.benchmark == "dataclawbench" else None,
                 source=runtime.source_manifest(), evaluator=evaluator, status="planned", model_calls_started=False,
                 native_behavior="Requires matching offline native proof before execution; no quality claim")
@@ -150,7 +153,7 @@ def attempt(task, args, key):
     # The explicit helper keeps search-provider behavior consistent across modes.
     if not codex:
         opts["disallowed_tools"] = ("WebSearch", "WebFetch")
-    prompt = task.question + "\n\n" + instructions(task, args.backend)
+    prompt = task.question + "\n\n" + instructions(task, args.backend, getattr(args, "organization_override", None))
     result = dict(instance_id=task.id, final_answer="", status="not_started", cost_usd=None)
     runtime.write_json(folder / "report.json", result)
     identity = None
@@ -270,8 +273,11 @@ def main(argv=None, *, benchmark=None):
     parser.add_argument("--authorized-attempts", type=int)
     parser.add_argument("--credentials", type=Path, default=Path("/home/zhoujunye/MAS-information/.env"))
     parser.add_argument("--execute", action="store_true")
+    parser.add_argument("--organization-prompt", type=Path,
+                        help="Explicit lead-only Claude Subagents study prompt override")
     parser.add_argument("--codex-docker-isolated", action="store_true", help="Authorized opt-out of inner Codex sandbox; Docker isolation remains")
     args = parser.parse_args(argv)
+    args.organization_override = runtime.organization_override(args.organization_prompt, args.backend)
     if args.timeout is None:
         args.timeout = default_timeout(args.benchmark)
     if args.max_web_requests is None:
