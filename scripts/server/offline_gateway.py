@@ -98,7 +98,7 @@ class Fixture:
                     dict(type="message_stop")])
 
 
-def probe(backend, root, image, key, fixture):
+def probe(backend, root, image, key, fixture, *, effort="max"):
     folder = root / backend
     work, profile = folder / "workspace", folder / "native-profile"
     work.mkdir(parents=True)
@@ -107,14 +107,14 @@ def probe(backend, root, image, key, fixture):
     binary = runtime.CLAUDE
     binding = dict(image_id=image, binary_sha256=digest(binary))
     proof = dict(backend=backend, passed=False, paid_calls=0, real_credentials=False, network="none",
-                 through_credential_gateway=True, runtime_binding=binding)
+                 through_credential_gateway=True, runtime_binding=binding, requested_effort=effort)
     identity = None
     gateway = None
     try:
         gateway = credential_gateway.CredentialGateway(key, unix_path=folder / "gateway.sock")
         gateway.__enter__()
         identity = runtime.container(work, profile, work, image, network="none", backend=backend,
-                                     dataset_mounts=[], gateway=gateway)
+                                     dataset_mounts=[], gateway=gateway, effort=effort)
         inspect = subprocess.check_output(["docker", "inspect", identity], text=True)
         assert key not in inspect
         environment = subprocess.check_output(["docker", "exec", identity, "python3", "-c",
@@ -136,7 +136,11 @@ def probe(backend, root, image, key, fixture):
         proof["delegation_rejections_observed"] = len(fixture.rejections & {"probe-Agent", "probe-Task"})
         native_ok = proof[name]["passed"] and (not single or proof["delegation_rejections_observed"] >= 2)
         unchanged = digest(binary) == binding["binary_sha256"]
-        proof["passed"] = bool(result["status"] == "cli_exited" and proof["shell_verified"] and native_ok and unchanged)
+        observed = [(request.get("output_config") or {}).get("effort") for request in fixture.requests]
+        proof["observed_request_efforts"] = observed
+        proof["request_effort_verified"] = bool(observed) and all(value == effort for value in observed)
+        proof["passed"] = bool(result["status"] == "cli_exited" and proof["shell_verified"] and native_ok and unchanged
+                               and proof["request_effort_verified"])
         validate_runtime(proof, backend, **binding)
     except Exception as error:
         proof.update(passed=False, error_type=type(error).__name__)
@@ -166,6 +170,7 @@ def main(argv=None):
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--image", required=True)
     parser.add_argument("--execute", action="store_true")
+    parser.add_argument("--effort", choices=("high", "max"), default="max")
     args = parser.parse_args(argv)
     if not args.execute:
         print(json.dumps(dict(status="planned", conditions=2, concurrency=2, paid_calls=0, network="none")))
@@ -184,7 +189,7 @@ def main(argv=None):
 
     with patch.object(credential_gateway, "open_upstream", fake_upstream):
         with ThreadPoolExecutor(max_workers=2) as pool:
-            futures = [pool.submit(probe, fixture.backend, args.output, image, key, fixture)
+            futures = [pool.submit(probe, fixture.backend, args.output, image, key, fixture, effort=args.effort)
                        for key, fixture in fixtures.items()]
             proofs = [future.result() for future in futures]
     summary = dict(passed=all(p["passed"] for p in proofs), paid_calls=0, network="none", concurrency=2,

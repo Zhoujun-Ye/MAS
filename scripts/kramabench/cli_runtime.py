@@ -86,7 +86,7 @@ def run_attempt(task, backend, args, key, stop, active, lock):
                                     ledger_path=folder / "gateway-requests.jsonl")
         gateway.__enter__()
         identity = container(work, profile, args.upstream / "data", args.image,
-                             gateway=gateway, backend=backend)
+                             gateway=gateway, backend=backend, effort=getattr(args, "effort", "max"))
         with lock:
             active.add(identity)
         adapter = ({"claude-code-subagents": ClaudeCodeSubagentsCLI, "claude-code-single-agent": ClaudeCodeSingleAgentCLI}[backend](str(CLAUDE)))
@@ -242,13 +242,13 @@ def preflight(args):
     inventory = verify_inputs(args.upstream)
     plan = dict(created_at=now(), tasks=[asdict(t) for t in selected], attempts=len(backends) * len(selected),
                 backends=list(backends), concurrency=args.concurrency, strict_single=strict_single,
-                timeout_seconds=args.timeout, retries=0, model="deepseek-flash", effort="max",
+                timeout_seconds=args.timeout, retries=0, model="deepseek-flash", effort=getattr(args, "effort", "max"),
                 provenance=provenance, scoring=scoring, image_id=args.image, network="none",
                 inputs_sha256=fingerprint(inventory), instructions=INSTRUCTIONS,
                 backend_options={b: backend_options(args, b) for b in backends},
                 backend_instructions={b: condition_instructions(args, b) for b in backends},
                 organization_override=getattr(args, "organization_override", None),
-                native_environment={b: native_env(b) for b in backends}, cpu_per_attempt=2, memory_per_attempt="8g",
+                native_environment={b: native_env(b, effort=getattr(args, "effort", "max")) for b in backends}, cpu_per_attempt=2, memory_per_attempt="8g",
                 source=source_manifest(),
                 judge_limit=getattr(args, "judge_limit", 0),
                 replay_timeout_seconds=getattr(args, "replay_timeout", 180),
@@ -270,7 +270,8 @@ def preflight(args):
     (profile / "home").mkdir()
     backend = backends[0]
     binary = CLAUDE
-    identity = container(work, profile, args.upstream / "data", args.image, backend=backend, network="none")
+    identity = container(work, profile, args.upstream / "data", args.image, backend=backend, network="none",
+                         effort=getattr(args, "effort", "max"))
     try:
         commands = [[str(binary), "--version"],
                     ["python3", "-c", "import numpy,pandas,scipy,pypdf; print('domain imports OK')"],

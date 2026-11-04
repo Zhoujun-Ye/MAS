@@ -39,6 +39,9 @@ def solver_command(args, benchmark, task, backend, output, *, execute=False):
                "--backend", backend, "--task-id", task.id, "--image", args.image, "--output", str(output),
                "--credentials", str(args.credentials), "--timeout", str(default_timeout(benchmark)),
                "--offline-proof", str(args.proofs / backend / "proof.json")]
+    command += ["--effort", getattr(args, "effort", "max")]
+    if backend == "claude-code-subagents" and getattr(args, "organization_prompt", None):
+        command += ["--organization-prompt", str(args.organization_prompt)]
     if benchmark == "kramabench":
         command += ["--concurrency", "1", "--replay-timeout", "180", "--judge-limit", "0"]
         if execute:
@@ -61,7 +64,9 @@ def main(argv=None):
     parser.add_argument("--proofs", type=Path, required=True)
     parser.add_argument("--image", required=True)
     parser.add_argument("--credentials", type=Path, default=Path("/home/zhoujunye/MAS-information/.env"))
-    parser.add_argument("--concurrency", type=int, default=8, choices=range(1, 9))
+    parser.add_argument("--concurrency", type=int, default=8, choices=range(1, 13))
+    parser.add_argument("--effort", choices=("high", "max"), default="max")
+    parser.add_argument("--organization-prompt", type=Path)
     parser.add_argument("--judge-concurrency", type=int, default=2, choices=range(1, 3))
     parser.add_argument("--authorized-attempts", type=int)
     parser.add_argument("--authorized-judges", type=int, default=0)
@@ -71,7 +76,8 @@ def main(argv=None):
     selected = selections(args.root)
     jobs = [(bench, task, backend, args.output / "solvers" / bench / task.id / backend)
             for bench, task in selected for backend in BACKENDS]
-    authorization = dict(attempts=len(jobs), maximum_judge_calls=10, retries=0,
+    authorization = dict(attempts=len(jobs), maximum_judge_calls=10, retries=0, effort=args.effort,
+        organization_override=runtime.organization_override(args.organization_prompt, "claude-code-subagents"),
         timeout_seconds_by_benchmark=dict(TIMEOUT_SECONDS_BY_BENCHMARK),
         timeout_policy_by_benchmark={b: timeout_policy(b) for b in TIMEOUT_SECONDS_BY_BENCHMARK},
         solver_concurrency=args.concurrency, judge_concurrency=args.judge_concurrency,
@@ -89,6 +95,9 @@ def main(argv=None):
         proof = json.loads((args.proofs / backend / "proof.json").read_text())
         validate_runtime(proof, backend, image_id=args.image,
             binary_sha256=digest(runtime.CLAUDE))
+        if args.effort != "max" and not (proof.get("requested_effort") == args.effort
+                and proof.get("request_effort_verified") is True):
+            raise ValueError("Matching offline request-effort proof is required for this study")
     active, lock, stop = set(), threading.Lock(), threading.Event()
 
     def command_run(command, log):

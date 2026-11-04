@@ -102,6 +102,13 @@ def test_frozen_options_survive_json_roundtrip(roundtrip_plan):
         assert isinstance(runtime.backend_options(args, args.backend)["allowed_tools"], tuple)
 
 
+def test_frozen_effort_cannot_change(roundtrip_plan):
+    args, _ = roundtrip_plan
+    args.effort = "high"
+    with pytest.raises(ValueError, match="Frozen effort changed"):
+        run.validate(args)
+
+
 @pytest.mark.parametrize("change", ["model", "allowed_tools", "disallowed_tools", "source", "data", "scoring", "prompt", "timeout"])
 def test_roundtrip_still_rejects_real_changes(roundtrip_plan, monkeypatch, change):
     args, _ = roundtrip_plan

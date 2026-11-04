@@ -114,7 +114,8 @@ def plan(args, tasks):
                 assets=assets, attempts=len(tasks), retries=0, judge_calls=0, options=options,
                 image=args.image, network="none", timeout=args.timeout, timeout_policy=timeout_policy(args.benchmark, args.timeout),
                 web_search=args.web_search,
-                native_environment=runtime.native_env(args.backend),
+                native_environment=runtime.native_env(args.backend, effort=getattr(args, "effort", "max")),
+                effort=getattr(args, "effort", "max"),
                 max_budget_usd=getattr(args, "max_budget_usd", None),
                 max_web_requests=getattr(args, "max_web_requests", None),
                 organization_prompt=runtime.condition_instructions(args, args.backend),
@@ -162,6 +163,7 @@ def attempt(task, args, key):
                                     ledger_path=folder / "gateway-requests.jsonl", web_limit=web_limit)
         gateway.__enter__()
         identity = runtime.container(work, profile, args.data, args.image, backend=args.backend, gateway=gateway,
+            effort=getattr(args, "effort", "max"),
             dataset_mounts=inputs, environment_overrides=environment,
             forwarded_env=("TAVILY_API_KEY",) if task.web and args.web_search == "tavily" else ())
         result.update(status="running", container_id=identity, started_at=runtime.now())
@@ -261,6 +263,7 @@ def main(argv=None, *, benchmark=None):
     parser.add_argument("--authorized-attempts", type=int)
     parser.add_argument("--credentials", type=Path, default=Path("/home/zhoujunye/MAS-information/.env"))
     parser.add_argument("--execute", action="store_true")
+    parser.add_argument("--effort", choices=("high", "max"), default="max")
     parser.add_argument("--organization-prompt", type=Path,
                         help="Explicit lead-only Claude Subagents study prompt override")
     args = parser.parse_args(argv)

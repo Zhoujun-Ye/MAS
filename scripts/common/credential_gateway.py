@@ -205,6 +205,9 @@ class CredentialGateway:
                         return
                     headers = {"Content-Type": "application/json", "Authorization": "Bearer " + gateway.key,
                                "Accept-Encoding": "identity"}
+                    config = payload.get("output_config")
+                    effort = config.get("effort") if isinstance(config, dict) else None
+                    self.record["request_effort"] = effort if effort in ("low", "medium", "high", "xhigh", "max") else None
                     if parsed.path.startswith("/anthropic/"):
                         headers["x-api-key"] = gateway.key
                         for name in ("anthropic-version", "anthropic-beta"):

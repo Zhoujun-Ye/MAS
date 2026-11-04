@@ -80,6 +80,8 @@ def validate(args):
     if fingerprint(plan) != json.loads((args.output / "preflight-ok.json").read_text())["plan_sha256"]:
         raise ValueError("Plan receipt changed")
     validate_native_proof(args, plan, frozen=True)
+    if plan.get("effort", "max") != getattr(args, "effort", "max"):
+        raise ValueError("Frozen effort changed")
     tasks, _ = load_tasks(args.upstream)
     selected = tasks if args.all_tasks else [next(t for t in tasks if t.id == i) for i in args.selected_task_ids]
     if (plan["kind"] != "native_cli_benchmark" or plan["backend"] != args.backend or [asdict(t) for t in selected] != plan["tasks"]
@@ -199,6 +201,7 @@ def main(argv=None):
     parser.add_argument("--judge-limit", type=int, choices=range(11), default=0)
     parser.add_argument("--from-plan", action="store_true")
     parser.add_argument("--execute", action="store_true")
+    parser.add_argument("--effort", choices=("high", "max"), default="max")
     args = parser.parse_args(argv)
     if not 1 <= args.concurrency <= 12 or args.timeout <= 0 or args.replay_timeout <= 0:
         parser.error("Expected 1-12 CLIs and positive timeouts")

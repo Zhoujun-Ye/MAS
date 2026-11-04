@@ -137,13 +137,15 @@ def options(backend):
     return dict(model="deepseek-flash[1m]", allowed_tools=tools,
                 disallowed_tools=("WebSearch", "WebFetch"), isolated_settings=True)
 
-def native_env(backend):
+def native_env(backend, *, effort="max"):
     options(backend)
+    if effort not in {"high", "max"}:
+        raise ValueError("Study effort must be high or max")
     return dict(THREADS, HOME="/native/home",
                 CLAUDE_CONFIG_DIR="/native/claude", ANTHROPIC_BASE_URL="https://api.deepseek.com/anthropic",
                 ANTHROPIC_MODEL="deepseek-flash[1m]", ANTHROPIC_DEFAULT_OPUS_MODEL="deepseek-flash[1m]",
                 ANTHROPIC_DEFAULT_SONNET_MODEL="deepseek-flash[1m]", ANTHROPIC_DEFAULT_HAIKU_MODEL="deepseek-flash",
-                CLAUDE_CODE_SUBAGENT_MODEL="deepseek-flash[1m]", CLAUDE_CODE_EFFORT_LEVEL="max",
+                CLAUDE_CODE_SUBAGENT_MODEL="deepseek-flash[1m]", CLAUDE_CODE_EFFORT_LEVEL=effort,
                 CLAUDE_CODE_AUTO_COMPACT_WINDOW="786432", CLAUDE_CODE_MAX_OUTPUT_TOKENS="16384",
                 CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS="0",
                 CLAUDE_CODE_MAX_RETRIES="0",
@@ -158,7 +160,7 @@ class ContainerStartupError(RuntimeError):
 
 
 def container(work, profile, dataset, image, key=None, network="bridge", backend="claude-code-subagents", *,
-              dataset_mounts=None, environment_overrides=None, forwarded_env=(), gateway=None):
+              dataset_mounts=None, environment_overrides=None, forwarded_env=(), gateway=None, effort="max"):
     if key and key != "offline-placeholder":
         raise RuntimeError("Paid containers are disabled pending credential isolation: never inject provider keys into solver environments")
     if forwarded_env:
@@ -167,7 +169,7 @@ def container(work, profile, dataset, image, key=None, network="bridge", backend
     if set(environment_overrides or {}) - allowed_overrides:
         raise ValueError("Only benchmark web settings may override container environment")
     container_name = "mas-cli6-" + uuid.uuid4().hex[:12]
-    environment = native_env(backend)
+    environment = native_env(backend, effort=effort)
     environment.update(environment_overrides or {})
     if gateway is not None:
         from scripts.common.credential_gateway import CredentialGateway
