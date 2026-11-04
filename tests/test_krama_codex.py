@@ -178,6 +178,75 @@ def test_from_plan_revalidates_proof_binding(tmp_path, monkeypatch, changed_proo
         run.validate(args)
 
 
+@pytest.fixture(params=["claude-code-single-agent", "claude-code-subagents", "codex-single-agent", "codex-subagents"])
+def roundtrip_plan(request, tmp_path, monkeypatch):
+    backend = request.param
+    task = Task("probe", "astronomy", "Fixture")
+    proof, plan = bound_proof(backend)
+    binary = tmp_path / "native-cli"
+    binary.write_text("fixture-binary")
+    binary_hash = hashlib.sha256(binary.read_bytes()).hexdigest()
+    name = "codex" if backend.startswith("codex-") else "claude"
+    plan["cli_binaries"][name] = dict(path=str(binary), sha256=binary_hash)
+    proof["runtime_binding"]["binary_sha256"] = binary_hash
+    if backend.startswith("codex-"):
+        catalog = tmp_path / "catalog.json"
+        catalog.write_text("{}")
+        catalog_hash = hashlib.sha256(catalog.read_bytes()).hexdigest()
+        plan["model_catalogs"][backend] = dict(path=str(catalog), sha256=catalog_hash)
+        proof["runtime_binding"]["catalog_sha256"] = catalog_hash
+    proof_path = tmp_path / "proof.json"
+    proof_path.write_text(json.dumps(proof))
+    args = SimpleNamespace(backend=backend, backends=(backend,), output=tmp_path / "out",
+        upstream=tmp_path, offline_proof=proof_path, all_tasks=False, selected_task_ids=[task.id],
+        codex_docker_isolated=True, concurrency=1, timeout=3600, judge_limit=1, replay_timeout=180)
+    plan.update(attempts=1, tasks=[dict(id=task.id, domain=task.domain, query=task.query)],
+        organization_override=None, backend_instructions={backend: run.shared.condition_instructions(args, backend)},
+        backend_options={backend: runtime.backend_options(args, backend)}, source={"fixture": "source-hash"},
+        inputs_sha256=fingerprint({"fixture": "data-hash"}), scoring={"version": 1},
+        concurrency=1, timeout_seconds=3600, judge_limit=1, replay_timeout_seconds=180)
+    monkeypatch.setattr(runtime, "preflight", lambda args: ([task], plan.copy()))
+    monkeypatch.setattr(run, "load_tasks", lambda path: ([task], {}))
+    monkeypatch.setattr(run.shared, "source_manifest", lambda: {"fixture": "source-hash"})
+    monkeypatch.setattr(runtime, "verify_inputs", lambda path: {"fixture": "data-hash"})
+    monkeypatch.setattr(run, "scoring_contract", lambda path: {"version": 1})
+    run.freeze(args)
+    return args, task
+
+
+def test_frozen_options_survive_json_roundtrip(roundtrip_plan):
+    args, task = roundtrip_plan
+    tasks, plan = run.validate(args)
+    assert tasks == [task]
+    if args.backend.startswith("claude-"):
+        assert isinstance(plan["backend_options"][args.backend]["allowed_tools"], list)
+        assert isinstance(runtime.backend_options(args, args.backend)["allowed_tools"], tuple)
+
+
+@pytest.mark.parametrize("change", ["model", "allowed_tools", "disallowed_tools", "source", "data", "scoring", "prompt", "timeout"])
+def test_roundtrip_still_rejects_real_changes(roundtrip_plan, monkeypatch, change):
+    args, _ = roundtrip_plan
+    if change == "model":
+        changed = dict(runtime.backend_options(args, args.backend), model="changed")
+        monkeypatch.setattr(runtime, "backend_options", lambda *a: changed)
+    elif change in {"allowed_tools", "disallowed_tools"}:
+        changed = runtime.backend_options(args, args.backend)
+        changed[change] = (*changed.get(change, ()), "ChangedTool")
+        monkeypatch.setattr(runtime, "backend_options", lambda *a: changed)
+    elif change == "source":
+        monkeypatch.setattr(run.shared, "source_manifest", lambda: {"fixture": "changed"})
+    elif change == "data":
+        monkeypatch.setattr(runtime, "verify_inputs", lambda path: {"fixture": "changed"})
+    elif change == "scoring":
+        monkeypatch.setattr(run, "scoring_contract", lambda path: {"version": 2})
+    elif change == "prompt":
+        monkeypatch.setattr(run.shared, "condition_instructions", lambda *a: "changed")
+    else:
+        args.timeout += 1
+    with pytest.raises(ValueError, match="Frozen condition/source/data/scoring changed|Frozen settings changed"):
+        run.validate(args)
+
+
 @pytest.mark.parametrize("removed", [True, False])
 def test_startup_failure_preserves_owned_container(tmp_path, monkeypatch, removed):
     from scripts.common.runtime import ContainerStartupError
