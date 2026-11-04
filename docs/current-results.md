@@ -1,66 +1,98 @@
-# Current Results: Claude Single vs MAS, All High
+# Current Results: Matched-10 Single vs Subagents
 
-Run: `claude-all-high-01-21a0cdb`. Solver source commit: `21a0cdb`. Completed 2026-11-04.
+Completed 2026-11-04. Run: `claude-matched10-v4-high-01-443a5f0`.
+Solver source commit: `443a5f0`; grading-only recovery: `bee2337`.
 
-## Scope
+## Frozen Scope
 
-- Claude Code 2.1.286, DeepSeek Flash; Single and native Subagents, six matched tasks each.
-- Lead and worker effort: `high`; 311/311 host-observed model requests declare `high`.
-- MAS lead prompt: `docs/studies/claude-focused-delegation-prompt.txt`; SHA-256 `f6fe3ff6271b7c5accf80cf74901ca405acd01de0fbc65d457f264c4c5f7044a`. Single receives no organization override.
-- One attempt per condition, no automatic retries. Solver concurrency 12; judge concurrency 2.
-- Solver timeouts: DataClaw 1,200 s, HDR 1,800 s, Krama 3,600 s.
-- 12/12 solvers completed normally. Six paid judge calls completed successfully. SQL and numeric tasks use their respective deterministic evaluators.
+- Claude Code 2.1.286, DeepSeek Flash, all lead/worker requests at `high`.
+- Each benchmark has 10 matched questions, one attempt per condition: 60 solvers.
+- Deterministic SHA-256 ordering with seed 42, round-robin public strata:
+  DataClaw categories, HDR categories and Krama domains. Selection never uses scores.
+- Subagents uses the adopted v4 default, with no study prompt override.
+- Solver concurrency 6; judge concurrency 2; no retries or replacement attempts.
+- Timeouts: DataClaw 1200 s, HDR 1800 s, Krama 3600 s. Web tasks allow four
+  search/fetch requests shared across all agents in the attempt.
+- All 60 answers were evaluated. 36 paid judge calls; other judgments use the
+  existing deterministic evaluators. No new solver calls during recovery.
 
-## Task Results
+## Results
 
-Time is solver elapsed minutes; cost includes model, search/fetch and judge estimates in USD.
+Full-score counts are not binary accuracy for partial-credit tasks. DataClaw uses
+the adapted upstream per-part rubric; Krama includes its native partial-credit
+metrics. Benchmark means below average those existing task scores. Do not pool
+heterogeneous scores into a new universal accuracy metric.
 
-| Task | Single Score | MAS Score | Single Min | MAS Min | Single USD | MAS USD |
-| --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| DataClaw easy001 | 1 | 1 | 2.69 | 2.59 | $0.016544 | $0.022519 |
-| DataClaw easy002 | 1 | 1 | 2.60 | 1.96 | $0.018305 | $0.018941 |
-| HDR s2sql_000 | 0 | 1 | 1.11 | 3.49 | $0.011250 | $0.041473 |
-| HDR sql2s_001 | 1 | 1 | 1.53 | 10.06 | $0.017083 | $0.069718 |
-| Krama archeology-easy-3 | 1 | 1 | 0.53 | 0.54 | $0.004695 | $0.008682 |
-| Krama archeology-easy-4 | 0 | 1 | 7.02 | 9.60 | $0.045227 | $0.071553 |
+| Benchmark | Single Mean | Subagents Mean | Single Full Score | Subagents Full Score |
+| --- | ---: | ---: | ---: | ---: |
+| DataClawBench | 0.8000 | 0.7500 | 8/10 | 7/10 |
+| HybridDeepResearch | 0.5000 | 0.4000 | 5/10 | 4/10 |
+| KramaBench | 0.6908 | 0.7908 | 6/10 | 7/10* |
 
-## Aggregate Results
+*The Subagents attempt on `biomedical-hard-4` scored 1, but started no subagent;
+its status is `native_condition_unverified`. The raw assigned-condition results
+retain it rather than silently excluding or retrying it. It is not evidence of
+successful Subagents use. On the nine matched Krama questions excluding this
+pair, full-score counts are Single 5/9 and Subagents 6/9. Single's paired answer
+also scored 1. All remaining 59 native-condition audits passed.
 
-| Metric | Single | MAS |
-| --- | ---: | ---: |
-| Full-Score Tasks | 4/6 | 6/6 |
-| Model Requests | 138 | 173 |
-| Input Tokens (Including Cache) | 3739794 | 6184065 |
-| Output Tokens | 117555 | 265070 |
-| Model USD Estimate | $0.107458 | $0.226554 |
-| Search/Fetch USD Estimate | $0.005250 | $0.006000 |
-| Judge USD Estimate | $0.000397 | $0.000331 |
-| Total USD Estimate | $0.113104 | $0.232885 |
-| Solver Minutes, Summed | 15.49 | 28.23 |
-| Token-Weighted Cache Hit Rate | 95.32% | 94.61% |
+| Benchmark | Single Mean Min | Subagents Mean Min | Single USD Estimate | Subagents USD Estimate |
+| --- | ---: | ---: | ---: | ---: |
+| DataClawBench | 4.44 | 4.25 | 0.337386 | 0.414675 |
+| HybridDeepResearch | 9.07 | 12.27 | 0.646312 | 1.133685 |
+| KramaBench | 2.27 | 2.23 | 0.163993 | 0.231523 |
+| All 30 Attempts | 5.26 | 6.25 | 1.147691 | 1.779882 |
 
-The shared-account balance decreased by CNY 2.07 over the run interval. This is not a per-condition invoice. Total observed-usage estimate: USD 0.345989. Pricing: [DeepSeek rate card](https://api-docs.deepseek.com/quick_start/pricing/); successful HTTP web responses are estimated billing units, not independently verified nonempty billable responses.
+Costs include model, web and judge estimates. Model/judge costs use observed token
+usage and off-peak prices; successful-HTTP web responses are estimated billing
+units, not independently verified billable nonempty responses. Rates were checked
+against the [official pricing page](https://api-docs.deepseek.com/quick_start/pricing/).
+The observed shared-account balance decrease was CNY 19.71, not a per-condition
+invoice. Estimated combined USD cost is 2.927573. Missing accounting is not zero.
+
+Subagents cost about 1.55 times as much in this sample and had higher mean solver
+time overall. It improved the sampled Krama scores but not DataClaw or HDR.
+Across the raw assigned conditions, full-score counts were 19/30 versus 18/30;
+this is descriptive, not a heterogeneous-benchmark accuracy claim.
 
 ## Native Evidence
 
-All 12 native-mode audits and gateway reconciliations passed; no unmatched response IDs or unknown response IDs were reported. Seven MAS subagent starts and seven stops were observed. Krama pipelines replayed successfully and matched the submitted answers, including the Single answer that scored zero.
+- 1901/1901 host-observed dispatched model requests declared `high`:
+  Single 920, Subagents 981.
+- All 60 gateway/transcript reconciliations matched. This is anomaly checking,
+  not authenticated process attribution or an adversarial-isolation guarantee.
+- Subagents: 35 worker starts and 35 stops, across 29/30 attempts with delegation.
+  Lifecycle completion does not prove substantive contribution or non-duplication.
 
-| Condition / Role | Input Tokens | Output Tokens | Cache-Hit Tokens | Token-Weighted Cache Hit Rate |
+| Condition / Role | Input Tokens Including Cache | Output Tokens | Cache-Hit Tokens | Token-Weighted Cache Hit |
 | --- | ---: | ---: | ---: | ---: |
-| Single / leader | 3739794 | 117555 | 3564928 | 95.32% |
-| MAS / leader | 4922381 | 155472 | 4713984 | 95.77% |
-| MAS / member | 1261684 | 109598 | 1137024 | 90.12% |
+| Single / leader | 46035674 | 1365832 | 44895616 | 97.52% |
+| Subagents / leader | 44089288 | 1404599 | 42750464 | 96.96% |
+| Subagents / member | 6032057 | 782289 | 5369600 | 89.02% |
 
-Per-task prompt lengths, role accounting, audit flags and exact server evidence paths are recorded in `comparison.json`. Benchmark questions, gold SQL and answers are not reproduced in this summary.
+Per-task scores, elapsed time, cost components, prompt lengths/hashes where available,
+role usage, audit status and evidence paths are in `comparison-safe.json` on the
+server. It excludes questions, candidate/reference answers, SQL and evaluation logs.
 
-## Interpretation And Limits
+## Recovery And Retention
 
-In this six-task pilot, MAS scored fully on 6/6 tasks versus Single's 4/6, at approximately 2.06 times the estimated total cost. MAS was not uniformly faster.
+The original SSH connection closed. A subsequent stdout write raised
+`BrokenPipeError`; the main process retained only 50 progress rows and did not
+enter grading. Inspection found terminal reports and summaries for all 60
+solvers, with no live run processes or containers. No solver was restarted.
+The grading-only recovery reconstructed rows from those exact retained reports,
+graded into a fresh namespace, and wrote the final summary. The original
+`failure.json` remains alongside the recovered summary.
 
-Each condition has only one attempt per task. These heterogeneous task scores do not establish general superiority, significance, or a causal effect of organization or effort. Native lifecycle evidence does not establish semantic contribution, non-duplication, or the timing of worker-result incorporation. Some lead agents made 14-16 tool calls before first delegation; some first-result receipt timings remain unverified.
+Server root:
+`/home/zhoujunye/MAS-information/outputs/current/claude-matched10-v4-high-01-443a5f0`.
+Frozen plans/source snapshots, submissions, native evidence, gateway ledgers and
+private evaluation artifacts remain there. The previous six-task batch is also
+retained; its [historical report](studies/claude-all-high-01-results.md) is separate.
+No historical runs were deleted or merged into this comparison.
 
-## Retention
-
-This is the only retained paid experiment batch. Earlier batches and their result summaries were explicitly deleted, not silently merged or treated as additional trials. The server retains this batch's frozen plans/source snapshots, submissions, native transcripts, gateway ledgers, evaluation results and balance receipts. Supporting offline proof `claude-all-high-offline-01` is retained. Source, datasets, environments, credentials and historical engineering/source snapshots are outside result cleanup scope.
-
-Server evidence root: `/home/zhoujunye/MAS-information/outputs/current/claude-all-high-01-21a0cdb`.
+Offline verification before solver launch: 344 server tests passed. Grading-only
+recovery additionally passed three focused server tests. Fake/offline tests are
+not solver-quality evidence. The final full server suite passed 347 tests.
+There is only one attempt per selected task; these
+results establish neither general superiority nor statistical significance.

@@ -19,16 +19,18 @@ evidence-review question.
 
 Deep Agents, Claude Code Agent Teams and Codex adapters are retired. Do not restore
 their active adapters or launch choices. Codex results were removed at the user's
-request. Only the current all-high Claude batch is retained; older result batches
-were deleted explicitly. The retained study remains an engineering pilot.
+request. The current matched-10 batch and the preceding all-high Claude pilot are
+retained; older result batches were deleted explicitly. These remain engineering pilots.
 
 ## Current Results
 
-The sole retained batch is `claude-all-high-01-21a0cdb`: six tasks each for Single
-and MAS, all solver requests at `high`, solver concurrency 12, no retries.
-Single scored fully on 4/6 tasks; MAS on 6/6. Total estimated costs were USD 0.11310
-and USD 0.23288 respectively; the shared-account balance decreased by CNY 2.07.
-These are single-attempt pilot observations, not a general superiority claim.
+Current batch: `claude-matched10-v4-high-01-443a5f0`, ten matched tasks per benchmark,
+30 per condition, all solver requests at `high`, concurrency 6, no retries.
+Mean scores for Single / Subagents: DataClaw 0.80 / 0.75, HDR 0.50 / 0.40,
+Krama 0.6908 / 0.7908. One Krama Subagents attempt did not delegate and is explicitly
+unverified. Total estimates were USD 1.14769 / 1.77988; the shared-account balance
+decreased by CNY 19.71. These are single-attempt pilot observations, not a general
+superiority claim. The preceding six-task pilot is retained separately.
 
 See [the current results report](docs/current-results.md) for per-task scores,
 timing, cost components, role accounting, evidence paths and limitations.
