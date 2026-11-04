@@ -16,7 +16,8 @@ from benchmarks._io import fingerprint, write_json
 from benchmarks.kramabench.evaluation import grade_answer, scoring_contract
 from benchmarks.kramabench.tasks import load_tasks
 from harness import ClaudeCodeSubagentsCLI, ClaudeCodeSingleAgentCLI
-from scripts.common.runtime import CLAUDE, THREADS, condition_instructions, container, native_env, now, options, snapshot, source_files, source_manifest, stop_container
+from scripts.common.runtime import (CLAUDE, THREADS, condition_instructions, container, limit_instructions, native_env,
+                                    now, options, snapshot, source_files, source_manifest, stop_container)
 from scripts.kramabench.prepare import verify_inputs
 from scripts.common.credential_gateway import CredentialGateway
 from analysis.native_evidence import native_single_agent, native_subagents
@@ -69,8 +70,9 @@ def run_attempt(task, backend, args, key, stop, active, lock):
     work.mkdir(parents=True)
     profile.mkdir(mode=0o700)
     (profile / "home").mkdir()
-    instructions = INSTRUCTIONS + "\n" + condition_instructions(args, backend)
-    # Workers may inherit workspace rules; lead-only organization belongs in the root prompt.
+    instructions = INSTRUCTIONS + limit_instructions(args.timeout) + "\n" + condition_instructions(args, backend)
+    # Readable task rules only. Isolated settings (--setting-sources "") do not auto-load
+    # these files, so workers see them only if they read them; lead-only text stays in the prompt.
     (work / "AGENTS.md").write_text(INSTRUCTIONS)
     (work / "CLAUDE.md").write_text(INSTRUCTIONS)
     subprocess.run(["git", "init", "--quiet", str(work)], check=True)
@@ -245,6 +247,7 @@ def preflight(args):
                 timeout_seconds=args.timeout, retries=0, model="deepseek-flash", effort=getattr(args, "effort", "max"),
                 provenance=provenance, scoring=scoring, image_id=args.image, network="none",
                 inputs_sha256=fingerprint(inventory), instructions=INSTRUCTIONS,
+                limit_instructions=limit_instructions(args.timeout),
                 backend_options={b: backend_options(args, b) for b in backends},
                 backend_instructions={b: condition_instructions(args, b) for b in backends},
                 organization_override=getattr(args, "organization_override", None),

@@ -8,11 +8,34 @@ import os
 from pathlib import Path
 import sqlite3
 import subprocess
+import sys
 import urllib.parse
 import urllib.request
 
+BUDGET_SCOPE = "whole run, shared by every agent and process"
+
+
+class WebBudgetExhausted(RuntimeError):
+    """The run-wide web request budget is used up; this is final for the run."""
+
+
+def budget_exhausted(limit=None):
+    count = f"all {limit} web requests" if limit else "all web requests"
+    return WebBudgetExhausted(
+        f"Web request budget exhausted: {count} for this run have been used (the limit is shared by every agent "
+        "and process). No request was sent. No further web access is possible in this run, and other network "
+        "access is disabled; do not retry or try to work around this. Continue with the evidence you already have.")
+
+
+def configured_limit():
+    try:
+        return int(os.environ.get("MAS_WEB_MAX_REQUESTS", "4"))
+    except ValueError:
+        return None
+
 
 def reserve_search(query, *, provider="tavily", action="search"):
+    """Reserve one run-wide web request and return the budget state after it."""
     path = os.environ.get("MAS_WEB_LEDGER")
     limit = int(os.environ.get("MAS_WEB_MAX_REQUESTS", "4"))
     if limit < 1:
@@ -24,20 +47,29 @@ def reserve_search(query, *, provider="tavily", action="search"):
         stream.seek(0)
         rows = [json.loads(line) for line in stream if line.strip()]
         if len(rows) >= limit:
-            raise ValueError("Search request budget exhausted; no request sent")
-        stream.write(json.dumps(dict(attempt=len(rows) + 1, provider=provider, action=action,
+            raise budget_exhausted(limit)
+        attempt = len(rows) + 1
+        stream.write(json.dumps(dict(attempt=attempt, provider=provider, action=action,
                                     reservation_only=True, completion="unknown",
                                     reserved_credits=1 if provider == "tavily" else None,
                                     reserved_usd=0.00075 if provider == "deepseek" else None,
                                     query_sha256=hashlib.sha256(query.encode()).hexdigest())) + "\n")
         stream.flush()
+    return dict(used=attempt, limit=limit, remaining=limit - attempt, scope=BUDGET_SCOPE)
+
+
+def with_budget(value, budget):
+    # Put the budget first so it stays visible when long output is truncated to a preview.
+    if isinstance(value, dict):
+        return {"web_budget": budget, **{k: v for k, v in value.items() if k != "web_budget"}}
+    return {"web_budget": budget, "response": value}
 
 
 def tavily_search(query):
-    reserve_search(query)
+    budget = reserve_search(query)
     payload = dict(query=query, max_results=5, search_depth="basic", auto_parameters=False, include_usage=True)
     # stdin keeps credentials out of process arguments and error receipts.
-    return json_post("https://api.tavily.com/search", payload, os.environ["TAVILY_API_KEY"])
+    return with_budget(json_post("https://api.tavily.com/search", payload, os.environ["TAVILY_API_KEY"]), budget)
 
 
 def json_post(url, payload, key):
@@ -60,7 +92,7 @@ def json_post(url, payload, key):
             error = {}
         kind = error.get("type") if isinstance(error, dict) else None
         if status == 429 and kind == "run_web_limit_exhausted":
-            raise RuntimeError("Web request budget exhausted (HTTP 429); no provider request sent; do not retry")
+            raise budget_exhausted(configured_limit())
         if status == 429:
             raise RuntimeError("Web provider rate limit (HTTP 429); not retried")
         raise RuntimeError("Web API rejected request (HTTP " + str(status) + "); not retried")
@@ -80,8 +112,9 @@ def deepseek_web(action, value):
     else:
         raise ValueError("Unsupported DeepSeek web action")
     key = os.environ.get("DEEPSEEK_API_KEY") or os.environ["ANTHROPIC_AUTH_TOKEN"]
-    reserve_search(value, provider="deepseek", action=action)
-    return json_post(os.environ.get("MAS_WEB_BASE_URL", "https://api.deepseek.com").rstrip("/") + "/v1/tools/" + action, payload, key)
+    budget = reserve_search(value, provider="deepseek", action=action)
+    base = os.environ.get("MAS_WEB_BASE_URL", "https://api.deepseek.com").rstrip("/")
+    return with_budget(json_post(base + "/v1/tools/" + action, payload, key), budget)
 
 
 def run_sql(path, sql, *, limit=200, operations=10000000):
@@ -118,6 +151,15 @@ def main(argv=None):
     fetch = sub.add_parser("fetch")
     fetch.add_argument("--url", required=True)
     args = parser.parse_args(argv)
+    try:
+        return run_tool(args)
+    except WebBudgetExhausted as error:
+        # One clear, final message instead of a traceback; exit status 3 means no budget left.
+        print(error, file=sys.stderr)
+        return 3
+
+
+def run_tool(args):
     if args.tool == "sql":
         value = run_sql(args.db, args.query)
     else:
@@ -127,13 +169,13 @@ def main(argv=None):
         if provider == "deepseek":
             value = deepseek_web(args.tool, args.query if args.tool == "search" else args.url)
             print(json.dumps(value, ensure_ascii=False))
-            return
+            return 0
         if provider != "tavily":
             raise ValueError("Unknown web provider")
         if args.tool == "search":
             value = tavily_search(args.query)
             print(json.dumps(value, ensure_ascii=False))
-            return
+            return 0
         else:
             if urllib.parse.urlsplit(args.url).scheme not in {"http", "https"}:
                 raise ValueError("Web fetch requires HTTP(S)")
@@ -144,7 +186,8 @@ def main(argv=None):
                 raise ValueError("Web response exceeds 2 MiB; use a more targeted source")
             value = json.loads(body) if args.tool == "search" else dict(url=response.url, content=body.decode("utf-8", errors="replace"))
     print(json.dumps(value, ensure_ascii=False, default=str))
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

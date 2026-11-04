@@ -81,6 +81,7 @@ def roundtrip_plan(request, tmp_path, monkeypatch):
         concurrency=1, timeout=3600, judge_limit=1, replay_timeout=180)
     plan.update(attempts=1, tasks=[dict(id=task.id, domain=task.domain, query=task.query)],
         organization_override=None, backend_instructions={backend: run.shared.condition_instructions(args, backend)},
+        limit_instructions=run.shared.limit_instructions(3600),
         backend_options={backend: runtime.backend_options(args, backend)}, source={"fixture": "source-hash"},
         inputs_sha256=fingerprint({"fixture": "data-hash"}), scoring={"version": 1},
         concurrency=1, timeout_seconds=3600, judge_limit=1, replay_timeout_seconds=180)
@@ -150,7 +151,7 @@ def test_startup_failure_preserves_owned_container(tmp_path, monkeypatch, remove
     monkeypatch.setattr(runtime, "CredentialGateway", Gateway)
     monkeypatch.setattr(runtime, "container", failed)
     monkeypatch.setattr(runtime.subprocess, "run", lambda *a, **kw: SimpleNamespace(returncode=0))
-    args = SimpleNamespace(output=tmp_path / "out", upstream=tmp_path, image="fixture")
+    args = SimpleNamespace(output=tmp_path / "out", upstream=tmp_path, image="fixture", timeout=900)
     active, stop = set(), threading.Event()
     report = runtime.run_attempt(Task("probe", "astronomy", "Fixture"), "claude-code-subagents", args,
         "synthetic-secret", stop, active, threading.Lock())

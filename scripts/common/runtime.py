@@ -18,8 +18,9 @@ from harness._claude_hooks import BLOCKED_TOOLS
 
 CLAUDE = Path("/home/zhoujunye/.local/bin/claude").resolve()
 
+# Claude Code 2.1.286 has no TaskOutput tool; background agents notify the lead instead.
 TOOLS = ("Bash", "Read", "Write", "Edit", "Glob", "Grep", "Agent", "Task", "SendMessage",
-         "TaskCreate", "TaskUpdate", "TaskGet", "TaskList", "TaskStop", "TaskOutput")
+         "TaskCreate", "TaskUpdate", "TaskGet", "TaskList", "TaskStop")
 
 THREADS = {name: "1" for name in ("OMP_NUM_THREADS", "OPENBLAS_NUM_THREADS", "MKL_NUM_THREADS",
                                   "NUMEXPR_NUM_THREADS", "VECLIB_MAXIMUM_THREADS")}
@@ -30,22 +31,51 @@ def backend_instructions(backend):
                 "is disabled by policy. Do not call task, spawn any subagent, or launch other model/agent "
                 "processes through shell, Python, HTTP, or any other route. No external model calls.")
     if backend == "claude-code-subagents":
-        return ("Use Claude Code's native subagents in an orchestrator-worker organization. You are the lead agent: "
-                "plan the work, delegate it, and synthesize the results. Subagents are your primary team and perform "
-                "the substantive work, including the main inspection, computation and lookups.\n\n"
-                "1. Before delegating, use your own tools only for the quick inspection needed to plan, such as listing "
-                "the inputs or reading their structure. Do not compute or look up candidate answers yourself.\n"
-                "2. Deploy subagents with the native Agent tool as soon as your plan is ready. Give each a distinct, "
-                "non-overlapping assignment with one core objective, the task context and constraints it needs, and the "
-                "expected output. Run independent assignments in parallel, and delegate first any assignment that "
-                "others depend on. Choose the number of subagents from the task's complexity; use at least one.\n"
-                "3. While subagents work, do not redo their assignments. Wait for their results through the native tools "
-                "rather than shell polling, review results as they arrive, and update the plan.\n"
-                "4. Evaluate the results critically. If essential information is missing or results conflict, delegate a "
-                "focused follow-up. Do direct work yourself only for small steps that are clearly best done by you.\n"
-                "5. Write the final answer yourself, based on the subagents' results. Stop delegating when further work "
-                "has diminishing returns.")
+        # Lead prompt v4, adopted by the user on 2026-11-04. Earlier prompts are kept
+        # verbatim in docs/studies/; see docs/studies/README.md for provenance.
+        return ("Use Claude Code's native subagents as an orchestrator-worker team. You are the lead agent: plan the "
+                "work, split it between yourself and subagents, and synthesize the results. Delegate where subagents "
+                "add value: independent parts that can run in parallel, or self-contained parts whose details you do "
+                "not need in your own context.\n\n"
+                "1. Default to one subagent. A multi-step task is still a single focused task when its steps depend on "
+                "one another; add subagents only for parts that can proceed independently and each need substantial "
+                "work. Prefer fewer, more capable subagents over many narrow ones.\n"
+                "2. Split early and do not duplicate. Within your first few steps, decide which parts you will do and "
+                "which each subagent will do, then launch the subagents together with the native Agent tool. Afterwards "
+                "work only on your own parts; do not redo delegated work, and do not delegate trivial steps or the "
+                "final answer.\n"
+                "3. Hand over what you know. Give each subagent one core objective, the task requirements, rules and "
+                "limits that apply to its part, the facts you have already established (such as file paths, "
+                "structures, or values) so it does not re-check them, clear boundaries, and the exact result to "
+                "return.\n"
+                "4. Size each assignment. State the expected effort, for example about 3-10 tool calls for a focused "
+                "lookup or check. Ask the subagent to stop as soon as its objective is answered or it can make no "
+                "further progress with the available tools and limits, and to report what remains unresolved.\n"
+                "5. Ask for compact results: the answer, the key evidence, and any unresolved issue, in a few "
+                "sentences or a small table.\n"
+                "6. Subagents started in the background notify you automatically when they finish. Do not sleep, "
+                "poll, or check their status. Continue with your own part; if nothing else remains for you to do, end "
+                "your turn: the run stays open and you are resumed when their results arrive. Delegate a follow-up "
+                "only for a specific missing or conflicting item that would change the answer.\n"
+                "7. Before writing the final answer yourself, make sure every subagent you started has finished or "
+                "been stopped. The task's time and tool limits are shared by all agents; when further work has "
+                "diminishing returns or a limit is near or reached, stop delegating and answer from the evidence you "
+                "have.")
     raise ValueError("Unsupported backend: " + backend)
+
+
+def limit_instructions(timeout, web_limit=0):
+    """Condition-neutral run limits, stated identically to Single and Subagents."""
+    if isinstance(timeout, bool) or not isinstance(timeout, int) or timeout <= 0:
+        raise ValueError("Run limits require a positive integer timeout in seconds")
+    if isinstance(web_limit, bool) or not isinstance(web_limit, int) or web_limit < 0:
+        raise ValueError("Web request limit must be a non-negative integer")
+    duration = f"{timeout} seconds" + (f" ({timeout // 60} minutes)" if timeout % 60 == 0 else "")
+    text = f"Run limits: {duration} of wall-clock time in total"
+    if web_limit:
+        text += (f", and at most {web_limit} web search/fetch requests in total, shared by every agent and process "
+                 "in this run (each web helper response reports how many remain)")
+    return text + ". Do not try to work around tool limits or network restrictions.\n"
 
 def organization_override(path, backend):
     if path is None:

@@ -48,10 +48,19 @@ transport does **not** imply synchronous subagents. The retained scoped-judge
 pilot's `archeology-easy-8` root transcript line 67 contains
 `Agent(..., run_in_background=true)`.
 
-The Subagents baseline uses the user-selected orchestrator-worker lead prompt:
-workers perform substantive work, while the lead plans, delegates and synthesizes.
-It specifies at least one worker but no specialist roster, judge role or
-cost-reduction policy. Admission requires observed native delegation and
+The Subagents baseline uses orchestrator-worker lead prompt v4, adopted by the user
+on 2026-11-04 ([prompt versions](studies/README.md)). The lead plans, splits the
+work between itself and subagents (one by default) and synthesizes. It specifies
+no specialist roster, judge role or cost-reduction policy.
+
+Native facts this relies on, observed on 2.1.286:
+- There is no TaskOutput tool. Background agents notify the lead on completion.
+- In print mode the run stays open after the lead ends its turn while a background
+  agent still runs. The lead is resumed on completion, and stdout then holds one
+  result event per resumed segment; the adapter keeps the last one.
+- Isolated settings (`--setting-sources ""`) do not auto-load workspace
+  `CLAUDE.md` or `AGENTS.md` for any agent. Workers learn task rules only from the
+  lead's brief and from tool output. Admission requires observed native delegation and
 completion; it does not establish semantic contribution. This is a prompted condition,
 not an entirely unprompted Claude Code run.
 Benchmark access and output requirements remain explicit. The bounded evidence-judge pilot is a separate

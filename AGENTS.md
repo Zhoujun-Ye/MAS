@@ -34,11 +34,14 @@ coordinator/full modes, capability catalogs, or custom scheduling semantics.
 - `benchmarks/dataclawbench/` and `benchmarks/hybriddeepresearch/` keep gold/reference
   fields host-side. The latter decodes the public release in memory; never publish
   decrypted questions, gold SQL, answers, or evaluation logs.
-- The user explicitly selected the orchestrator-worker lead prompt on 2026-11-04.
-  Preserve that exact baseline prompt; study overrides require user authorization.
+- On 2026-11-04 the user adopted orchestrator-worker lead prompt v4
+  (`scripts/common/runtime.py`) as the Subagents default. Earlier prompts are kept
+  verbatim in `docs/studies/` (see its README) for ablations. Preserve the exact
+  default; changes and study overrides require user authorization.
   This is a prompted native baseline, not untouched default CLI behavior. Do not
   add our specialist roles, fixed roster, judge mechanism or cost-reduction policy.
   Lead-only instructions belong in the lead prompt, not worker-visible rule files.
+  Run limits are shared task rules: state them identically to every condition.
   `benchmarks/organization.py` retains a research-intervention renderer only;
   bounded evidence-judge pilots are not native baseline results.
 - `analysis/` retains generic utilities and read-only historical-schema readers.

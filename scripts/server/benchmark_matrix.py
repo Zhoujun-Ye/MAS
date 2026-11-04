@@ -1,6 +1,7 @@
-"""Explicit 12-attempt Claude benchmark matrix; independent processes, no retries."""
+"""Explicit matched Claude benchmark matrix; independent processes, no retries."""
 
 import argparse
+import hashlib
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import json
 import os
@@ -24,7 +25,36 @@ from scripts.common.timeouts import TIMEOUT_SECONDS_BY_BENCHMARK, default_timeou
 BACKENDS = ("claude-code-single-agent", "claude-code-subagents",)
 
 
-def selections(root):
+def balanced_sample(tasks, count, group, seed):
+    """Round-robin public strata with stable seeded ordering, never inspect gold."""
+    groups = {}
+    for task in tasks:
+        groups.setdefault(group(task), []).append(task)
+    if len(tasks) < count:
+        raise ValueError("Not enough tasks for the requested sample")
+    def rank(value):
+        return hashlib.sha256(f"{seed}:{value}".encode()).hexdigest()
+    names = sorted(groups, key=rank)
+    for values in groups.values():
+        values.sort(key=lambda task: rank(task.id))
+    selected = []
+    while len(selected) < count:
+        for name in names:
+            if groups[name] and len(selected) < count:
+                selected.append(groups[name].pop(0))
+    return selected
+
+
+def selections(root, count=2, seed=42):
+    if count != 2:
+        krama, _ = krama_tasks(root / "kramabench/upstream")
+        pools = (
+            ("dataclawbench", dc_tasks(root / "dataclawbench/upstream"), lambda t: t.category),
+            ("hybriddeepresearch", hdr_tasks(root / "hybriddeepresearch/release/hybrid_ds_release/hybrid_ds_release.jsonl"), lambda t: t.category),
+            ("kramabench", krama, lambda t: t.domain),
+        )
+        return [(bench, task) for bench, tasks, group in pools
+                for task in balanced_sample(tasks, count, group, seed)]
     dc = [t for t in dc_tasks(root / "dataclawbench/upstream") if not t.web][:2]
     hdr = hdr_tasks(root / "hybriddeepresearch/release/hybrid_ds_release/hybrid_ds_release.jsonl")
     hdr = [next(t for t in hdr if t.category == category) for category in ("search_to_sql", "sql_to_search")]
@@ -49,9 +79,11 @@ def solver_command(args, benchmark, task, backend, output, *, execute=False):
     else:
         data = args.root / ("dataclawbench/upstream/assets/database" if benchmark == "dataclawbench" else "hybriddeepresearch/data")
         command += ["--data", str(data), "--authorized-attempts", "1"]
+        if getattr(task, "web", benchmark == "hybriddeepresearch"):
+            command += ["--web-search", "deepseek", "--max-web-requests", "4"]
         if benchmark == "hybriddeepresearch":
             command += ["--tasks", str(args.root / "hybriddeepresearch/release/hybrid_ds_release/hybrid_ds_release.jsonl"),
-                        "--web-search", "deepseek", "--max-web-requests", "4"]
+                        ]
     if execute:
         command.append("--execute")
     return command
@@ -67,16 +99,23 @@ def main(argv=None):
     parser.add_argument("--concurrency", type=int, default=8, choices=range(1, 13))
     parser.add_argument("--effort", choices=("high", "max"), default="max")
     parser.add_argument("--organization-prompt", type=Path)
+    parser.add_argument("--tasks-per-benchmark", type=int, default=2, choices=range(1, 101))
+    parser.add_argument("--sample-seed", type=int, default=42)
     parser.add_argument("--judge-concurrency", type=int, default=2, choices=range(1, 3))
     parser.add_argument("--authorized-attempts", type=int)
     parser.add_argument("--authorized-judges", type=int, default=0)
     parser.add_argument("--execute", action="store_true")
     args = parser.parse_args(argv)
     args.root, args.output, args.proofs = args.root.resolve(), args.output.resolve(), args.proofs.resolve()
-    selected = selections(args.root)
+    selected = (selections(args.root) if args.tasks_per_benchmark == 2
+                else selections(args.root, args.tasks_per_benchmark, args.sample_seed))
     jobs = [(bench, task, backend, args.output / "solvers" / bench / task.id / backend)
             for bench, task in selected for backend in BACKENDS]
-    authorization = dict(attempts=len(jobs), maximum_judge_calls=10, retries=0, effort=args.effort,
+    maximum_judges = sum(1 for b, t, _, _ in jobs
+                         if b != "hybriddeepresearch" or t.category != "search_to_sql")
+    authorization = dict(attempts=len(jobs), maximum_judge_calls=maximum_judges, retries=0, effort=args.effort,
+        tasks_per_benchmark=args.tasks_per_benchmark, sample_seed=args.sample_seed,
+        selection_policy="legacy-two" if args.tasks_per_benchmark == 2 else "seeded-public-strata-round-robin",
         organization_override=runtime.organization_override(args.organization_prompt, "claude-code-subagents"),
         timeout_seconds_by_benchmark=dict(TIMEOUT_SECONDS_BY_BENCHMARK),
         timeout_policy_by_benchmark={b: timeout_policy(b) for b in TIMEOUT_SECONDS_BY_BENCHMARK},
@@ -85,8 +124,8 @@ def main(argv=None):
     if not args.execute:
         print(json.dumps(authorization, indent=2))
         return 0
-    if len(jobs) != 12 or args.authorized_attempts != 12 or args.authorized_judges not in (0, 10):
-        raise ValueError("Require exactly 12 authorized solvers and zero or at most 10 authorized judges")
+    if len(jobs) != 6 * args.tasks_per_benchmark or args.authorized_attempts != len(jobs) or args.authorized_judges not in (0, maximum_judges):
+        raise ValueError(f"Require exactly {len(jobs)} authorized solvers and zero or at most {maximum_judges} authorized judges")
     os.umask(0o077)
     args.output.mkdir(parents=True, exist_ok=False)
     write_json(args.output / "authorization.json", {**authorization, "authorized_judges": args.authorized_judges})
@@ -228,7 +267,7 @@ def main(argv=None):
             accounting_scope="Whole shared-account interval, not attributable per-condition charges",
             interrupted=stop.is_set(), finished_at=runtime.now()))
         grades_ok = all(g["status"] not in {"missing_summary", "missing_predictions", "grading_failed", "judge_error", "not_started"} for g in grades)
-        return 0 if len(rows) == 12 and all(r["status"] == "cli_exited" for r in rows) and grades_ok and not stop.is_set() else 1
+        return 0 if len(rows) == len(jobs) and all(r["status"] == "cli_exited" for r in rows) and grades_ok and not stop.is_set() else 1
     except BaseException as error:
         interrupt(None, None)
         write_json(args.output / "failure.json", dict(error_type=type(error).__name__,

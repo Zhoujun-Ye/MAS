@@ -4,13 +4,21 @@
 
 The new benchmark runner supports `claude-code-single-agent` and
 `claude-code-subagents` using the installed Claude Code 2.1.286. Single removes
-and denies delegation; Subagents permits native background Agent/TaskOutput with
+and denies delegation; Subagents permits the native Agent tool, including background
+agents that notify the lead on completion (2.1.286 has no TaskOutput tool), with
 Agent Teams disabled. Interactive Agent Teams is retired, including the KramaBench adapter.
 
-The Subagents baseline uses the explicitly user-selected orchestrator-worker lead
-prompt in `scripts/common/runtime.py`. Workers do substantive work; the lead plans,
-delegates and synthesizes. Only Claude Code conditions remain active.
-It specifies at least one worker, but no specialist roster or cost-reduction method.
+The Subagents baseline uses orchestrator-worker lead prompt v4 in
+`scripts/common/runtime.py`, adopted by the user on 2026-11-04; earlier prompts are
+retained in [docs/studies](studies/README.md). The lead plans, splits the work
+between itself and subagents (one by default) and synthesizes. Only Claude Code
+conditions remain active. It specifies no specialist roster or cost-reduction method.
+
+Both conditions receive the same shared task rules, ending with a run-limits line:
+the wall-clock timeout and, for web tasks, the request budget shared by every agent
+and process. The web helper puts `web_budget` (used, limit, remaining) first in each
+JSON response. When the budget is gone it prints one final message and exits with
+status 3; it never retries.
 The organization prompt is not placed in shared worker-visible rule files. Admission
 requires observed delegation and completion; non-delegating attempts are retained
 as unverified conditions, not silently retried. Task, data-access and submission

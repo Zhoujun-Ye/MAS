@@ -87,6 +87,7 @@ def validate(args):
     if (plan["kind"] != "native_cli_benchmark" or plan["backend"] != args.backend or [asdict(t) for t in selected] != plan["tasks"]
             or plan.get("organization_override") != getattr(args, "organization_override", None)
             or plan["backend_instructions"] != {b: shared.condition_instructions(args, b) for b in args.backends}
+            or plan.get("limit_instructions") != shared.limit_instructions(args.timeout)
             # Compare the persisted JSON representation: tuples freeze as arrays.
             or fingerprint(plan["backend_options"]) != fingerprint(
                 {b: runtime.backend_options(args, b) for b in args.backends})

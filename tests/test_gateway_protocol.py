@@ -146,7 +146,7 @@ def test_helper_default_limit_matches_gateway(tmp_path, monkeypatch):
     monkeypatch.setenv("MAS_WEB_LEDGER", str(tmp_path / "advisory-ledger.jsonl"))
     for _ in range(4):
         tools.reserve_search("fixture", provider="deepseek")
-    with pytest.raises(ValueError, match="budget exhausted"):
+    with pytest.raises(tools.WebBudgetExhausted, match="budget exhausted"):
         tools.reserve_search("fixture", provider="deepseek")
 
 

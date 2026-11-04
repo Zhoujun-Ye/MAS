@@ -9,10 +9,13 @@ No upstream agent runtime is vendored or imported as an SDK.
 | --- | --- | --- |
 | Claude Code 2.1.286 | Native delegation disabled and audited | Native Agent; Teams disabled |
 
-The user-selected Subagents prompt asks for an orchestrator-worker organization.
+The Subagents default is orchestrator-worker lead prompt v4, adopted by the user on
+2026-11-04. Earlier prompts are kept verbatim for ablations in [docs/studies](docs/studies/README.md).
 This is a prompted native baseline, not an unmodified default CLI policy. It adds
-no specialist roster or cost-reduction method. Structural worker completion does not prove substantive
-contribution; that remains a separate evidence-review question.
+no specialist roster or cost-reduction method. Both conditions receive the same task
+rules, including the run's wall-clock and web request limits. Structural worker
+completion does not prove substantive contribution; that remains a separate
+evidence-review question.
 
 Deep Agents, Claude Code Agent Teams and Codex adapters are retired. Do not restore
 their active adapters or launch choices. Codex results were removed at the user's

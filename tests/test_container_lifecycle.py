@@ -90,7 +90,7 @@ def test_sigterm_unwinds_attempt_and_restores_handlers(tmp_path, monkeypatch):
 
     monkeypatch.setattr(run, "CredentialGateway", Gateway)
     monkeypatch.setattr(run, "mounts", lambda *args: [])
-    monkeypatch.setattr(run, "instructions", lambda *args: "offline fixture")
+    monkeypatch.setattr(run, "instructions", lambda *args, **kwargs: "offline fixture")
     monkeypatch.setitem(run.BACKENDS, "claude-code-single-agent", Adapter)
     monkeypatch.setattr(runtime, "container", lambda *args, **kwargs: "owned-container")
     monkeypatch.setattr(runtime, "stop_container", stop)

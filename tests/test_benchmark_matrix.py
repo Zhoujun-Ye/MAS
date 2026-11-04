@@ -93,3 +93,38 @@ def test_selection_uses_public_categories_without_reference_access(tmp_path, mon
         ("hybriddeepresearch", "sql"), ("hybriddeepresearch", "text"),
         ("kramabench", "k1"), ("kramabench", "k2"),
     ]
+
+
+def test_seeded_sample_is_balanced_reproducible_and_input_order_independent():
+    tasks = [SimpleNamespace(id=f"{category}-{i}", category=category)
+             for category in ("a", "b", "c") for i in range(20)]
+    sample = lambda values, seed=42: matrix.balanced_sample(values, 10, lambda t: t.category, seed)
+    first = sample(tasks)
+    assert [t.id for t in first] == [t.id for t in sample(list(reversed(tasks)))]
+    assert len({t.id for t in first}) == 10
+    assert sorted(sum(t.category == c for t in first) for c in ("a", "b", "c")) == [3, 3, 4]
+    assert [t.id for t in first] != [t.id for t in sample(tasks, 43)]
+    with pytest.raises(ValueError, match="Not enough tasks"):
+        sample(tasks[:2])
+
+
+def test_ten_task_plan_is_matched_and_has_bounded_judges(tmp_path, monkeypatch, capsys):
+    tasks = [(bench, SimpleNamespace(id=f"task-{i}", category="search_to_sql" if i < 4 else "sql_to_search"))
+             for bench in ("dataclawbench", "hybriddeepresearch", "kramabench") for i in range(10)]
+    monkeypatch.setattr(matrix, "selections", lambda root, count, seed: tasks)
+    monkeypatch.setattr(matrix.subprocess, "Popen", lambda *a, **kw: pytest.fail("Plan must not launch"))
+    assert matrix.main(cli_args(tmp_path, "--tasks-per-benchmark", "10", "--sample-seed", "42")) == 0
+    plan = json.loads(capsys.readouterr().out)
+    assert plan["attempts"] == 60 and plan["maximum_judge_calls"] == 52
+    for bench in ("dataclawbench", "hybriddeepresearch", "kramabench"):
+        paired = [{r["task_id"] for r in plan["selections"] if r["benchmark"] == bench and r["backend"] == backend}
+                  for backend in matrix.BACKENDS]
+        assert paired[0] == paired[1] and len(paired[0]) == 10
+
+
+def test_dataclaw_web_selection_gets_explicit_web_budget(tmp_path):
+    args = SimpleNamespace(root=tmp_path, proofs=tmp_path, image="fixture", credentials=tmp_path / "private.env")
+    command = matrix.solver_command(args, "dataclawbench", SimpleNamespace(id="web", web=True),
+                                    matrix.BACKENDS[0], tmp_path / "output")
+    assert command[command.index("--web-search") + 1] == "deepseek"
+    assert command[command.index("--max-web-requests") + 1] == "4"

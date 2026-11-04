@@ -35,7 +35,8 @@ def test_hybrid_decryption_integrity_and_gold_allowlist(tmp_path):
     path = tmp_path / "release.jsonl"
     path.write_text(json.dumps(encrypted) + "\n")
     task = hdr_tasks(path)[0]
-    public = json.dumps(task.public()) + task.question + instructions(task, "claude-code-subagents")
+    public = json.dumps(task.public()) + task.question + instructions(task, "claude-code-subagents",
+                                                                      timeout=1800, web_limit=4)
     assert "SECRET" not in public and "SELECT secret" not in public and "search_to_sql" not in task.question
     assert "web search/fetch" in public.lower()
     assert evaluation_rows([task], {task.id: dict(final_answer="```sql\nSELECT 1\n```")})["s2sql"][0]["gold_sql"] == data["sql"]
@@ -66,7 +67,7 @@ def test_dataclaw_ids_guidelines_and_category_network(tmp_path):
     assert [t.web for t in tasks] == [False, True]
     assert all("GOLD" not in json.dumps(t.public()) for t in tasks)
     assert "Return a list" in tasks[0].question and "Only use files" in tasks[0].question
-    assert "No web search" in instructions(tasks[0], "claude-code-subagents")
+    assert "No web search" in instructions(tasks[0], "claude-code-subagents", timeout=1200)
 
 
 def test_dataclaw_part_scores_are_not_binary_task_accuracy():
@@ -88,11 +89,11 @@ def test_prompt_preserves_bounded_judge_with_background_native_tools():
 @pytest.mark.parametrize("benchmark,web", [("dataclawbench", False), ("hybriddeepresearch", True)])
 def test_native_baseline_uses_ordinary_prompt_without_judge_intervention(benchmark, web):
     task = SimpleNamespace(benchmark=benchmark, web=web, db="retail")
-    prompt = instructions(task, "claude-code-subagents")
+    prompt = instructions(task, "claude-code-subagents", timeout=1800, web_limit=4 if web else 0)
     assert "submission.json" in prompt
     from scripts.common.runtime import backend_instructions
     assert prompt.endswith(backend_instructions("claude-code-subagents"))
-    assert "Use Claude Code's native subagents in an orchestrator-worker organization." in prompt
+    assert "Use Claude Code's native subagents as an orchestrator-worker team." in prompt
     for intervention in ("judge", "1000 words", "at most THREE", "250 words"):
         assert intervention not in prompt
 

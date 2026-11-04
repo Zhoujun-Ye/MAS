@@ -56,7 +56,14 @@ def load(args):
     return [by_id[i] for i in ids]
 
 
-def instructions(task, backend, organization_override=None):
+def run_web_limit(task, args):
+    """Run-wide web request limit shared by the prompt, helper ledger and host gateway."""
+    return (getattr(args, "max_web_requests", None) or 4) if task.web else 0
+
+
+def instructions(task, backend, organization_override=None, *, timeout, web_limit=0):
+    if web_limit and not task.web:
+        raise ValueError("A web request limit requires a web-enabled task")
     common = "Do not install packages or seek benchmark questions, gold answers, reference SQL or solutions.\n"
     if task.benchmark == "dataclawbench":
         common += "The supplied database is read-only at /data; ./database points to it. Follow the original output guidelines.\n"
@@ -67,6 +74,7 @@ def instructions(task, backend, organization_override=None):
                    "Return concise text for entity/intersection questions; for a SQL question return one canonical query in a fenced sql block.\n")
     common += ("Web search/fetch are enabled: python3 /benchmark-tools.py search --query TEXT; "
                "python3 /benchmark-tools.py fetch --url URL.\n" if task.web else "No web search, fetching, or other external data access.\n")
+    common += runtime.limit_instructions(timeout, web_limit)
     common += ('Write /workspace/submission.json with exactly {"final_answer": "your answer as text"}. '
                'If incomplete, use empty final_answer and explain in the CLI final response.\n')
     return common + runtime.condition_instructions(
@@ -103,7 +111,9 @@ def plan(args, tasks):
     for task in tasks:
         for source, target, _ in mounts(task, args):
             assets[str(source)] = asset_manifest(source) if source.is_dir() else digest(source)
-    prompts = {t.id: t.question + "\n\n" + instructions(t, args.backend, getattr(args, "organization_override", None)) for t in tasks}
+    prompts = {t.id: t.question + "\n\n" + instructions(t, args.backend, getattr(args, "organization_override", None),
+                                                         timeout=args.timeout, web_limit=run_web_limit(t, args))
+               for t in tasks}
     options = runtime.options(args.backend)
     if any(t.web for t in tasks) and not args.web_search:
         raise ValueError("This selection requires explicit --web-search; no silent web-free substitution")
@@ -114,6 +124,7 @@ def plan(args, tasks):
                 assets=assets, attempts=len(tasks), retries=0, judge_calls=0, options=options,
                 image=args.image, network="none", timeout=args.timeout, timeout_policy=timeout_policy(args.benchmark, args.timeout),
                 web_search=args.web_search,
+                web_request_limits={t.id: run_web_limit(t, args) for t in tasks},
                 native_environment=runtime.native_env(args.backend, effort=getattr(args, "effort", "max")),
                 effort=getattr(args, "effort", "max"),
                 max_budget_usd=getattr(args, "max_budget_usd", None),
@@ -147,7 +158,9 @@ def attempt(task, args, key):
         opts["max_budget_usd"] = args.max_budget_usd
     # The explicit helper keeps search-provider behavior consistent across modes.
     opts["disallowed_tools"] = ("WebSearch", "WebFetch")
-    prompt = task.question + "\n\n" + instructions(task, args.backend, getattr(args, "organization_override", None))
+    web_limit = run_web_limit(task, args)
+    prompt = task.question + "\n\n" + instructions(task, args.backend, getattr(args, "organization_override", None),
+                                                   timeout=args.timeout, web_limit=web_limit)
     result = dict(instance_id=task.id, final_answer="", status="not_started", cost_usd=None)
     runtime.write_json(folder / "report.json", result)
     identity = None
@@ -157,7 +170,6 @@ def attempt(task, args, key):
         inputs = mounts(task, args) + [(Path(__file__).with_name("tools.py"), "/benchmark-tools.py", True)]
         environment = {"MAS_BENCHMARK_WEB": "1" if task.web else "0", "MAS_WEB_LEDGER": "/native/web-usage.jsonl",
                        "MAS_WEB_PROVIDER": args.web_search or "none"}
-        web_limit = (getattr(args, "max_web_requests", None) or 4) if task.web else 0
         environment["MAS_WEB_MAX_REQUESTS"] = str(web_limit)
         gateway = CredentialGateway(key, unix_path=folder / "gateway.sock",
                                     ledger_path=folder / "gateway-requests.jsonl", web_limit=web_limit)
