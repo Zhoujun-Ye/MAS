@@ -118,6 +118,13 @@ def solver_command(args, benchmark, task, backend, output, *, execute=False):
     return command
 
 
+def protocol_settings(args):
+    return dict(effort=args.effort,
+                organization_sha256={k: hashlib.sha256(runtime.backend_instructions(k).encode()).hexdigest() for k in BACKENDS},
+                timeout_seconds_by_benchmark=dict(TIMEOUT_SECONDS_BY_BENCHMARK),
+                solver_concurrency=args.concurrency, judge_concurrency=args.judge_concurrency)
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--root", type=Path, required=True)
@@ -131,6 +138,7 @@ def main(argv=None):
     parser.add_argument("--tasks-per-benchmark", type=int, default=2, choices=range(1, 101))
     parser.add_argument("--sample-seed", type=int, default=42)
     parser.add_argument("--task-manifest", type=Path, help="Frozen public ID/hash manifest, never questions or gold")
+    parser.add_argument("--protocol-settings", type=Path, help="Explicit settings for an authorized rerun of the unchanged frozen tasks")
     parser.add_argument("--task-offset", type=int, default=0)
     parser.add_argument("--judge-concurrency", type=int, default=2, choices=range(1, 3))
     parser.add_argument("--authorized-attempts", type=int)
@@ -139,6 +147,12 @@ def main(argv=None):
     args = parser.parse_args(argv)
     args.root, args.output, args.proofs = args.root.resolve(), args.output.resolve(), args.proofs.resolve()
     manifest = json.loads(args.task_manifest.read_text()) if args.task_manifest else None
+    explicit_protocol = json.loads(args.protocol_settings.read_text()) if args.protocol_settings else None
+    if args.protocol_settings and (manifest is None or args.organization_prompt):
+        raise ValueError("Explicit protocol settings require a frozen task manifest and no organization override")
+    observed_settings = protocol_settings(args)
+    if args.protocol_settings and explicit_protocol != observed_settings:
+        raise ValueError("Runtime settings differ from the explicit protocol settings")
     if args.task_offset and manifest is None:
         raise ValueError("A task offset requires a frozen task manifest")
     selected = (manifest_selections(args.root, manifest, args.task_offset, args.tasks_per_benchmark)
@@ -153,6 +167,9 @@ def main(argv=None):
         selection_policy="frozen-validation-manifest" if manifest else "legacy-two" if args.tasks_per_benchmark == 2 else "seeded-public-strata-round-robin",
         task_offset=args.task_offset,
         task_manifest_sha256=digest(args.task_manifest) if args.task_manifest else None,
+        protocol_settings=observed_settings,
+        protocol_settings_source="explicit-protocol" if args.protocol_settings else "frozen-manifest" if manifest else "current-runtime",
+        protocol_settings_sha256=digest(args.protocol_settings) if args.protocol_settings else None,
         organization_override=runtime.organization_override(args.organization_prompt, "claude-code-subagents"),
         timeout_seconds_by_benchmark=dict(TIMEOUT_SECONDS_BY_BENCHMARK),
         timeout_policy_by_benchmark={b: timeout_policy(b) for b in TIMEOUT_SECONDS_BY_BENCHMARK},
@@ -164,17 +181,16 @@ def main(argv=None):
     if len(jobs) != 6 * args.tasks_per_benchmark or args.authorized_attempts != len(jobs) or args.authorized_judges not in (0, maximum_judges):
         raise ValueError(f"Require exactly {len(jobs)} authorized solvers and zero or at most {maximum_judges} authorized judges")
     if manifest:
-        expected = manifest["baseline_settings"]
-        observed = dict(effort=args.effort, organization_sha256={k: hashlib.sha256(runtime.backend_instructions(k).encode()).hexdigest() for k in BACKENDS},
-                        timeout_seconds_by_benchmark=dict(TIMEOUT_SECONDS_BY_BENCHMARK),
-                        solver_concurrency=args.concurrency, judge_concurrency=args.judge_concurrency)
-        if expected != observed or args.organization_prompt:
+        expected = explicit_protocol if args.protocol_settings else manifest["baseline_settings"]
+        if expected != observed_settings or args.organization_prompt:
             raise ValueError("Baseline settings differ from the frozen validation study")
     os.umask(0o077)
     args.output.mkdir(parents=True, exist_ok=False)
     write_json(args.output / "authorization.json", {**authorization, "authorized_judges": args.authorized_judges})
     if manifest:
         write_json(args.output / "task-manifest.json", manifest)
+    if args.protocol_settings:
+        write_json(args.output / "protocol-settings.json", explicit_protocol)
     args.image = json.loads(subprocess.check_output(["docker", "image", "inspect", args.image], text=True))[0]["Id"]
     for backend in BACKENDS:
         proof = json.loads((args.proofs / backend / "proof.json").read_text())

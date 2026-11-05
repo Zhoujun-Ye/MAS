@@ -1,5 +1,12 @@
 # Server Benchmark Preparation
 
+## Current Status
+
+The current native Single/Subagents comparison has completed; see
+[current results](current-results.md) and [cleanup receipt](cleanup-20261104.md).
+The provisioning and earlier deletion sections below are historical, not the
+current result inventory or authorization to launch new jobs.
+
 ## Latest Result Cleanup
 
 On 2026-11-04 the user requested stopping active experiments and deleting all

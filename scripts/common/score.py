@@ -12,7 +12,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from benchmarks._external import digest, predictions, verify_sources, write_jsonl
 from benchmarks.dataclawbench.evaluation import evaluation_rows as dc_rows, outcome_rubric, validate_verdict, normalize_verdict
 from benchmarks.hybriddeepresearch.evaluation import evaluation_rows as hdr_rows
-from scripts.common.run import load, evaluator_manifest
+from scripts.common.run import load, evaluator_manifest, evaluable_prediction
 from benchmarks._io import write_json
 
 
@@ -103,15 +103,15 @@ def main(argv=None, *, benchmark=None):
     predicted = predictions(args.run / "predictions.jsonl", tasks)
     for task in tasks:
         row = predicted[task.id]
-        if row.get("status") == "cli_exited" and not row.get("submission_sha256"):
+        if evaluable_prediction(row) and not row.get("submission_sha256"):
             raise ValueError("Successful predictions require a frozen submission hash")
         if row.get("submission_sha256"):
             submission = args.run / task.id / frozen["backend"] / "submission.json"
             if digest(submission) != row["submission_sha256"]:
                 raise ValueError("Frozen submission changed")
-            if row.get("status") == "cli_exited" and json.loads(submission.read_text())["final_answer"] != row["final_answer"]:
+            if evaluable_prediction(row) and json.loads(submission.read_text())["final_answer"] != row["final_answer"]:
                 raise ValueError("Prediction differs from frozen submission")
-        if row.get("status") != "cli_exited" and row["final_answer"]:
+        if not evaluable_prediction(row) and row["final_answer"]:
             raise ValueError("Incomplete/failed attempts must remain empty predictions")
     groups = (hdr_rows(tasks, predicted) if args.benchmark == "hybriddeepresearch" else
               dict(outcome=dc_rows(tasks, predicted)))

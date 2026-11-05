@@ -103,6 +103,7 @@ def run_attempt(task, backend, args, key, stop, active, lock):
         result = adapter.run(prompt, workspace=work, output=folder / "cli", timeout=args.timeout,
                              execute=True, **terminal_options, **opts)
         report.update(status=result["status"], cli=result, finished_at=now())
+        write_json(folder / "report.json", report)
         if backend == "claude-code-subagents":
             report["subagents_audit"] = native_subagents(folder)
             if report["subagents_audit"]["native_team_configs"] or report["subagents_audit"]["teammate_idle_events"]:

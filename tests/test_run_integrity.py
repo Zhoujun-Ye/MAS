@@ -1,10 +1,7 @@
 import json
 
-import pytest
-
 from analysis.run_integrity import inspect_run
 from scripts.common.credential_gateway import UsageObserver
-from scripts.server.cleanup_results import archive, targets
 
 
 def write(path, rows):
@@ -71,29 +68,3 @@ def test_responses_output_id_bridge(tmp_path):
     write(tmp_path / "gateway-requests.jsonl", [dict(request_id="r1", route="/responses",
         upstream_attempted=True, provider_response_id="resp1", provider_output_ids=["msg1"])])
     assert inspect_run(tmp_path, "codex-single-agent")["gateway_reconciliation"]["status"] == "matched"
-
-
-def test_cleanup_preserves_later_results_and_snapshot(tmp_path):
-    root = tmp_path / "outputs/current"
-    for name in ["approved", "later"]:
-        (root / name).mkdir(parents=True)
-        (root / name / "report.json").write_text(name)
-    destination = archive(tmp_path, ["approved"])
-    assert (destination / "approved/report.json").read_text() == "approved"
-    assert (root / "later/report.json").read_text() == "later"
-    with pytest.raises(ValueError):
-        archive(tmp_path, ["approved"])
-
-
-@pytest.mark.parametrize("name", [".", "..", "../other", "/tmp"])
-def test_cleanup_rejects_roots_and_escape(tmp_path, name):
-    with pytest.raises(ValueError):
-        targets(tmp_path, [name])
-
-
-def test_cleanup_rejects_symlink(tmp_path):
-    root = tmp_path / "outputs/current"
-    root.mkdir(parents=True)
-    (root / "link").symlink_to(tmp_path, target_is_directory=True)
-    with pytest.raises(ValueError):
-        targets(tmp_path, ["link"])

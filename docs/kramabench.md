@@ -1,18 +1,10 @@
 # KramaBench
 
-## Claude Single Addition (2026-11-03)
+## Current Conditions
 
-`run.py --backend claude-code-single-agent` plans the new strict native Claude
-Single condition. Use its native denial proof, not the Subagents proof. Model,
-CLI pin, task data, V3 scoring, common instructions, container limits, concurrency,
-timeout and one-request judge policy remain aligned with the current comparison.
-The native tool surface/permission guard and condition instruction differ.
-
-`scripts/studies/compare_claude_single.py --baseline outputs/current/comparison-3way/summary.json
---single-run FRESH-RUN --output FRESH-COMPARISON` joins completed 104-task results.
-It checks matched task sets, exact scoring/artifact hashes, strict Single
-observations and zero member transcript messages, without new model/judge calls.
-The retained Team arm still has the 99-original/5-repair protocol limitation.
+Use native Claude Single or Subagents; the current comparison uses the frozen
+Validation20 manifest. Strict Single requires native delegation denial and audit.
+The lead prompt is unchanged; retired mixed-condition publications are not active.
 
 Pinned upstream: `mitdbg/Kramabench` at
 `b2e0d77540263f8b6119f977fe79a8c4386b5a02`, 104 tasks in six domains.
@@ -97,46 +89,21 @@ can be reused for offline rescoring; no new judge is called implicitly.
 
 ## Reporting
 
-- `catalog.py` and `prepare.py`: validate public task/input provenance; provisioning
-  remains separately authorized. `prepare.py` plans by default; an image build
-  additionally requires `--execute`.
-- `scripts/probes/`: offline native transport/policy probes shared by benchmarks.
-  The Single/Subagents probes use only a loopback fake provider and dummy key.
-- `score.py`: versioned offline scoring of historical attempt layouts.
-- `rescore_native.py`: reproduce original grades and write a fresh V3 overlay,
-  retaining exact source-summary/submission hashes and reused semantic verdicts.
-- `results.py`: publish matched 104-task snapshots with explicit replacements.
+- `catalog.py` and `prepare.py`: pinned task/input provenance; provisioning is
+  separately authorized and plan-only unless explicitly executed.
+- `scripts/probes/`: loopback fake-provider transport and native policy checks.
+- `score.py` and `rescore_native.py`: artifact-bound offline grading and rescoring;
+  semantic verdicts require separately authorized judge calls.
+- `scripts/studies/matched_matrix_report.py`: current matched comparison across
+  all three benchmarks; supports an explicit timeout-zero reporting policy.
+- `scripts/studies/rescore_validation20_hdr.py`: explicitly authorized two-case
+  recovery from existing artifacts, never a solver rerun.
 
-```sh
-.venv/bin/python scripts/kramabench/results.py \
-  --single-audit outputs/SINGLE-V3/summary.json \
-  --team-audit outputs/TEAM-ORIGINAL-V3/summary.json \
-  --repair-audit outputs/TEAM-REPAIR-V3/summary.json \
-  --output outputs/FRESH-PUBLICATION
-```
+The old 104-task repaired Single/Team publisher, mixed Deep Agents/Claude joiners,
+and publication-specific retention tool are retired. Their old input studies
+were deleted previously; source is retained in the cleanup snapshot, not as
+active commands. Current results and caveats are in [current-results.md](current-results.md).
 
-The publisher replaces the entire specified repair set, even when a new answer
-scores lower. It rejects changed artifacts/references, duplicate/missing task
-IDs, mismatched scoring versions and an unverified Single condition. Each
-replacement records its old and new source, score and artifact hash. It never
-modifies raw runs or chooses a best-scoring answer after seeing scores.
-
-The historical publication and run artifacts were deleted at the user's request
-on 2026-11-04. There is no current four-condition result table. The publishers
-below remain reusable source tools, not evidence that their old input paths exist.
-Future per-case USD estimates cover observed usage only; overlapping shared-account
-balance intervals cannot be allocated or summed as backend bills.
-
-`retain_current.py` plans cleanup by default. On explicit execution it copies and
-hash-checks the selected 208 raw attempts into `current/evidence/`, relocates old
-namespaces to an archive outside outputs, and records a relocation map. Frozen
-logs and source summaries are not rewritten. Local reports-only retention does
-not pretend remote raw evidence is present locally. `scripts/studies/compare_subagents.py`
-joins a finished 104-task native Subagents run with these retained baselines;
-it rejects mismatched task/scoring sets, changed artifacts and evidence of Team
-mode in the Subagents condition. Comparison/reporting makes no model calls.
-
-All tests/experiments run on the server. Historical pilot versions, failed probes,
-the old delegated dcode study and detailed audit receipts remain in
-[archives](archive.md), not active
-study defaults. No old authorization carries over to future paid work.
+All tests and experiments run on the server. Source/data/scoring hashes, original
+failures, unknown accounting and current raw artifacts remain preserved. Historical
+records are in [archives](archive.md); no old authorization permits new paid work.

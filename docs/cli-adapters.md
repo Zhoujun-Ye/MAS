@@ -48,9 +48,9 @@ transport does **not** imply synchronous subagents. The retained scoped-judge
 pilot's `archeology-easy-8` root transcript line 67 contains
 `Agent(..., run_in_background=true)`.
 
-The Subagents baseline uses orchestrator-worker lead prompt v4, adopted by the user
+The Subagents baseline uses current orchestrator-worker lead prompt, frozen by the user
 on 2026-11-04 ([prompt versions](studies/README.md)). The lead plans, splits the
-work between itself and subagents (one by default) and synthesizes. It specifies
+work between itself and subagents (at least one, scaled to complexity) and synthesizes. It specifies
 no specialist roster, judge role or cost-reduction policy.
 
 Native facts this relies on, observed on 2.1.286:

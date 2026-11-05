@@ -138,6 +138,7 @@ def probe(backend, root, image, key, fixture, *, effort="max"):
         unchanged = digest(binary) == binding["binary_sha256"]
         observed = [(request.get("output_config") or {}).get("effort") for request in fixture.requests]
         proof["observed_request_efforts"] = observed
+        proof["observed_request_max_tokens"] = sorted({r["max_tokens"] for r in fixture.requests if "max_tokens" in r})
         proof["request_effort_verified"] = bool(observed) and all(value == effort for value in observed)
         proof["passed"] = bool(result["status"] == "cli_exited" and proof["shell_verified"] and native_ok and unchanged
                                and proof["request_effort_verified"])

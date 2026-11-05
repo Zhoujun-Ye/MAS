@@ -1,8 +1,10 @@
 """Export only scores and operational metadata, never questions or answers."""
 import json
+import csv
 from collections import Counter
 from pathlib import Path
 import argparse
+import copy
 
 
 def read(path, default=None):
@@ -124,13 +126,70 @@ def summarize(result):
     return groups
 
 
+def timeout_zero(report):
+    revised = copy.deepcopy(report)
+    for row in revised['rows']:
+        if row['status'] == 'timed_out' and row['score'] is None:
+            row.update(score=0.0, grade_status='timeout_zero_by_user_policy')
+    revised['groups'] = summarize(revised['rows'])
+    revised['score_policy'] = 'Timeouts score zero; other unknown scores remain unknown.'
+    revised['limitations'].append(revised['score_policy'])
+    return revised
+
+
+def write_report(report, output):
+    """Export public operational metadata without copying private run artifacts."""
+    output.mkdir(parents=True, exist_ok=False)
+    columns = ['benchmark', 'task_id', 'backend', 'status', 'native_audit_passed', 'grade_status', 'score',
+               'seconds', 'model_requests', 'model_usd_offpeak', 'web_usd_estimate', 'judge_usd_offpeak',
+               'total_usd_offpeak', 'evidence']
+    with (output / 'task-results.csv').open('w', newline='') as stream:
+        writer = csv.DictWriter(stream, fieldnames=columns, extrasaction='ignore')
+        writer.writeheader()
+        writer.writerows(report['rows'])
+    (output / 'summary.json').write_text(json.dumps(report, indent=2) + '\n')
+    fmt = lambda value, spec='.4f': format(value, spec) if value is not None else 'unknown'
+    auth = report['authorization']
+    text = ['# Single vs Subagents', '',
+            f"Run: {report['run']}. One attempt per selected task and condition; no replacements.",
+            f"Effort: {auth['effort']}; solver concurrency: {auth['solver_concurrency']}; grading concurrency: {auth['judge_concurrency']}.",
+            f"Protocol source: {auth.get('protocol_settings_source', 'historical authorization')}; "
+            f"protocol SHA-256: {auth.get('protocol_settings_sha256') or 'not separately recorded'}.", '',
+            '| Benchmark | Condition | Graded | Mean Score | Full Score | Mean Min | USD Estimate | Native Audit |',
+            '| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: |']
+    for group in report['groups']:
+        if group['benchmark'] == 'all':
+            continue
+        count = group['attempts']
+        condition = 'Single' if group['backend'].endswith('single-agent') else 'Subagents'
+        text.append(f"| {group['benchmark']} | {condition} | {group['graded']}/{count} | {fmt(group['mean_score'])} | "
+                    f"{group['full_score']}/{count} | {fmt(group['mean_minutes'], '.2f')} | "
+                    f"{fmt(group['total_usd_offpeak'], '.6f')} | {group['native_audit_passes']}/{count} |")
+    text += ['', '## Audit Exceptions', '']
+    for row in report['rows']:
+        if row['native_audit_passed'] is not True:
+            text.append(f"- {row['benchmark']} / {row['task_id']} / {row['backend']}: {row['status']}; score {row['score']}.")
+    text += ['', '## Limits', ''] + ['- ' + value for value in report['limitations']]
+    (output / 'REPORT.md').write_text('\n'.join(text) + '\n')
+
+
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--run', type=Path, required=True)
+    source = parser.add_mutually_exclusive_group(required=True)
+    source.add_argument('--run', type=Path)
+    source.add_argument('--from-report', type=Path, help='Existing exported summary; no regrading')
+    parser.add_argument('--timeout-as-zero', action='store_true')
     parser.add_argument('--output', type=Path, required=True)
+    parser.add_argument('--report-dir', type=Path, help='Fresh directory for REPORT.md, task-results.csv and summary.json')
     args = parser.parse_args()
     if args.output.exists():
         raise ValueError('Report already exists')
-    report = collect(args.run)
+    if args.report_dir and (args.report_dir.exists() or (args.run and args.report_dir.resolve().is_relative_to(args.run.resolve()))):
+        raise ValueError('Use a fresh report directory outside immutable run evidence')
+    report = collect(args.run) if args.run else read(args.from_report)
+    if args.timeout_as_zero:
+        report = timeout_zero(report)
+    if args.report_dir:
+        write_report(report, args.report_dir)
     args.output.write_text(json.dumps(report, indent=2) + '\n')
     print(json.dumps(report['groups'], indent=2))

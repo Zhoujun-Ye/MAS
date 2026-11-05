@@ -1,5 +1,3 @@
-import json
-
 import pytest
 
 from analysis import cache, stats
@@ -64,26 +62,3 @@ def test_cache_groups_explicit_team_roles_not_agent_name_prefixes():
     summary = cache.summarize([("summary", events)])
     assert {g["role"] for g in summary["groups"]} == {"all", "worker", "handoff"}
     assert summary["steps"][0]["role"] == "worker"
-
-
-def test_analysis_counts_all_started_and_preserves_outputs(tmp_path):
-    from scripts.analyze import load_runs, summarize
-    for key, status, failure, success in [
-        ("done", "completed", None, True), ("unfinished", "incomplete", "agent_failure", None),
-        ("error", "error", "infrastructure_error", None), ("ungraded", "completed", None, None)]:
-        folder = tmp_path / key
-        folder.mkdir()
-        (folder / "manifest.json").write_text(json.dumps(dict(scheduler="controlled", communication_policy={})))
-        (folder / "result.json").write_text(json.dumps(dict(status=status, failure_class=failure)))
-        if success is not None:
-            (folder / "grade.json").write_text(json.dumps(dict(correct=success)))
-        events = [dict(type="run_start", t=0), dict(type="run_end", t=1, status=status)]
-        (folder / "trace.jsonl").write_text("".join(json.dumps(event) + "\n" for event in events))
-    before = {p: p.read_bytes() for p in tmp_path.rglob("*") if p.is_file()}
-    runs, traces = load_runs(tmp_path)
-    row = next(iter(summarize(runs)["conditions"].values()))
-    assert row["runs"] == 4 and row["agent_failures"] == 1 and row["infrastructure_errors"] == 1
-    assert row["success_rate"] == 0.25 and row["success_rate_upper_bound"] == 0.75
-    assert row["graded"] == 2 and row["ungraded"] == 2 and row["ci95"] is None
-    assert row["estimated_cost_usd"] is None and row["semantic_loss"] is None
-    assert before == {p: p.read_bytes() for p in tmp_path.rglob("*") if p.is_file()}

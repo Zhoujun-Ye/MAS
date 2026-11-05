@@ -10,10 +10,10 @@ def test_authorized_conditions_are_explicit():
     assert "SINGLE-AGENT" in backend_instructions("claude-code-single-agent")
     subagents = backend_instructions("claude-code-subagents")
     assert subagents.startswith("Use Claude Code's native subagents as an orchestrator-worker team.")
-    assert "launch the subagents together with the native Agent tool" in subagents
-    assert "Default to one subagent" in subagents
-    assert "Do not sleep, poll, or check their status" in subagents
-    assert "end your turn: the run stays open" in subagents
+    assert "with the native Agent tool" in subagents
+    assert "Always deploy at least one subagent" in subagents
+    assert "do not sleep, poll, or check their status" in subagents
+    assert "end your turn and you will be resumed" in subagents
 
 
 def test_single_admission_requires_native_policy_proof_and_valid_artifact(tmp_path, monkeypatch):

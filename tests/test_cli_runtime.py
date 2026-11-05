@@ -11,13 +11,17 @@ from analysis.native_evidence import read_evidence
 
 def test_scope_and_no_secrets_in_native_plan():
     assert "Agent" not in options("claude-code-single-agent")["allowed_tools"]
-    assert not any("KEY" in key or "TOKEN" in key for key in native_env("claude-code-subagents")
-                   if key not in {"CLAUDE_CODE_MAX_OUTPUT_TOKENS"})
+    assert not any("KEY" in key or "TOKEN" in key for key in native_env("claude-code-subagents"))
     with pytest.raises(ValueError, match="Only Claude"):
         options("deepagents")
     assert options("claude-code-subagents")["model"] == "deepseek-flash[1m]"
     assert native_env("claude-code-subagents")["CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS"] == "0"
     assert native_env("claude-code-subagents")["CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS"] == "0"
+
+
+@pytest.mark.parametrize("backend", ["claude-code-single-agent", "claude-code-subagents"])
+def test_output_limit_uses_native_default(backend):
+    assert "CLAUDE_CODE_MAX_OUTPUT_TOKENS" not in native_env(backend, effort="high")
 
 
 def test_claude_container_has_no_retired_runtime_dependency(tmp_path, monkeypatch):

@@ -1,4 +1,5 @@
 import json
+import pytest
 
 from harness import ClaudeCodeSubagentsCLI
 from analysis.native_evidence import native_subagents
@@ -36,3 +37,31 @@ def test_subagents_plans_have_teams_disabled_and_no_side_effects(tmp_path):
     assert plan['backend'] == 'claude-code-subagents'
     assert plan['environment_overrides']['CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS'] == '0'
     assert not (tmp_path/'out').exists()
+
+
+@pytest.mark.parametrize('killer', ['parent', 'system', 'user'])
+def test_native_killed_worker_is_accounted_without_stop_hook(tmp_path, killer):
+    path = tmp_path/'native-profile/observer/events.jsonl'
+    path.parent.mkdir(parents=True)
+    rows = [dict(hook_event_name='SessionStart', session_id='root'),
+            dict(hook_event_name='SubagentStart', agent_id='worker'),
+            dict(hook_event_name='SessionEnd', session_id='root')]
+    path.write_text('\n'.join(map(json.dumps, rows)))
+    killed = dict(parent=0, user=0, system=0)
+    killed[killer] = 1
+    native = dict(session_id='root', terminal_reason='completed', is_error=False,
+                  subagent_stats=dict(spawned=1, completed=0, failed=0, killed=killed))
+    report = dict(cli=dict(status='cli_exited', returncode=0, native_result=native))
+    target = tmp_path/'report.json'
+    target.write_text(json.dumps(report))
+    audit = native_subagents(tmp_path)
+    assert audit['passed'] and audit['structural_delegation_complete']
+    assert audit['active_subagent_ids'] == ['worker']  # Hook evidence is not rewritten.
+    assert audit['workspace_quiescence'] == 'unverified'
+    for field, value in [('session_id', 'other'), ('terminal_reason', 'failed'), ('is_error', True)]:
+        changed = dict(native, **{field: value})
+        target.write_text(json.dumps(dict(cli=dict(report['cli'], native_result=changed))))
+        assert not native_subagents(tmp_path)['passed']
+    native['subagent_stats']['killed'][killer] = 2
+    target.write_text(json.dumps(report))
+    assert not native_subagents(tmp_path)['passed']

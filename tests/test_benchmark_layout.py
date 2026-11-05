@@ -24,6 +24,15 @@ def test_common_runtime_does_not_depend_on_a_benchmark_runner():
     assert not (ROOT / "scripts/research_benchmarks").exists()
 
 
+def test_retired_workflows_are_not_active_entry_points():
+    for name in ('scripts/analyze.py', 'analysis/runs.py', 'analysis/legacy_trace.py',
+                 'analysis/codex_evidence.py', 'scripts/studies/compare_subagents.py',
+                 'scripts/studies/compare_claude_single.py', 'scripts/kramabench/results.py',
+                 'scripts/kramabench/retain_current.py', 'scripts/server/retire_codex_results.py',
+                 'scripts/server/retire_sources.py', 'scripts/server/cleanup_results.py'):
+        assert not (ROOT / name).exists()
+
+
 def test_image_preparation_is_plan_only_by_default(tmp_path, monkeypatch, capsys):
     monkeypatch.setattr(prepare, "verify_inputs", lambda _: dict(total_files=1, total_bytes=5))
     def forbid(*args, **kwargs):

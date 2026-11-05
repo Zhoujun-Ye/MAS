@@ -143,6 +143,30 @@ def test_cleanup_failure_retained_and_stops_later_tasks(workflow, monkeypatch):
     assert all(row["final_answer"] == "" for row in rows) and len(workflow.calls) == 1
 
 
+def test_unverified_organization_keeps_hash_bound_answer_separate(workflow, tmp_path, monkeypatch):
+    original = run.BACKENDS['claude-code-subagents'].run
+    def completed(self, *args, **kwargs):
+        return dict(original(self, *args, **kwargs), returncode=0)
+    monkeypatch.setattr(run.BACKENDS['claude-code-subagents'], 'run', completed)
+    monkeypatch.setattr(run, 'native_subagents', lambda *a: dict(passed=False))
+    assert run.main(workflow.argv + ['--execute'], benchmark=workflow.benchmark) == 1
+    rows = jsonl(workflow.output / 'predictions.jsonl')
+    assert rows[0]['status'] == 'native_condition_unverified' and rows[0]['final_answer'] == '1'
+    assert rows[1]['status'] == 'not_started' and rows[1]['final_answer'] == ''
+    args = ['--run', str(workflow.output), '--upstream', str(workflow.upstream),
+            '--tasks', str(workflow.task_file), '--output', str(tmp_path/'evaluation')]
+    assert score.main(args, benchmark=workflow.benchmark) == 0
+    rows[0]['final_answer'] = 'tampered'
+    (workflow.output/'predictions.jsonl').write_text('\n'.join(map(json.dumps, rows)))
+    with pytest.raises(ValueError, match='differs'):
+        score.main(args, benchmark=workflow.benchmark)
+
+
+@pytest.mark.parametrize('status', ['timed_out', 'cleanup_failed', 'single_agent_condition_violated'])
+def test_failed_attempt_is_not_outcome_eligible(status):
+    assert not run.evaluable_prediction(dict(status=status, cli=dict(status='cli_exited', returncode=0)))
+
+
 def test_success_cannot_bypass_submission_hash(workflow, tmp_path):
     run.main(workflow.argv + ["--execute"], benchmark=workflow.benchmark)
     path = workflow.output / "predictions.jsonl"

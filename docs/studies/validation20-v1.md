@@ -6,6 +6,16 @@ must be disclosed; final claims require separate data and an appropriate design.
 
 ## Current Status
 
+The user subsequently authorized a fresh rerun on 2026-11-04: all 20
+frozen questions per benchmark, both conditions, one attempt each (120 total),
+with native output defaults and no retries. The original manifest remains
+byte-identical; `validation20-final-protocol.json` records the changed prompt
+hash separately. Solver concurrency remains 6, grading concurrency 2, effort high.
+Use the full-matrix reporter rather than the historical two-slice merger below.
+The preceding deletion remains historical; no old paid result is reused.
+
+### Prior Cleanup
+
 The user requested stopping experiments and deleting all current paid results on
 2026-11-04. The initial and partial extension results were deleted, along with
 their current summary reports. The fixed public task IDs/hashes below remain;
@@ -32,7 +42,7 @@ Changing any question requires a new named set version; do not silently edit v1.
 ## Baseline Protocol
 
 - Claude Code 2.1.286; DeepSeek Flash; all lead/worker effort `high`.
-- Strict Single vs native Subagents, adopted v4 default, Teams disabled.
+- Strict Single vs native Subagents, then-adopted prompt, Teams disabled.
 - One attempt per task per condition; zero retries or replacement attempts.
 - Solver concurrency 6, grading concurrency 2, isolated outputs/workspaces.
 - DataClaw 1200 s, HDR 1800 s, Krama 3600 s; web-enabled tasks share four
@@ -62,8 +72,8 @@ fresh output directory. The runner verifies all frozen task hashes before dispat
 Baseline settings remain fixed; new idea interventions must be separately labeled
 and explicitly authorized rather than silently changing the baseline.
 
-`scripts/studies/validation20_report.py` merges the two exact frozen slices without
-regrading or rerunning solvers. It exports `REPORT.md`, `task-results.csv`,
-`summary.json` and a copy of the manifest. Per-task scores, timing, estimated cost,
-role accounting, prompt metadata and audit exceptions are retained. Questions,
-answers, SQL and private evaluation logs stay on the server.
+Use `scripts/studies/matched_matrix_report.py` for the current full-20 report.
+The obsolete initial10 freeze/two-slice merger required the deleted original
+batch and was retired during cleanup. The public task manifest is unchanged.
+Reports retain scores, timing, costs, role accounting and audit exceptions.
+Questions, answers, SQL and private evaluation logs stay on the server.

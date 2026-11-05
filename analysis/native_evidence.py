@@ -134,12 +134,37 @@ def native_subagents(folder):
     configs = list((Path(folder)/"native-profile/claude/teams").glob("*/config.json"))
     teammate_idle = sum(r.get("hook_event_name") == "TeammateIdle" for r in rows)
     children = child_tool_evidence(Path(folder) / "native-profile")
-    return dict(passed=bool(root and root_end and starts and not active and not configs and not teammate_idle),
+    # Killed native workers may have no SubagentStop hook. Reconcile counts only
+    # against the same completed root session; never infer worker identity/quiescence.
+    termination = None
+    try:
+        report = json.loads((Path(folder) / "report.json").read_text())
+        cli = report.get("cli", {})
+        native = cli.get("native_result", {})
+        stats = native.get("subagent_stats", {})
+        killed = stats.get("killed", {})
+        counts = [stats.get("spawned"), stats.get("completed")]
+        kills = [killed.get(k) for k in ("parent", "user", "system")]
+        if (active and root and root_end and cli.get("status") == "cli_exited"
+                and cli.get("returncode") == 0 and native.get("session_id") == root
+                and native.get("terminal_reason") == "completed" and native.get("is_error") is False
+                and all(type(v) is int and v >= 0 for v in counts + kills)
+                and start_events == len(starts) and stop_events == len(stops)
+                and stops <= starts and counts == [len(starts), len(stops)]
+                and sum(kills) == len(active) and stats.get("failed") == 0):
+            termination = dict(killed_by=killed, count=sum(kills), scope="aggregate_native_counts; identities_unverified")
+    except (OSError, ValueError, TypeError, AttributeError):
+        pass
+    complete = bool(starts) and root_end and (not active or termination is not None)
+    return dict(passed=bool(root and complete and not configs and not teammate_idle),
                 subagent_starts=start_events, subagent_stops=stop_events, unique_subagents=len(starts),
                 active_subagent_ids=sorted(active),
                 native_team_configs=len(configs), teammate_idle_events=teammate_idle, session_end=root_end,
                 structural_delegation_observed=bool(starts),
-                structural_delegation_complete=bool(starts) and not active and root_end,
+                structural_delegation_complete=complete,
+                lifecycle_basis="hooks_and_native_termination_counts" if termination else "hooks",
+                native_termination_accounting=termination,
+                workspace_quiescence="unverified",
                 child_tool_evidence=children,
                 child_tool_evidence_status="observed_transcripts" if children else "unavailable",
                 substantive_work_status="unverified",

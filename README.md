@@ -9,7 +9,7 @@ No upstream agent runtime is vendored or imported as an SDK.
 | --- | --- | --- |
 | Claude Code 2.1.286 | Native delegation disabled and audited | Native Agent; Teams disabled |
 
-The Subagents default is orchestrator-worker lead prompt v4, adopted by the user on
+The Subagents default is current orchestrator-worker lead prompt, frozen by the user on
 2026-11-04. Earlier prompts are kept verbatim for ablations in [docs/studies](docs/studies/README.md).
 This is a prompted native baseline, not an unmodified default CLI policy. It adds
 no specialist roster or cost-reduction method. Both conditions receive the same task
@@ -19,15 +19,14 @@ evidence-review question.
 
 Deep Agents, Claude Code Agent Teams and Codex adapters are retired. Do not restore
 their active adapters or launch choices. Codex results were removed at the user's
-request. All current paid experiment results and their current summary reports were
-deleted at the user's request on 2026-11-04. Source, data, offline proofs and the
-fixed Validation20 task manifest remain.
+request. Earlier paid results were deleted on 2026-11-04; the subsequently
+authorized current run and its derived regrading reports are retained.
 
 ## Current Results
 
-There are no retained current paid results. The extension batch was stopped before
-cleanup; the subsequently discussed output-limit rerun was not launched. Future
-experiments require fresh run-specific authorization.
+The current Validation20 comparison is complete. The current report includes two
+HDR artifact-only regrades and counts timeouts as zero, as requested. No solver
+was rerun for these corrections. Future experiments require fresh authorization.
 
 See [current result status](docs/current-results.md) and
 [the fixed validation set](docs/studies/validation20-v1.md).

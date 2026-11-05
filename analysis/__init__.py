@@ -1,1 +1,1 @@
-"""Cache accounting, general statistics and historical run readers."""
+"""Native evidence, integrity audits, cache accounting and statistics."""

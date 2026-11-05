@@ -29,6 +29,14 @@ from analysis.native_evidence import native_single_agent, native_subagents
 BACKENDS = {"claude-code-single-agent": ClaudeCodeSingleAgentCLI, "claude-code-subagents": ClaudeCodeSubagentsCLI}
 
 
+def evaluable_prediction(row):
+    """Outcome evaluation is separate from native-organization admission."""
+    return row.get("status") == "cli_exited" or (
+        row.get("status") == "native_condition_unverified"
+        and row.get("cli", {}).get("status") == "cli_exited"
+        and row.get("cli", {}).get("returncode") == 0)
+
+
 @contextmanager
 def graceful_signals():
     def interrupt(signum, frame):
@@ -240,7 +248,7 @@ def attempt(task, args, key):
             raise ValueError("Expected exactly one final_answer text field")
         result["submission_sha256"] = digest(submission)
         shutil.copyfile(submission, folder / "submission.json")
-        if result["status"] == "cli_exited":
+        if evaluable_prediction(result):
             result["final_answer"] = data["final_answer"]
             if not data["final_answer"].strip():
                 result["status"] = "incomplete"

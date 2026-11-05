@@ -1,0 +1,14 @@
+{
+  "effort": "high",
+  "organization_sha256": {
+    "claude-code-single-agent": "ff771193df12b53fc2aa3593355b07847f3993728d3f850c148bb825c77c5ce6",
+    "claude-code-subagents": "31ff6e4176a25d961866f644adb4d7b97cb4b00228e696c0e4e38a52b9485a95"
+  },
+  "timeout_seconds_by_benchmark": {
+    "dataclawbench": 1200,
+    "hybriddeepresearch": 1800,
+    "kramabench": 3600
+  },
+  "solver_concurrency": 6,
+  "judge_concurrency": 2
+}

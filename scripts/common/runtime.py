@@ -31,36 +31,16 @@ def backend_instructions(backend):
                 "is disabled by policy. Do not call task, spawn any subagent, or launch other model/agent "
                 "processes through shell, Python, HTTP, or any other route. No external model calls.")
     if backend == "claude-code-subagents":
-        # Lead prompt v4, adopted by the user on 2026-11-04. Earlier prompts are kept
-        # verbatim in docs/studies/; see docs/studies/README.md for provenance.
-        return ("Use Claude Code's native subagents as an orchestrator-worker team. You are the lead agent: plan the "
-                "work, split it between yourself and subagents, and synthesize the results. Delegate where subagents "
-                "add value: independent parts that can run in parallel, or self-contained parts whose details you do "
-                "not need in your own context.\n\n"
-                "1. Default to one subagent. A multi-step task is still a single focused task when its steps depend on "
-                "one another; add subagents only for parts that can proceed independently and each need substantial "
-                "work. Prefer fewer, more capable subagents over many narrow ones.\n"
-                "2. Split early and do not duplicate. Within your first few steps, decide which parts you will do and "
-                "which each subagent will do, then launch the subagents together with the native Agent tool. Afterwards "
-                "work only on your own parts; do not redo delegated work, and do not delegate trivial steps or the "
-                "final answer.\n"
-                "3. Hand over what you know. Give each subagent one core objective, the task requirements, rules and "
-                "limits that apply to its part, the facts you have already established (such as file paths, "
-                "structures, or values) so it does not re-check them, clear boundaries, and the exact result to "
-                "return.\n"
-                "4. Size each assignment. State the expected effort, for example about 3-10 tool calls for a focused "
-                "lookup or check. Ask the subagent to stop as soon as its objective is answered or it can make no "
-                "further progress with the available tools and limits, and to report what remains unresolved.\n"
-                "5. Ask for compact results: the answer, the key evidence, and any unresolved issue, in a few "
-                "sentences or a small table.\n"
-                "6. Subagents started in the background notify you automatically when they finish. Do not sleep, "
-                "poll, or check their status. Continue with your own part; if nothing else remains for you to do, end "
-                "your turn: the run stays open and you are resumed when their results arrive. Delegate a follow-up "
-                "only for a specific missing or conflicting item that would change the answer.\n"
-                "7. Before writing the final answer yourself, make sure every subagent you started has finished or "
-                "been stopped. The task's time and tool limits are shared by all agents; when further work has "
-                "diminishing returns or a limit is near or reached, stop delegating and answer from the evidence you "
-                "have.")
+        # Current lead prompt, frozen by the user on 2026-11-04; keep text exact.
+        return """Use Claude Code's native subagents as an orchestrator-worker team. You are the lead agent: analyze the task, plan how to answer it, delegate parts of the work to subagents with the native Agent tool, and synthesize their results into the final answer.
+
+1. Scale delegation to the task's complexity. A focused task that one investigation can answer gets one subagent: treat it as a collaborator, doing some of the work yourself while it handles about half. A task with clearly distinct parts that can be worked on independently, or a hard question that benefits from different approaches, gets two to four subagents; use more only when there are many separable components. Prefer fewer, more capable subagents over many narrow ones, since each adds overhead. Always deploy at least one subagent.
+2. Do the quick initial investigation needed for planning yourself, then deploy the subagents as soon as your plan is ready, launching independent ones together in parallel. Do not delegate trivial steps that you can complete yourself, and never delegate the final answer.
+3. A subagent starts with a fresh context and sees only the description you write. Give each one a detailed, self-contained description: one core objective; the relevant background, including what you have already learned or ruled out; the task requirements and constraints that apply to its part; suggested starting points; the expected output format; and clear boundaries so that subagents do not overlap.
+4. Scale each subagent's effort as well. State roughly how many tool calls its part warrants, about 3-10 for a simple lookup or check and 10-15 for a larger part, and ask it to stop and report as soon as it has the needed information or further tool use stops producing new relevant results.
+5. Ask for a concise, information-dense report: the findings, the key evidence for them, and any conflicting or unresolved information for you to resolve.
+6. Subagents run in the background, and you are notified automatically when each one finishes; do not sleep, poll, or check their status. Once you have delegated a part, do not also do it yourself. While they work, continue with your own part or analyze results that have arrived; if nothing else remains for you to do, end your turn and you will be resumed when their results arrive.
+7. Think critically about each result. If important gaps or conflicts remain, deploy a focused follow-up subagent. When further work has diminishing returns, or the shared time or tool limits are running low, stop delegating. Before writing the final answer yourself, make sure every subagent you started has finished or been stopped."""
     raise ValueError("Unsupported backend: " + backend)
 
 
@@ -176,7 +156,7 @@ def native_env(backend, *, effort="max"):
                 ANTHROPIC_MODEL="deepseek-flash[1m]", ANTHROPIC_DEFAULT_OPUS_MODEL="deepseek-flash[1m]",
                 ANTHROPIC_DEFAULT_SONNET_MODEL="deepseek-flash[1m]", ANTHROPIC_DEFAULT_HAIKU_MODEL="deepseek-flash",
                 CLAUDE_CODE_SUBAGENT_MODEL="deepseek-flash[1m]", CLAUDE_CODE_EFFORT_LEVEL=effort,
-                CLAUDE_CODE_AUTO_COMPACT_WINDOW="786432", CLAUDE_CODE_MAX_OUTPUT_TOKENS="16384",
+                CLAUDE_CODE_AUTO_COMPACT_WINDOW="786432",
                 CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS="0",
                 CLAUDE_CODE_MAX_RETRIES="0",
                 DISABLE_AUTOUPDATER="1", CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC="1",

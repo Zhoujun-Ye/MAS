@@ -1,5 +1,40 @@
 # Historical Evidence
 
+## Deep Cleanup (2026-11-04)
+
+The current native workflow is retained. Obsolete scheduler analysis, an orphan
+Codex evidence CLI, deleted mixed-cohort publishers/retention, and completed
+one-time migration scripts were removed with their dedicated tests. Source-only
+snapshots on both hosts are `archives/source-snapshots/20261104-deep-cleanup-source.tgz`.
+This supersedes historical references below to those scripts being active.
+Reusable grading/rescoring, generic statistics/cache analysis, native evidence,
+containment, transport and current reporting regressions remain.
+
+Only superseded generated report copies/exports are removed from server outputs;
+the current report, original solver/grade data and regrading evidence remain.
+Unused local image-registry download tools are removed from `.cache/native-tools`.
+Historical source archives, benchmark checkouts/assets, Docker resources and
+external data/environments are not deleted. See [cleanup receipt](cleanup-20261104.md).
+The retired local MASBench checkout is relocated intact to external project data:
+`/Users/zhoujun/Desktop/MAS-information-data/retired/masbench-removal-20261031`.
+
+## Current Cleanup (2026-11-04)
+
+The current comparison is [Validation20](current-results.md), with artifact-only
+HDR regrading and timeout-zero reporting. Earlier deletion notes below predate
+this run. They do not mean the current evidence has been deleted.
+
+Removed the obsolete initial10 manifest generator and two-slice report merger,
+which required a deleted batch, and their merger-only test. Local pre-edit copies
+are retained in `archives/source-snapshots/20261104-cleanup/`. The current full20
+runner, safety tests, frozen task manifest and current prompt are retained.
+Superseded lead prompt files and their retention-only test were removed at the
+user's request. Only the current prompt is used, without a version label.
+
+Redundant local report exports are removed only after checksum matching the
+retained server copies. Raw attempts, grades, source archives and historical
+evidence are kept; unrelated `docs/design/` work remains untouched.
+
 ## Result Retirement (2026-11-04)
 
 The user explicitly authorized deletion of previous benchmark results after the
