@@ -58,8 +58,8 @@ See `docs/cli-adapters.md` for pinned versions, references and limitations.
 
 ## Server Operations
 
-- Local `/Users/zhoujun/Desktop/MAS-information`; server
-  `zhoujunye@10.123.4.30:22`, `/home/zhoujunye/MAS-information`.
+- Local `/Users/zhoujun/Desktop/MAS`; server
+  `zhoujunye@10.123.4.30:22`, `/home/zhoujunye/mas`.
 - External server data and evaluation environment: `/home/zhoujunye/MAS-information-data`.
   The old server KramaBench upstream path is a compatibility symlink. Current
   provisioning receipts and source-stage location are in `docs/server-preparation.md`.

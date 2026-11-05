@@ -281,7 +281,7 @@ def main(argv=None, *, benchmark=None):
                         help="Solver seconds; defaults to the benchmark-specific timeout policy")
     parser.add_argument("--offline-proof", type=Path)
     parser.add_argument("--authorized-attempts", type=int)
-    parser.add_argument("--credentials", type=Path, default=Path("/home/zhoujunye/MAS-information/.env"))
+    parser.add_argument("--credentials", type=Path, default=Path("/home/zhoujunye/mas/.env"))
     parser.add_argument("--execute", action="store_true")
     parser.add_argument("--effort", choices=("high", "max"), default="max")
     parser.add_argument("--organization-prompt", type=Path,

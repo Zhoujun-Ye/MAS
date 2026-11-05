@@ -38,7 +38,7 @@ def main(argv=None):
         return 0
     if Path.cwd().resolve() != ROOT:
         raise ValueError("Execute from the project source root so child modules use the frozen source")
-    allowed = Path("/home/zhoujunye/MAS-information/outputs")
+    allowed = Path("/home/zhoujunye/mas/outputs")
     prompt_path = Path(str(output) + ".organization-prompt.txt")
     status_path = Path(str(output) + ".driver-status.json")
     export_path = Path(str(output) + "-export.json")

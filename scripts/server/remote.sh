@@ -4,5 +4,5 @@
 # Requires configured key-based SSH authentication; no credential fallback.
 set -euo pipefail
 HOST="${SERVER:-zhoujunye@10.123.4.30}"
-REMOTE="${REMOTE_DIR:-/home/zhoujunye/MAS-information}"
+REMOTE="${REMOTE_DIR:-/home/zhoujunye/mas}"
 exec ssh -o BatchMode=yes "$HOST" "cd '$REMOTE' && $*"

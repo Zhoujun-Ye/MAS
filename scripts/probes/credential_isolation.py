@@ -58,7 +58,7 @@ with socket.socket() as direct:
 print(json.dumps({'snapshot':snapshot, 'results':results,
     'quota_status':quota_status, 'external_blocked':external_blocked,
     'host_ledger_visible':pathlib.Path('/gateway-requests.jsonl').exists(),
-    'host_env_visible':pathlib.Path('/home/zhoujunye/MAS-information/.env').exists()}))
+    'host_env_visible':pathlib.Path('/home/zhoujunye/mas/.env').exists()}))
 '''
     proofs = []
     with patch.object(credential_gateway, "open_upstream", upstream):

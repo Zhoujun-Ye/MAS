@@ -7,7 +7,7 @@ PY=/home/zhoujunye/MAS-information-data/environments/evaluation/bin/python
 DATA=/home/zhoujunye/MAS-information-data
 RUN=${1:?Supply a fresh absolute server output directory}
 PROOFS=${2:?Supply matching offline proof directory}
-if [[ "$RUN" != /home/zhoujunye/MAS-information/outputs/* || -e "$RUN" || -e "$RUN.driver-status.json" || -e "$RUN-report" ]]; then
+if [[ "$RUN" != /home/zhoujunye/mas/outputs/* || -e "$RUN" || -e "$RUN.driver-status.json" || -e "$RUN-report" ]]; then
   echo "Refusing existing or out-of-scope output" >&2
   exit 2
 fi

@@ -35,7 +35,9 @@ with dummy credentials, network-disabled solver containers and zero paid calls.
 
 Driver: `python -m scripts.studies.run_validation20_native --output RUN --proofs PROOFS`.
 It only plans unless `--execute` is supplied. Execution requires a fresh direct
-child of `/home/zhoujunye/MAS-information/outputs` and does not resume a batch.
+child of `/home/zhoujunye/mas/outputs` and does not resume a batch.
+The recorded run prefixes below retain their historical names; the old project
+path is a compatibility symlink to `/home/zhoujunye/mas`.
 
 Run prefix: `/home/zhoujunye/MAS-information/outputs/claude-validation20-native-20261105-01`.
 The matrix writes authorization, fixed-task manifest, protocol, a frozen lead

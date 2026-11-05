@@ -2,7 +2,10 @@
 
 ## Active Paths
 
-- Project: `/home/zhoujunye/MAS-information`.
+- Project: `/home/zhoujunye/mas`.
+- Compatibility symlink: `/home/zhoujunye/MAS-information` points to `mas`,
+  preserving historical absolute artifact paths. External data, environments and
+  frozen source stages retain their original directories.
 - Data and evaluation: `/home/zhoujunye/MAS-information-data`.
 - Evaluation Python: `/home/zhoujunye/MAS-information-data/environments/evaluation/bin/python`.
 - Datasets: `kramabench/upstream`, `dataclawbench/upstream`,

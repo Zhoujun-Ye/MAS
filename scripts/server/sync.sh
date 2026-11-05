@@ -4,7 +4,7 @@
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 HOST="${SERVER:-zhoujunye@10.123.4.30}"
-REMOTE="${REMOTE_DIR:-/home/zhoujunye/MAS-information}"
+REMOTE="${REMOTE_DIR:-/home/zhoujunye/mas}"
 ssh -o BatchMode=yes "$HOST" "mkdir -p '$REMOTE'"
 if (( $# )); then
   # Explicit source-only mode for a narrow change; never sync runtime data.

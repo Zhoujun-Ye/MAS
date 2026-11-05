@@ -34,7 +34,7 @@ must not be treated as audited batch totals. All three complete totals are
 unknown; [README](../README.md) lists the known subtotals, cost coverage and
 per-attempt times using the same accounting rule. Original scores and HDR
 regrade provenance are preserved.
-The same report is under server `/home/zhoujunye/MAS-information/outputs/`.
+The same report is under server `/home/zhoujunye/mas/outputs/`.
 Original run and artifact-only regrade directories retain their recorded names;
 raw evidence, original scores and earlier reports are preserved on the server.
 No current prompt version label is implied by historical directory names.

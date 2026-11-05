@@ -33,7 +33,7 @@ def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--run', type=Path, required=True)
     parser.add_argument('--root', type=Path, required=True)
-    parser.add_argument('--credentials', type=Path, default=Path('/home/zhoujunye/MAS-information/.env'))
+    parser.add_argument('--credentials', type=Path, default=Path('/home/zhoujunye/mas/.env'))
     parser.add_argument('--authorized-judges', type=int)
     parser.add_argument('--execute', action='store_true')
     args = parser.parse_args(argv)

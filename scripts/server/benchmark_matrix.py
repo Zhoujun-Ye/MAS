@@ -135,7 +135,7 @@ def main(argv=None):
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--proofs", type=Path, required=True)
     parser.add_argument("--image", required=True)
-    parser.add_argument("--credentials", type=Path, default=Path("/home/zhoujunye/MAS-information/.env"))
+    parser.add_argument("--credentials", type=Path, default=Path("/home/zhoujunye/mas/.env"))
     parser.add_argument("--concurrency", type=int, default=8, choices=range(1, 13))
     parser.add_argument("--effort", choices=("high", "max"), default="max")
     parser.add_argument("--organization-prompt", type=Path)

@@ -191,7 +191,7 @@ def main(argv=None):
     parser.add_argument("--offline-proof", type=Path, required=True)
     parser.add_argument("--organization-prompt", type=Path,
                         help="Explicit Subagents study instruction override; frozen with its SHA-256")
-    parser.add_argument("--credentials", type=Path, default=Path("/home/zhoujunye/MAS-information/.env"))
+    parser.add_argument("--credentials", type=Path, default=Path("/home/zhoujunye/mas/.env"))
     parser.add_argument("--image", default="mas-information/kramabench:20261101-v1")
     parser.add_argument("--concurrency", type=int, default=12)
     parser.add_argument("--timeout", type=int, default=3600)
