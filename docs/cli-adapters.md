@@ -103,12 +103,3 @@ Research orchestration and benchmark evaluation remain outside `harness/`.
 Offline stub tests do not establish real-model quality or provider retry behavior.
 Tests run on the server in fresh source stages; no production deployment or paid
 run is implied. See [additional benchmark adapters](research-benchmarks.md).
-
-Claude-only retirement verification (2026-11-03): **176 offline tests passed**
-in server stage `/tmp/mas-claude-only-benchmarks.WoJDYt`, receipt
-`pytest-results.xml`. Harness and new benchmark entry-point help checks also
-passed. Active container arguments were tested to contain no dcode mounts or
-Deep Agents environment/executable dependency. No production sync or uninstall.
-
-For the subsequent benchmark-structure cleanup and current offline verification,
-see [the adaptation audit](benchmark-adaptation.md#verification-receipt).

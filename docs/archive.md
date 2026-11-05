@@ -14,13 +14,11 @@ renaming or overwriting them would break provenance.
 
 Current comparison: [current-results.md](current-results.md).
 Current fixed questions: [studies/validation20.md](studies/validation20.md).
-Cleanup details: [cleanup-20261104.md](cleanup-20261104.md).
 
 ## Protected Resources
 
-Credentials, environments, datasets/checkouts, Docker images, frozen current-run
-source and unrelated work are not disposable reports. Source-only pre-edit
-snapshots under ignored `archives/` are not submitted to Git. The retired local
+Credentials, environments, datasets/checkouts, required Docker images, frozen
+current-run source and unrelated work are protected. The retired local
 MASBench checkout was moved intact to external project data under
 `/Users/zhoujun/Desktop/MAS-information-data/retired/masbench-removal-20261031`.
 No paid execution, retries or provisioning is authorized by cleanup.

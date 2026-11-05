@@ -70,4 +70,4 @@ environments, outputs or `--delete`. Do not touch the unrelated Agent-Team proje
 - [Benchmark structure](docs/benchmark-adaptation.md)
 - [KramaBench](docs/kramabench.md) and [DataClaw/HDR](docs/research-benchmarks.md)
 - [Server preparation](docs/server-preparation.md)
-- [Historical cleanup and source retention](docs/archive.md)
+- [Current evidence retention](docs/archive.md)
