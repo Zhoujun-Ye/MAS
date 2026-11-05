@@ -29,7 +29,10 @@ def test_retired_workflows_are_not_active_entry_points():
                  'analysis/codex_evidence.py', 'scripts/studies/compare_subagents.py',
                  'scripts/studies/compare_claude_single.py', 'scripts/kramabench/results.py',
                  'scripts/kramabench/retain_current.py', 'scripts/server/retire_codex_results.py',
-                 'scripts/server/retire_sources.py', 'scripts/server/cleanup_results.py'):
+                 'scripts/server/retire_sources.py', 'scripts/server/cleanup_results.py',
+                 'benchmarks/organization.py', 'scripts/studies/scoped_subagents_pilot.py',
+                 'analysis/scoped_judge_audit.py', 'analysis/native_delegation_audit.py',
+                 'docs/prompts/subagents-evidence-judge-v1.md', 'docs/history'):
         assert not (ROOT / name).exists()
 
 

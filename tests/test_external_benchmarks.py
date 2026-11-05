@@ -12,7 +12,6 @@ from benchmarks.dataclawbench.tasks import load_tasks as dc_tasks
 from benchmarks.dataclawbench.evaluation import validate_verdict
 from benchmarks.hybriddeepresearch.tasks import CANARY, decode, load_tasks as hdr_tasks
 from benchmarks.hybriddeepresearch.evaluation import evaluation_rows
-from benchmarks.organization import evidence_judge
 from scripts.common.run import instructions, mounts, plan
 from scripts.common.tools import run_sql
 from scripts.common.score import judge_rows
@@ -76,14 +75,6 @@ def test_dataclaw_part_scores_are_not_binary_task_accuracy():
                     dict(scores=dict(match=1), total=1), dict(scores=dict(part_0=True, part_1=0), total=.5)):
         with pytest.raises(ValueError):
             validate_verdict([1, 2], verdict)
-
-
-def test_prompt_preserves_bounded_judge_with_background_native_tools():
-    text = evidence_judge(web=True, pipeline=False)
-    assert "at most THREE" in text and "at most 250 words" in text and "1000 words" in text
-    assert "Agent/TaskOutput" in text and "in the background" in text
-    assert "no network or installations" not in text and "targeted web" in text
-    assert "SAME agent" in text
 
 
 @pytest.mark.parametrize("benchmark,web", [("dataclawbench", False), ("hybriddeepresearch", True)])

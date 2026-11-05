@@ -8,11 +8,8 @@ and denies delegation; Subagents permits the native Agent tool, including backgr
 agents that notify the lead on completion (2.1.286 has no TaskOutput tool), with
 Agent Teams disabled. Interactive Agent Teams is retired, including the KramaBench adapter.
 
-The Subagents baseline uses orchestrator-worker lead prompt v4 in
-`scripts/common/runtime.py`, adopted by the user on 2026-11-04; earlier prompts are
-retained in [docs/studies](studies/README.md). The lead plans, splits the work
-between itself and subagents (one by default) and synthesizes. Only Claude Code
-conditions remain active. It specifies no specialist roster or cost-reduction method.
+The Subagents baseline uses the fixed current lead prompt in
+`scripts/common/runtime.py`. Only native Claude Single and Subagents are active.
 
 Both conditions receive the same shared task rules, ending with a run-limits line:
 the wall-clock timeout and, for web tasks, the request budget shared by every agent
@@ -24,12 +21,6 @@ requires observed delegation and completion; non-delegating attempts are retaine
 as unverified conditions, not silently retried. Task, data-access and submission
 requirements are supplied by the benchmark adapter. This is a prompted
 Subagents baseline, not an entirely unprompted observation of Claude Code.
-
-The retained `docs/prompts/subagents-evidence-judge-v1.md` and its renderer in
-`benchmarks/organization.py` are research interventions, not baseline defaults.
-Their pilot results are a signal of potential cost reduction, not evidence that
-native Subagents is equally efficient or that quality-preserving gains generalize.
-Any future organization method must be evaluated as our own separate condition.
 
 Benchmark-specific web permissions replace the original KramaBench-only `/data`
 restriction. Historical result artifacts were deleted by user authorization on

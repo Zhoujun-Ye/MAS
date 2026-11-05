@@ -37,16 +37,14 @@ coordinator/full modes, capability catalogs, or custom scheduling semantics.
 - On 2026-11-04 the user froze the current orchestrator-worker lead prompt
   (`scripts/common/runtime.py`) as the only Subagents default. Superseded lead
   prompt files are removed; do not restore or version-label them. Preserve the exact
-  default; changes and study overrides require user authorization.
+  default; there is no backup prompt. Changes and study overrides require user authorization.
   This is a prompted native baseline, not untouched default CLI behavior. Do not
   add our specialist roles, fixed roster, judge mechanism or cost-reduction policy.
   Lead-only instructions belong in the lead prompt, not worker-visible rule files.
   Run limits are shared task rules: state them identically to every condition.
-  `benchmarks/organization.py` retains a research-intervention renderer only;
-  bounded evidence-judge pilots are not native baseline results.
 - `analysis/` retains generic utilities and read-only historical-schema readers.
 - Validation20 v1 is the user-adopted reusable development/validation set: exactly
-  20 frozen questions per active benchmark. See `docs/studies/validation20-v1.md`
+  20 frozen questions per active benchmark. See `docs/studies/validation20.md`
   and its public ID/hash manifest. Do not reroll questions based on results, silently
   replace failures, or describe this repeatedly used set as an independent final test.
 - CooperBench is retired; preserve its evidence and retention exceptions in

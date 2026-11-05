@@ -29,7 +29,7 @@ HDR artifact-only regrades and counts timeouts as zero, as requested. No solver
 was rerun for these corrections. Future experiments require fresh authorization.
 
 See [current result status](docs/current-results.md) and
-[the fixed validation set](docs/studies/validation20-v1.md).
+[the fixed validation set](docs/studies/validation20.md).
 
 ## Layout
 

@@ -16,8 +16,7 @@ No semantic provider relay, model loop, SDK import, custom scheduler or vendored
 exists. DataClaw/HDR use a host credential gateway that preserves native wire
 protocols without model orchestration. Deep Agents launchers, options, mounts and executable requirements are
 removed. Historical comparisons and read-only checkpoint readers remain usable
-without restoring its active runtime. See [retention](archive.md) and
-[historical contracts](history/cli-adapters-through-deepagents-20261103.md).
+without restoring its active runtime. See [retention](archive.md).
 
 ## Strict Single
 
@@ -63,9 +62,8 @@ Native facts this relies on, observed on 2.1.286:
   lead's brief and from tool output. Admission requires observed native delegation and
 completion; it does not establish semantic contribution. This is a prompted condition,
 not an entirely unprompted Claude Code run.
-Benchmark access and output requirements remain explicit. The bounded evidence-judge pilot is a separate
-research intervention, only a signal of potential cost reduction, not a native
-baseline result or a demonstrated general quality/cost improvement.
+Benchmark access and output requirements remain explicit. Only the current
+lead prompt is retained; no backup prompt or specialist-judge study is active.
 
 Custom research organizations can define native subagent prompts, descriptions,
 tools, permission policies and handoff requirements without replacing Claude's
