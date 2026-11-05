@@ -132,16 +132,42 @@ def test_explicit_protocol_mismatch_fails_before_dispatch(tmp_path, monkeypatch,
     assert not (tmp_path / 'output').exists()
 
 
-@pytest.mark.parametrize('unsupported', ['no-manifest', 'organization-override'])
-def test_explicit_protocol_requires_frozen_tasks_and_default_prompt(tmp_path, monkeypatch, unsupported):
+def test_explicit_protocol_requires_frozen_tasks(tmp_path, monkeypatch):
     args, _, protocol, _ = protocol_fixture(tmp_path, monkeypatch)
-    if unsupported == 'no-manifest':
-        index = args.index('--task-manifest')
-        del args[index:index + 2]
-    else:
-        args += ['--organization-prompt', str(tmp_path / 'override.txt')]
+    index = args.index('--task-manifest')
+    del args[index:index + 2]
     with pytest.raises(ValueError, match='require a frozen task manifest'):
         matrix.main(args + ['--protocol-settings', str(protocol)])
+
+
+def test_native_prompt_single_condition_plan_uses_same_sixty_tasks(tmp_path, monkeypatch, capsys):
+    args, settings, protocol, manifest_path = protocol_fixture(tmp_path, monkeypatch)
+    original_manifest = manifest_path.read_bytes()
+    prompt = tmp_path / 'native.txt'
+    prompt.write_text('Distinct native lead instructions')
+    settings['organization_sha256'] = {'claude-code-subagents': matrix.digest(prompt)}
+    protocol.write_text(json.dumps(settings))
+    monkeypatch.setattr(matrix.subprocess, 'Popen', lambda *a, **kw: pytest.fail('Plan launched process'))
+    monkeypatch.setattr(matrix.runtime, 'credential', lambda *a: pytest.fail('Plan loaded credentials'))
+    assert matrix.main(args + ['--backends', 'claude-code-subagents', '--organization-prompt', str(prompt),
+                               '--protocol-settings', str(protocol)]) == 0
+    result = json.loads(capsys.readouterr().out)
+    assert result['attempts'] == 60
+    assert {row['backend'] for row in result['selections']} == {'claude-code-subagents'}
+    assert len({(r['benchmark'], r['task_id']) for r in result['selections']}) == 60
+    assert result['protocol_settings'] == settings
+    assert manifest_path.read_bytes() == original_manifest
+    assert not (tmp_path / 'output').exists()
+
+
+def test_native_override_must_match_explicit_protocol(tmp_path, monkeypatch):
+    args, _, protocol, _ = protocol_fixture(tmp_path, monkeypatch)
+    prompt = tmp_path / 'native.txt'
+    prompt.write_text('Changed native lead instructions')
+    with pytest.raises(ValueError, match='explicit protocol'):
+        matrix.main(args + ['--backends', 'claude-code-subagents', '--organization-prompt', str(prompt),
+                            '--protocol-settings', str(protocol), '--execute'])
+    assert not (tmp_path / 'output').exists()
 
 
 def test_generic_report_exports_unknowns_and_keeps_failure_denominators(tmp_path):

@@ -6,7 +6,7 @@ never replace failures or sample based on results. This is a repeatedly used
 development set, not an independent held-out final test.
 
 Current settings: `validation20-final-protocol.json`. Current lead prompt lives
-only in `scripts/common/runtime.py`. Both conditions use high effort, native
+in `scripts/common/prompts/structured_subagents.py`. Both conditions use high effort, native
 output defaults, identical task limits, solver concurrency 6 and judge
 concurrency 2. One attempt per task per condition, zero retries.
 

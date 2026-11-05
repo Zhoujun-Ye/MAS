@@ -52,6 +52,12 @@ on 2026-11-04 ([prompt versions](studies/README.md)). The lead plans, splits the
 work between itself and subagents (at least one, scaled to complexity) and synthesizes. It specifies
 no specialist roster, judge role or cost-reduction policy.
 
+For inspection, `scripts/common/prompts/structured_subagents.py` holds this unchanged
+default as `PROMPT`. `scripts/common/prompts/native_subagents.py` holds the user's
+four-point alternative as `PROMPT`, without activating it. These names distinguish
+lead prompts; both describe ordinary native Claude Code subagents. The Python
+files are not raw-text inputs for `--organization-prompt`.
+
 Native facts this relies on, observed on 2.1.286:
 - There is no TaskOutput tool. Background agents notify the lead on completion.
 - In print mode the run stays open after the lead ends its turn while a background
@@ -63,7 +69,7 @@ Native facts this relies on, observed on 2.1.286:
 completion; it does not establish semantic contribution. This is a prompted condition,
 not an entirely unprompted Claude Code run.
 Benchmark access and output requirements remain explicit. Only the current
-lead prompt is retained; no backup prompt or specialist-judge study is active.
+lead prompt remains the default; no backup prompt or specialist-judge study is active.
 
 Custom research organizations can define native subagent prompts, descriptions,
 tools, permission policies and handoff requirements without replacing Claude's

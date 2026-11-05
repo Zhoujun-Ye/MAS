@@ -7,10 +7,13 @@ restore retired runtime adapters, launch choices or prompts.
 
 ## Current Evidence
 
-Keep all 120 assigned attempts, including failures, their frozen plans, gateway
+Keep the original 120 assigned attempts and the 60 Native Subagents attempts,
+including failures, their frozen plans, gateway
 accounting, original scores, artifact-only HDR recovery inputs/verdicts and the
 current timeout-zero report. Original paths may contain historical identifiers;
 renaming or overwriting them would break provenance.
+Keep original and accounting-audited reports separately. Code cleanup does not
+authorize deleting superseded exports or changing frozen run source.
 
 Current comparison: [current-results.md](current-results.md).
 Current fixed questions: [studies/validation20.md](studies/validation20.md).

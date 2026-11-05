@@ -35,7 +35,9 @@ coordinator/full modes, capability catalogs, or custom scheduling semantics.
   fields host-side. The latter decodes the public release in memory; never publish
   decrypted questions, gold SQL, answers, or evaluation logs.
 - On 2026-11-04 the user froze the current orchestrator-worker lead prompt
-  (`scripts/common/runtime.py`) as the only Subagents default. Superseded lead
+  (`scripts/common/prompts/structured_subagents.py`, selected through
+  `scripts/common/prompts/conditions.py`)
+  as the only Subagents default. Superseded lead
   prompt files are removed; do not restore or version-label them. Preserve the exact
   default; there is no backup prompt. Changes and study overrides require user authorization.
   This is a prompted native baseline, not untouched default CLI behavior. Do not

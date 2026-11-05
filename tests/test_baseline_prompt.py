@@ -1,6 +1,9 @@
 import hashlib
 
 from scripts.common.runtime import backend_instructions
+from scripts.common.prompts.conditions import backend_instructions as prompt_backend_instructions
+from scripts.common.prompts.single_agent import PROMPT as SINGLE_AGENT_PROMPT
+from scripts.common.prompts.structured_subagents import PROMPT as STRUCTURED_SUBAGENTS_PROMPT
 
 # Current lead prompt, frozen by the user on 2026-11-04.
 CLAUDE_PROMPT = backend_instructions("claude-code-subagents")
@@ -18,3 +21,9 @@ def test_lead_prompt_is_benchmark_neutral():
 
 def test_single_does_not_receive_orchestrator_worker_prompt():
     assert "orchestrator-worker" not in backend_instructions("claude-code-single-agent")
+
+
+def test_runtime_preserves_prompt_entry_point():
+    assert backend_instructions is prompt_backend_instructions
+    assert CLAUDE_PROMPT == STRUCTURED_SUBAGENTS_PROMPT
+    assert backend_instructions("claude-code-single-agent") == SINGLE_AGENT_PROMPT

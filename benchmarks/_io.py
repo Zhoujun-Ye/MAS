@@ -10,6 +10,11 @@ def fingerprint(value):
                                     separators=(",", ":"), allow_nan=False).encode()).hexdigest()
 
 
+def read_json(path, default=None):
+    path = Path(path)
+    return json.loads(path.read_text(encoding="utf-8")) if path.exists() else default
+
+
 def write_json(path, value):
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)

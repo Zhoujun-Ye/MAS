@@ -24,11 +24,6 @@ from analysis.native_evidence import native_single_agent, native_subagents
 from analysis.run_integrity import inspect_run
 
 
-def backend_options(args, backend):
-    result = options(backend)
-    return result
-
-
 INSTRUCTIONS = """Solve the public data-analysis question using only the supplied input lake at /data.
 The Python data-analysis environment is python3 at /usr/local/bin/python3.
 Do not install packages, use network searches, or seek benchmark answers/reference solutions.
@@ -93,13 +88,12 @@ def run_attempt(task, backend, args, key, stop, active, lock):
             active.add(identity)
         adapter = ({"claude-code-subagents": ClaudeCodeSubagentsCLI, "claude-code-single-agent": ClaudeCodeSingleAgentCLI}[backend](str(CLAUDE)))
         prefix = ("docker", "exec", "-i", "--workdir", "/workspace", identity)
-        terminal_options = {}
         terminal_options = dict(command_prefix=prefix)
         terminal_options.update(observer_dir=profile/"observer", observer_target="/native/observer",
                                 hook_script="/adapter-hooks.py")
         report.update(status="running", started_at=now(), container_id=identity)
         write_json(folder / "report.json", report)
-        opts = backend_options(args, backend)
+        opts = options(backend)
         result = adapter.run(prompt, workspace=work, output=folder / "cli", timeout=args.timeout,
                              execute=True, **terminal_options, **opts)
         report.update(status=result["status"], cli=result, finished_at=now())
@@ -249,7 +243,7 @@ def preflight(args):
                 provenance=provenance, scoring=scoring, image_id=args.image, network="none",
                 inputs_sha256=fingerprint(inventory), instructions=INSTRUCTIONS,
                 limit_instructions=limit_instructions(args.timeout),
-                backend_options={b: backend_options(args, b) for b in backends},
+                backend_options={b: options(b) for b in backends},
                 backend_instructions={b: condition_instructions(args, b) for b in backends},
                 organization_override=getattr(args, "organization_override", None),
                 native_environment={b: native_env(b, effort=getattr(args, "effort", "max")) for b in backends}, cpu_per_attempt=2, memory_per_attempt="8g",

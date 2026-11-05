@@ -16,8 +16,8 @@ from benchmarks._io import write_json
 from benchmarks.dataclawbench.tasks import load_tasks as dc_tasks
 from benchmarks.hybriddeepresearch.tasks import load_tasks as hdr_tasks
 from benchmarks.kramabench.tasks import load_tasks as krama_tasks
-from benchmarks.kramabench.semantic_judge import judge_once
 from scripts.common import runtime
+from scripts.common.grading import grade_attempt
 from scripts.common.proof import validate_runtime
 from benchmarks._external import digest
 from scripts.common.timeouts import TIMEOUT_SECONDS_BY_BENCHMARK, default_timeout, timeout_policy
@@ -119,8 +119,12 @@ def solver_command(args, benchmark, task, backend, output, *, execute=False):
 
 
 def protocol_settings(args):
+    backends = getattr(args, "backends", BACKENDS)
+    override = runtime.organization_override(getattr(args, "organization_prompt", None), "claude-code-subagents")
     return dict(effort=args.effort,
-                organization_sha256={k: hashlib.sha256(runtime.backend_instructions(k).encode()).hexdigest() for k in BACKENDS},
+                organization_sha256={k: hashlib.sha256(
+                    (override["text"] if override and k == "claude-code-subagents"
+                     else runtime.backend_instructions(k)).encode()).hexdigest() for k in backends},
                 timeout_seconds_by_benchmark=dict(TIMEOUT_SECONDS_BY_BENCHMARK),
                 solver_concurrency=args.concurrency, judge_concurrency=args.judge_concurrency)
 
@@ -135,6 +139,8 @@ def main(argv=None):
     parser.add_argument("--concurrency", type=int, default=8, choices=range(1, 13))
     parser.add_argument("--effort", choices=("high", "max"), default="max")
     parser.add_argument("--organization-prompt", type=Path)
+    parser.add_argument("--backends", nargs="+", choices=BACKENDS, default=BACKENDS,
+                        help="Explicit conditions to run; defaults to the matched Single/Subagents pair")
     parser.add_argument("--tasks-per-benchmark", type=int, default=2, choices=range(1, 101))
     parser.add_argument("--sample-seed", type=int, default=42)
     parser.add_argument("--task-manifest", type=Path, help="Frozen public ID/hash manifest, never questions or gold")
@@ -148,8 +154,12 @@ def main(argv=None):
     args.root, args.output, args.proofs = args.root.resolve(), args.output.resolve(), args.proofs.resolve()
     manifest = json.loads(args.task_manifest.read_text()) if args.task_manifest else None
     explicit_protocol = json.loads(args.protocol_settings.read_text()) if args.protocol_settings else None
-    if args.protocol_settings and (manifest is None or args.organization_prompt):
-        raise ValueError("Explicit protocol settings require a frozen task manifest and no organization override")
+    if len(set(args.backends)) != len(args.backends):
+        raise ValueError("Select unique backends")
+    if args.organization_prompt and "claude-code-subagents" not in args.backends:
+        raise ValueError("Organization overrides require the Subagents condition")
+    if args.protocol_settings and manifest is None:
+        raise ValueError("Explicit protocol settings require a frozen task manifest")
     observed_settings = protocol_settings(args)
     if args.protocol_settings and explicit_protocol != observed_settings:
         raise ValueError("Runtime settings differ from the explicit protocol settings")
@@ -159,7 +169,7 @@ def main(argv=None):
                 if manifest else selections(args.root) if args.tasks_per_benchmark == 2
                 else selections(args.root, args.tasks_per_benchmark, args.sample_seed))
     jobs = [(bench, task, backend, args.output / "solvers" / bench / task.id / backend)
-            for bench, task in selected for backend in BACKENDS]
+            for bench, task in selected for backend in args.backends]
     maximum_judges = sum(1 for b, t, _, _ in jobs
                          if b != "hybriddeepresearch" or t.category != "search_to_sql")
     authorization = dict(attempts=len(jobs), maximum_judge_calls=maximum_judges, retries=0, effort=args.effort,
@@ -178,11 +188,11 @@ def main(argv=None):
     if not args.execute:
         print(json.dumps(authorization, indent=2))
         return 0
-    if len(jobs) != 6 * args.tasks_per_benchmark or args.authorized_attempts != len(jobs) or args.authorized_judges not in (0, maximum_judges):
+    if len(jobs) != len(BENCHMARKS) * len(args.backends) * args.tasks_per_benchmark or args.authorized_attempts != len(jobs) or args.authorized_judges not in (0, maximum_judges):
         raise ValueError(f"Require exactly {len(jobs)} authorized solvers and zero or at most {maximum_judges} authorized judges")
     if manifest:
         expected = explicit_protocol if args.protocol_settings else manifest["baseline_settings"]
-        if expected != observed_settings or args.organization_prompt:
+        if expected != observed_settings or (args.organization_prompt and not args.protocol_settings):
             raise ValueError("Baseline settings differ from the frozen validation study")
     os.umask(0o077)
     args.output.mkdir(parents=True, exist_ok=False)
@@ -191,8 +201,12 @@ def main(argv=None):
         write_json(args.output / "task-manifest.json", manifest)
     if args.protocol_settings:
         write_json(args.output / "protocol-settings.json", explicit_protocol)
+    if authorization["organization_override"]:
+        # Pin the validated text so every child reads the same lead instructions.
+        args.organization_prompt = args.output / "organization-prompt.txt"
+        args.organization_prompt.write_text(authorization["organization_override"]["text"], encoding="utf-8")
     args.image = json.loads(subprocess.check_output(["docker", "image", "inspect", args.image], text=True))[0]["Id"]
-    for backend in BACKENDS:
+    for backend in args.backends:
         proof = json.loads((args.proofs / backend / "proof.json").read_text())
         validate_runtime(proof, backend, image_id=args.image,
             binary_sha256=digest(runtime.CLAUDE))
@@ -280,43 +294,11 @@ def main(argv=None):
 
         def score(job):
             b, t, k, out = job
-            target = args.output / "grades" / b / t.id / k
-            result = dict(benchmark=b, task_id=t.id, backend=k, judge_calls=0)
             if stop.is_set():
-                return {**result, "status": "not_started"}
-            if b == "kramabench":
-                summary = out / "summary.json"
-                if not summary.exists():
-                    return {**result, "status": "missing_summary"}
-                record = json.loads(summary.read_text())["rows"][0]
-                result.update(status=record.get("grade", {}).get("status"), grade=record.get("grade"),
-                              pipeline_exit_code=record.get("pipeline_exit_code"),
-                              pipeline_answer_matches_submission=record.get("pipeline_answer_matches_submission"))
-                if record.get("status") == "cli_exited" and result["status"] == "pending_judge" and args.authorized_judges:
-                    judged = judge_once(upstream=args.root / b / "upstream", task_id=t.id, backend=k,
-                        submission_path=out / t.id / k / "submission.json", question=t.query, key=key, output=target)
-                    result.update(status=judged["status"], grade=judged.get("grade"), judge_calls=judged["attempted_calls"])
-                return result
-            predicted = out / "predictions.jsonl"
-            if not predicted.exists():
-                return {**result, "status": "missing_predictions"}
-            predictions = [json.loads(line) for line in predicted.read_text().splitlines() if line.strip()]
-            text_judge = b == "dataclawbench" or t.category != "search_to_sql"
-            calls = sum(bool(p["final_answer"].strip()) for p in predictions) if text_judge and args.authorized_judges else 0
-            command = [sys.executable, "-m", "scripts." + b + ".score", "--run", str(out),
-                       "--upstream", str(args.root / b / "upstream"), "--output", str(target)]
-            if b == "hybriddeepresearch":
-                command += ["--tasks", str(args.root / "hybriddeepresearch/release/hybrid_ds_release/hybrid_ds_release.jsonl"),
-                            "--db-root", str(args.root / "hybriddeepresearch/data")]
-                if not text_judge:
-                    command.append("--execute-sql")
-            if calls:
-                command += ["--execute-judges", "--judge-limit", str(calls), "--judge-model", "deepseek-flash",
-                            "--credentials", str(args.credentials), "--judge-base-url", "https://api.deepseek.com"]
-            code = command_run(command, args.output / "logs" / (b + "-" + t.id + "-" + k + "-grade"))
-            receipt = json.loads((target / "receipt.json").read_text()) if (target / "receipt.json").exists() else {}
-            return {**result, "status": "completed" if code == 0 else "grading_failed", "returncode": code,
-                    "judge_calls": receipt.get("judge_calls"), "output": str(target)}
+                return dict(benchmark=b, task_id=t.id, backend=k, judge_calls=0, status="not_started")
+            return grade_attempt(b, t, k, out, data_root=args.root, grades_root=args.output / "grades",
+                credentials=args.credentials, judge_enabled=bool(args.authorized_judges), key=key,
+                command_run=command_run, log=args.output / "logs" / (b + "-" + t.id + "-" + k + "-grade"))
 
         grades = []
         with ThreadPoolExecutor(max_workers=args.judge_concurrency) as pool:

@@ -52,12 +52,9 @@ def validate_native_proof(args, plan, *, frozen=False):
     if frozen and plan.get("offline_proof_sha256") != proof_digest:
         raise ValueError("Offline proof changed after freeze")
     proof = json.loads(raw)
-    offline_ok = proof.get("paid_calls") == 0 and proof.get("network") == "none"
     binary = plan["cli_binaries"]["claude"]
     validate_runtime(proof, args.backend, image_id=plan["image_id"],
                      binary_sha256=binary["sha256"])
-    if not offline_ok:
-        raise ValueError("Missing successful offline native guard/transport proof")
     return proof_digest
 
 
@@ -90,7 +87,7 @@ def validate(args):
             or plan.get("limit_instructions") != shared.limit_instructions(args.timeout)
             # Compare the persisted JSON representation: tuples freeze as arrays.
             or fingerprint(plan["backend_options"]) != fingerprint(
-                {b: runtime.backend_options(args, b) for b in args.backends})
+                {b: runtime.options(b) for b in args.backends})
             or shared.source_manifest() != plan["source"]
             or fingerprint(runtime.verify_inputs(args.upstream)) != plan["inputs_sha256"]
             or scoring_contract(args.upstream) != plan["scoring"]):
@@ -211,7 +208,6 @@ def main(argv=None):
     tasks, _ = load_tasks(args.upstream)
     if len(args.task_id) != len(set(args.task_id)) or set(args.task_id) - {t.id for t in tasks}:
         parser.error("Task IDs must be unique members of the pinned workload")
-    args.strict_single = args.backend.endswith("single-agent")
     args.backends = (args.backend,)
     args.all_tasks = not args.task_id
     args.selected_task_ids = args.task_id

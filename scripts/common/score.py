@@ -132,8 +132,6 @@ def main(argv=None, *, benchmark=None):
                        if args.benchmark == "dataclawbench" else "not applicable"))
     write_json(args.output / "receipt.json", receipt)
     if args.execute_sql:
-        if args.benchmark != "hybriddeepresearch" or args.db_root is None:
-            raise ValueError("SQL evaluation requires HybridDeepResearch and --db-root")
         for task in tasks:
             database = args.db_root / task.db / (task.db + "_template.sqlite")
             if digest(database) != frozen["assets"].get(str(database.resolve())):

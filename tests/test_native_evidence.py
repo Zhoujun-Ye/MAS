@@ -1,4 +1,7 @@
 import json
+from pathlib import Path
+import subprocess
+import sys
 
 from analysis import native_evidence
 
@@ -43,3 +46,13 @@ def test_implicit_team_does_not_require_retired_teamdelete(tmp_path):
     team = native_evidence.native_team(folder, dict(cli=dict(native_before_exit=dict(ready_to_exit=True),
         native_lifecycle=dict(root_session_end_observed=True))))
     assert team == dict(named_member_names=["checker"], native_stop_before_exit=True, session_end=True)
+
+
+def test_evidence_decoder_remains_standalone_under_isolated_python(tmp_path):
+    profile = tmp_path / 'empty-profile'
+    result = subprocess.run([sys.executable, '-I', str(Path(native_evidence.__file__).resolve()),
+        '--backend', 'claude-code-subagents', '--profile', str(profile)],
+        cwd=tmp_path, capture_output=True, text=True, timeout=15)
+    assert result.returncode == 0, result.stderr
+    assert json.loads(result.stdout)['team_correctness_verified'] is False
+    assert not profile.exists()

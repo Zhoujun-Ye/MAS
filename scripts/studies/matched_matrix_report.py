@@ -5,14 +5,15 @@ from collections import Counter
 from pathlib import Path
 import argparse
 import copy
+import sys
 
-
-def read(path, default=None):
-    return json.loads(path.read_text()) if path.exists() else default
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+from benchmarks._external import jsonl
+from benchmarks._io import read_json as read
 
 
 def lines(path):
-    return [json.loads(s) for s in path.read_text().splitlines() if s.strip()] if path.exists() else []
+    return jsonl(path) if path.exists() else []
 
 
 def price(usage):
@@ -73,12 +74,21 @@ def collect(root):
                 audit = native_row.get('single_agent_audit', native_row.get('subagents_audit', audit))
         ledger = lines(folder / 'gateway-requests.jsonl')
         finished = [r for r in ledger if r.get('event') == 'finished']
-        model = [r for r in finished if r.get('route') == '/anthropic/v1/messages']
+        model = [r for r in finished if r.get('route') == '/anthropic/v1/messages'
+                 and r.get('upstream_attempted') is True]
         dispatched = [r for r in ledger if r.get('event') == 'dispatched' and r.get('route') == '/anthropic/v1/messages']
         web = [r for r in finished if r.get('route') in ('/v1/tools/search', '/v1/tools/fetch')]
         web_cost = sum(isinstance(r.get('http_status'), int) and 200 <= r['http_status'] < 300 for r in web) * .00075
         model_costs = [price(r.get('usage')) for r in model]
-        model_cost = sum(model_costs) if model_costs and all(v is not None for v in model_costs) and len(model) == len(dispatched) else None
+        # Local rejections are not provider responses; partial streams cannot establish charges.
+        dispatched_ids = {r.get('request_id') for r in dispatched}
+        finished_ids = {r.get('request_id') for r in model}
+        complete = (bool(dispatched) and None not in dispatched_ids
+                    and len(dispatched_ids) == len(dispatched) == len(model) == len(finished_ids)
+                    and dispatched_ids == finished_ids
+                    and all(r.get('outcome') == 'response_complete' and r.get('usage_status') == 'observed'
+                            for r in model))
+        model_cost = sum(model_costs) if complete and all(v is not None for v in model_costs) else None
         plan = read(out / 'plan.json', {})
         prompt = (plan.get('prompts') or {}).get(t)
         if prompt is None and plan.get('backend_instructions'):
@@ -111,6 +121,8 @@ def summarize(result):
     for b in ('dataclawbench', 'hybriddeepresearch', 'kramabench', 'all'):
         for k in ('claude-code-single-agent', 'claude-code-subagents'):
             selected = [r for r in result if r['backend'] == k and (b == 'all' or r['benchmark'] == b)]
+            if not selected:
+                continue
             known = [r['score'] for r in selected if r['score'] is not None]
             elapsed = [r['seconds'] for r in selected if r['seconds'] is not None]
             costs = [r['total_usd_offpeak'] for r in selected]
@@ -120,6 +132,7 @@ def summarize(result):
                 statuses=dict(Counter(r['status'] for r in selected)),
                 mean_minutes=sum(elapsed)/len(elapsed)/60 if elapsed else None,
                 time_coverage=len(elapsed), cost_coverage=sum(c is not None for c in costs),
+                known_usd_offpeak_subtotal=sum(c for c in costs if c is not None),
                 total_usd_offpeak=sum(costs) if all(c is not None for c in costs) else None,
                 model_requests=sum(r['model_requests'] for r in selected),
                 native_audit_passes=sum(r['native_audit_passed'] is True for r in selected)))
@@ -150,7 +163,7 @@ def write_report(report, output):
     (output / 'summary.json').write_text(json.dumps(report, indent=2) + '\n')
     fmt = lambda value, spec='.4f': format(value, spec) if value is not None else 'unknown'
     auth = report['authorization']
-    text = ['# Single vs Subagents', '',
+    text = ['# ' + report.get('condition_label', 'Single vs Subagents'), '',
             f"Run: {report['run']}. One attempt per selected task and condition; no replacements.",
             f"Effort: {auth['effort']}; solver concurrency: {auth['solver_concurrency']}; grading concurrency: {auth['judge_concurrency']}.",
             f"Protocol source: {auth.get('protocol_settings_source', 'historical authorization')}; "
@@ -161,7 +174,8 @@ def write_report(report, output):
         if group['benchmark'] == 'all':
             continue
         count = group['attempts']
-        condition = 'Single' if group['backend'].endswith('single-agent') else 'Subagents'
+        condition = ('Single' if group['backend'].endswith('single-agent') else
+                     report.get('condition_label', 'Subagents'))
         text.append(f"| {group['benchmark']} | {condition} | {group['graded']}/{count} | {fmt(group['mean_score'])} | "
                     f"{group['full_score']}/{count} | {fmt(group['mean_minutes'], '.2f')} | "
                     f"{fmt(group['total_usd_offpeak'], '.6f')} | {group['native_audit_passes']}/{count} |")
@@ -179,6 +193,7 @@ if __name__ == '__main__':
     source.add_argument('--run', type=Path)
     source.add_argument('--from-report', type=Path, help='Existing exported summary; no regrading')
     parser.add_argument('--timeout-as-zero', action='store_true')
+    parser.add_argument('--condition-label', help='Explicit display label for a separately authorized study')
     parser.add_argument('--output', type=Path, required=True)
     parser.add_argument('--report-dir', type=Path, help='Fresh directory for REPORT.md, task-results.csv and summary.json')
     args = parser.parse_args()
@@ -187,6 +202,8 @@ if __name__ == '__main__':
     if args.report_dir and (args.report_dir.exists() or (args.run and args.report_dir.resolve().is_relative_to(args.run.resolve()))):
         raise ValueError('Use a fresh report directory outside immutable run evidence')
     report = collect(args.run) if args.run else read(args.from_report)
+    if args.condition_label:
+        report['condition_label'] = args.condition_label
     if args.timeout_as_zero:
         report = timeout_zero(report)
     if args.report_dir:

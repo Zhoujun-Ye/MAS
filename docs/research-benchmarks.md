@@ -88,9 +88,10 @@ authorization. Proof validation is shared with KramaBench: `passed=true`,
 Single requires delegation denials; Subagents requires observed worker starts
 and no Team events. A supplied backend label must match; old proofs without a
 label are checked through their backend-specific audit. Solver key comes from the existing mode-0600
-credential file. Choose `--web-search deepseek` to reuse DeepSeek authentication,
-or explicitly choose `tavily` with `TAVILY_API_KEY` in the environment or the same
-protected credential file. Search-provider costs are not included in native
+credential file. Live web runs use `--web-search deepseek` through the host
+credential gateway. The legacy `tavily` choice remains available for planning
+and offline fixtures only; paid execution is explicitly rejected because its
+credential isolation is not implemented. Search-provider costs are not included in native
 model token accounting. `--max-web-requests` bounds paid helper requests and
 `--max-budget-usd` forwards the native CLI limit; it is not an invoice guarantee.
 

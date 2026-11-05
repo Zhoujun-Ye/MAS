@@ -2,7 +2,6 @@
 
 import argparse
 from concurrent.futures import ThreadPoolExecutor
-import hashlib
 import io
 import json
 import os
@@ -16,6 +15,7 @@ from urllib.parse import urlsplit
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from analysis.native_evidence import native_single_agent, native_subagents
+from benchmarks._external import digest
 from benchmarks._io import write_json
 from harness import ClaudeCodeSingleAgentCLI, ClaudeCodeSubagentsCLI
 from scripts.common import credential_gateway, runtime
@@ -23,10 +23,6 @@ from scripts.common.proof import validate_runtime
 
 
 BACKENDS = {"claude-code-single-agent": ClaudeCodeSingleAgentCLI, "claude-code-subagents": ClaudeCodeSubagentsCLI}
-
-
-def digest(path):
-    return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
 class Response(io.BytesIO):

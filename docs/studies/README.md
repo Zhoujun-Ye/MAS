@@ -1,6 +1,6 @@
 # Current Lead Prompt
 
-Only the current orchestrator-worker lead prompt in `scripts/common/runtime.py`
+Only the current orchestrator-worker lead prompt in `scripts/common/prompts/structured_subagents.py`
 is used for Subagents. The user froze its text on 2026-11-04 and requested
 removing superseded lead prompt files and version labels.
 

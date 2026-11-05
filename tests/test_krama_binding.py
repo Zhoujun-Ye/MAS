@@ -82,7 +82,7 @@ def roundtrip_plan(request, tmp_path, monkeypatch):
     plan.update(attempts=1, tasks=[dict(id=task.id, domain=task.domain, query=task.query)],
         organization_override=None, backend_instructions={backend: run.shared.condition_instructions(args, backend)},
         limit_instructions=run.shared.limit_instructions(3600),
-        backend_options={backend: runtime.backend_options(args, backend)}, source={"fixture": "source-hash"},
+        backend_options={backend: runtime.options(backend)}, source={"fixture": "source-hash"},
         inputs_sha256=fingerprint({"fixture": "data-hash"}), scoring={"version": 1},
         concurrency=1, timeout_seconds=3600, judge_limit=1, replay_timeout_seconds=180)
     monkeypatch.setattr(runtime, "preflight", lambda args: ([task], plan.copy()))
@@ -100,7 +100,7 @@ def test_frozen_options_survive_json_roundtrip(roundtrip_plan):
     assert tasks == [task]
     if args.backend.startswith("claude-"):
         assert isinstance(plan["backend_options"][args.backend]["allowed_tools"], list)
-        assert isinstance(runtime.backend_options(args, args.backend)["allowed_tools"], tuple)
+        assert isinstance(runtime.options(args.backend)["allowed_tools"], tuple)
 
 
 def test_frozen_effort_cannot_change(roundtrip_plan):
@@ -114,12 +114,12 @@ def test_frozen_effort_cannot_change(roundtrip_plan):
 def test_roundtrip_still_rejects_real_changes(roundtrip_plan, monkeypatch, change):
     args, _ = roundtrip_plan
     if change == "model":
-        changed = dict(runtime.backend_options(args, args.backend), model="changed")
-        monkeypatch.setattr(runtime, "backend_options", lambda *a: changed)
+        changed = dict(runtime.options(args.backend), model="changed")
+        monkeypatch.setattr(runtime, "options", lambda *a: changed)
     elif change in {"allowed_tools", "disallowed_tools"}:
-        changed = runtime.backend_options(args, args.backend)
+        changed = runtime.options(args.backend)
         changed[change] = (*changed.get(change, ()), "ChangedTool")
-        monkeypatch.setattr(runtime, "backend_options", lambda *a: changed)
+        monkeypatch.setattr(runtime, "options", lambda *a: changed)
     elif change == "source":
         monkeypatch.setattr(run.shared, "source_manifest", lambda: {"fixture": "changed"})
     elif change == "data":

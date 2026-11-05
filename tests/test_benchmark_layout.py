@@ -16,6 +16,15 @@ def test_benchmarks_have_matching_public_entry_points():
             assert (ROOT / "scripts" / name / (command + ".py")).is_file()
 
 
+def test_server_access_has_one_key_based_entry_point_and_host_only_example():
+    assert not (ROOT / 'scripts/server/ssh.exp').exists()
+    remote = (ROOT / 'scripts/server/remote.sh').read_text()
+    assert 'BatchMode=yes' in remote
+    example = (ROOT / '.env.example').read_text()
+    keys = [line.split('=', 1)[0] for line in example.splitlines() if line and not line.startswith('#')]
+    assert keys == ['DEEPSEEK_API_KEY']
+
+
 def test_common_runtime_does_not_depend_on_a_benchmark_runner():
     for path in (ROOT / "scripts/common").glob("*.py"):
         for node in ast.walk(ast.parse(path.read_text())):

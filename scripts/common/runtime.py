@@ -1,4 +1,4 @@
-"""Shared Claude CLI environment, prompts, containers and evidence provenance."""
+"""Shared Claude CLI environment, containers and evidence provenance."""
 
 from datetime import datetime, timezone
 from decimal import Decimal
@@ -15,6 +15,9 @@ import time
 
 from benchmarks._io import write_json
 from harness._claude_hooks import BLOCKED_TOOLS
+# Preserve existing runner imports while prompts live in their own package.
+from scripts.common.prompts.conditions import backend_instructions, condition_instructions, organization_override
+from scripts.common.prompts.limits import limit_instructions
 
 CLAUDE = Path("/home/zhoujunye/.local/bin/claude").resolve()
 
@@ -24,59 +27,6 @@ TOOLS = ("Bash", "Read", "Write", "Edit", "Glob", "Grep", "Agent", "Task", "Send
 
 THREADS = {name: "1" for name in ("OMP_NUM_THREADS", "OPENBLAS_NUM_THREADS", "MKL_NUM_THREADS",
                                   "NUMEXPR_NUM_THREADS", "VECLIB_MAXIMUM_THREADS")}
-
-def backend_instructions(backend):
-    if backend == "claude-code-single-agent":
-        return ("This is the strict SINGLE-AGENT condition. Complete all work yourself. Native delegation "
-                "is disabled by policy. Do not call task, spawn any subagent, or launch other model/agent "
-                "processes through shell, Python, HTTP, or any other route. No external model calls.")
-    if backend == "claude-code-subagents":
-        # Current lead prompt, frozen by the user on 2026-11-04; keep text exact.
-        return """Use Claude Code's native subagents as an orchestrator-worker team. You are the lead agent: analyze the task, plan how to answer it, delegate parts of the work to subagents with the native Agent tool, and synthesize their results into the final answer.
-
-1. Scale delegation to the task's complexity. A focused task that one investigation can answer gets one subagent: treat it as a collaborator, doing some of the work yourself while it handles about half. A task with clearly distinct parts that can be worked on independently, or a hard question that benefits from different approaches, gets two to four subagents; use more only when there are many separable components. Prefer fewer, more capable subagents over many narrow ones, since each adds overhead. Always deploy at least one subagent.
-2. Do the quick initial investigation needed for planning yourself, then deploy the subagents as soon as your plan is ready, launching independent ones together in parallel. Do not delegate trivial steps that you can complete yourself, and never delegate the final answer.
-3. A subagent starts with a fresh context and sees only the description you write. Give each one a detailed, self-contained description: one core objective; the relevant background, including what you have already learned or ruled out; the task requirements and constraints that apply to its part; suggested starting points; the expected output format; and clear boundaries so that subagents do not overlap.
-4. Scale each subagent's effort as well. State roughly how many tool calls its part warrants, about 3-10 for a simple lookup or check and 10-15 for a larger part, and ask it to stop and report as soon as it has the needed information or further tool use stops producing new relevant results.
-5. Ask for a concise, information-dense report: the findings, the key evidence for them, and any conflicting or unresolved information for you to resolve.
-6. Subagents run in the background, and you are notified automatically when each one finishes; do not sleep, poll, or check their status. Once you have delegated a part, do not also do it yourself. While they work, continue with your own part or analyze results that have arrived; if nothing else remains for you to do, end your turn and you will be resumed when their results arrive.
-7. Think critically about each result. If important gaps or conflicts remain, deploy a focused follow-up subagent. When further work has diminishing returns, or the shared time or tool limits are running low, stop delegating. Before writing the final answer yourself, make sure every subagent you started has finished or been stopped."""
-    raise ValueError("Unsupported backend: " + backend)
-
-
-def limit_instructions(timeout, web_limit=0):
-    """Condition-neutral run limits, stated identically to Single and Subagents."""
-    if isinstance(timeout, bool) or not isinstance(timeout, int) or timeout <= 0:
-        raise ValueError("Run limits require a positive integer timeout in seconds")
-    if isinstance(web_limit, bool) or not isinstance(web_limit, int) or web_limit < 0:
-        raise ValueError("Web request limit must be a non-negative integer")
-    duration = f"{timeout} seconds" + (f" ({timeout // 60} minutes)" if timeout % 60 == 0 else "")
-    text = f"Run limits: {duration} of wall-clock time in total"
-    if web_limit:
-        text += (f", and at most {web_limit} web search/fetch requests in total, shared by every agent and process "
-                 "in this run (each web helper response reports how many remain)")
-    return text + ". Do not try to work around tool limits or network restrictions.\n"
-
-def organization_override(path, backend):
-    if path is None:
-        return None
-    if backend != "claude-code-subagents":
-        raise ValueError("Organization prompt overrides are only supported for Subagents studies")
-    if path.is_symlink() or not path.is_file() or path.stat().st_size > 32768:
-        raise ValueError("Organization prompt must be a regular file of at most 32768 bytes")
-    raw = path.read_bytes()
-    text = raw.decode("utf-8").strip()
-    if not text:
-        raise ValueError("Organization prompt must not be empty")
-    return dict(path=str(path.resolve()), sha256=hashlib.sha256(raw).hexdigest(), text=text)
-
-def condition_instructions(args, backend):
-    override = getattr(args, "organization_override", None)
-    if override is not None:
-        if backend != "claude-code-subagents":
-            raise ValueError("Organization prompt overrides are only supported for Subagents studies")
-        return override["text"]
-    return backend_instructions(backend)
 
 def now():
     return datetime.now(timezone.utc).isoformat()
@@ -205,8 +155,6 @@ def container(work, profile, dataset, image, key=None, network="bridge", backend
         args += ["--mount", f"type=bind,src={source},dst={target}" + (",readonly" if readonly else "")]
     for variable, value in environment.items():
         args += ["--env", variable + "=" + value]
-    for variable in forwarded_env:
-        args += ["--env", variable]
     # Values are inherited through docker's environment, never placed in argv or receipts.
     args += ["--env", "ANTHROPIC_AUTH_TOKEN"]
     args += [image, "sleep", "infinity"]

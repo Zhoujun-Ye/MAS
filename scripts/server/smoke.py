@@ -44,7 +44,6 @@ def main():
     parser.add_argument("--image", required=True)
     parser.add_argument("--credentials", type=Path, required=True)
     parser.add_argument("--authorized-attempts", type=int, required=True)
-    parser.add_argument("--adapted-prompt-pilot", action="store_true")
     budget = parser.add_mutually_exclusive_group(required=True)
     budget.add_argument("--budget-cny", type=Decimal)
     budget.add_argument("--no-monetary-limit", action="store_true")
@@ -59,12 +58,6 @@ def main():
     dc = next(t for t in dc_tasks(dc_root) if not t.web)
     hdr = next(t for t in hdr_tasks(release) if t.category == "search_to_sql")
     conditions = [(task, mode) for task in (dc, hdr) for mode in ("single-agent", "subagents")]
-    if args.adapted_prompt_pilot:
-        if limited:
-            raise ValueError("Adapted prompt pilot was authorized without a monetary limit")
-        text_task = next(t for t in hdr_tasks(release) if t.category == "sql_to_search")
-        conditions = [(dc, "subagents"), (hdr, "subagents"),
-                      (text_task, "single-agent"), (text_task, "subagents")]
     authorization = dict(attempts=4, budget_cny=str(args.budget_cny) if limited else None, retries=0, judge_calls=0,
         native_budget_usd_per_attempt=1.0 if limited else None, timeout_seconds_per_attempt=300,
         max_web_requests_per_hdr_attempt=4, web_search="deepseek", model="deepseek-flash[1m]",
@@ -89,7 +82,7 @@ def main():
         if limited and cny(initial) - cny(current) >= Decimal("2"):
             break
         backend = "claude-code-" + mode
-        output = args.output / (task.benchmark + "-" + mode + ("-" + task.id if args.adapted_prompt_pilot else ""))
+        output = args.output / (task.benchmark + "-" + mode)
         command = [sys.executable, str(code / "scripts" / task.benchmark / "run.py"),
             "--upstream", str(dc_root if task.benchmark == "dataclawbench" else hdr_root),
             "--data", str(dc_root / "assets/database" if task.benchmark == "dataclawbench" else args.root / "hybriddeepresearch/data"),

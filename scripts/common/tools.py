@@ -184,7 +184,7 @@ def run_tool(args):
             body = response.read(2 * 1024 * 1024 + 1)
             if len(body) > 2 * 1024 * 1024:
                 raise ValueError("Web response exceeds 2 MiB; use a more targeted source")
-            value = json.loads(body) if args.tool == "search" else dict(url=response.url, content=body.decode("utf-8", errors="replace"))
+            value = dict(url=response.url, content=body.decode("utf-8", errors="replace"))
     print(json.dumps(value, ensure_ascii=False, default=str))
     return 0
 

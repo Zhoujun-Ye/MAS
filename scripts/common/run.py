@@ -316,8 +316,6 @@ def main(argv=None, *, benchmark=None):
         raise ValueError("Execution requires exact authorized attempt count and offline native proof")
     proof = json.loads(args.offline_proof.read_text())
     validate_proof(proof, args.backend)
-    if any(t.web for t in tasks) and args.web_search == "tavily" and not os.environ.get("TAVILY_API_KEY"):
-        os.environ["TAVILY_API_KEY"] = runtime.credential(args.credentials, "TAVILY_API_KEY")
     key = runtime.credential(args.credentials)
     args.image = json.loads(subprocess.check_output(["docker", "image", "inspect", args.image]))[0]["Id"]
     frozen.update(image_id=args.image, offline_proof_sha256=digest(args.offline_proof))

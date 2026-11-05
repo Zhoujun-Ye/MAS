@@ -20,6 +20,7 @@ benchmarks/
   hybriddeepresearch/              tasks.py, evaluation.py
 scripts/
   common/                         shared prompts, containers, proof, run/score/tools
+    grading.py                    one-attempt grading dispatch shared by matrix/recovery
   kramabench/                      catalog.py, run.py, score.py; replay/publication
   dataclawbench/                   catalog.py, run.py, score.py
   hybriddeepresearch/              catalog.py, run.py, score.py
