@@ -132,4 +132,5 @@ regressions); no paid model calls or regrading were needed.
 Audited server report:
 `/home/zhoujunye/MAS-information/outputs/claude-validation20-native-20261105-01-report-audited-01/REPORT.md`.
 The public scores/metadata report is also available
-[locally](../../outputs/validation20-native-20261105-01-report-audited-01/REPORT.md).
+locally at `outputs/validation20-native-20261105-01-report-audited-01/REPORT.md`
+(an ignored export, not a published repository file).

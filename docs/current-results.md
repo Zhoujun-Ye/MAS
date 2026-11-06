@@ -20,9 +20,15 @@ file was missing (score zero). Single HDR `parallel_009` timed out (zero).
 Krama Subagents `wildfire-easy-3` retains its original lifecycle flag in this
 report; offline lifecycle reconciliation did not change its score.
 
-[Original comparison report](../outputs/validation20-current-report/REPORT.md).
-[Single/Structured uniform accounting audit](../outputs/validation20-baseline-accounting-audited-20261105-01/REPORT.md).
-[Native report, with artifact-only accounting correction](../outputs/validation20-native-20261105-01-report-audited-01/REPORT.md).
+Retained private reports under server `/home/zhoujunye/mas/outputs/`:
+
+- Original comparison: `validation20-current-report/REPORT.md`.
+- Single/Structured uniform accounting audit:
+  `validation20-baseline-accounting-audited-20261105-01/REPORT.md`.
+- Native artifact-only accounting correction:
+  `claude-validation20-native-20261105-01-report-audited-01/REPORT.md`.
+
+These ignored output files are not published as repository-relative links.
 The Native condition had 60 normal CLI exits and 60 passing native lifecycle
 audits; these do not establish correctness or substantive worker contribution.
 See [Native run and web diagnostics](studies/validation20-native.md) for limitations.
@@ -34,7 +40,6 @@ must not be treated as audited batch totals. All three complete totals are
 unknown; [README](../README.md) lists the known subtotals, cost coverage and
 per-attempt times using the same accounting rule. Original scores and HDR
 regrade provenance are preserved.
-The same report is under server `/home/zhoujunye/mas/outputs/`.
 Original run and artifact-only regrade directories retain their recorded names;
 raw evidence, original scores and earlier reports are preserved on the server.
 No current prompt version label is implied by historical directory names.

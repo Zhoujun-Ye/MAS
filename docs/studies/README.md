@@ -23,10 +23,9 @@ Historical raw run names and frozen manifests are not renamed or rewritten.
 These opt-in studies are separate from the frozen Structured baseline. Native,
 OBS and FULL use the existing Native (N) prompt, not the default Structured prompt.
 
-- [Decision FULL protocol](decision-full.md)
 - [Intermediate measurements and shadow grading](intermediate-full.md)
-- [Shared evidence native integration](shared-evidence-native.md)
-- [Evidence review repairs](evidence-review-repair.md)
+- [Validation20 evidence batch record](evidence-validation20.md)
+- [Superseded designs and repair receipts](../archive.md)
 
 Study documents and offline checks do not establish benchmark gains or authorize
 paid execution. Retain original attempts, frozen settings and accounting evidence.

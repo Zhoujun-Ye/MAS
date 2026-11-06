@@ -80,8 +80,7 @@ the benchmark total cost is unknown; the displayed subtotal is not the total.
   general superiority or prompt causality. Current code includes previously
   documented evaluation fixes after the original run; see the Native run record.
 
-Sources: [Single/Structured accounting-audited report](outputs/validation20-baseline-accounting-audited-20261105-01/REPORT.md),
-[Native accounting-audited report](outputs/validation20-native-20261105-01-report-audited-01/REPORT.md),
+Sources and retained server report paths: [current results](docs/current-results.md)
 and [Native run/diagnostics](docs/studies/validation20-native.md).
 Original reports and private raw evidence remain unchanged. Future experiments
 require fresh run-specific authorization.
@@ -93,21 +92,20 @@ See [current result status](docs/current-results.md) and
 
 - `harness/`: native CLI adapters and our opt-in MAS harness; see [ownership](harness/README.md).
 - `harness/evidence_mas/`: observation store, analytical decision ledger and hook/MCP interfaces.
-- `harness/runtime_support/`: reusable SQL/web tools, credential transport and proof validation.
 - `scripts/common/prompts/`: solver condition text, prompt selection and shared run-limit wording.
 - `benchmarks/{kramabench,dataclawbench,hybriddeepresearch}/`: tasks and independent evaluation.
 - `scripts/<benchmark>/{catalog,run,score}.py`: benchmark entry points.
 - `common/`: domain-independent JSON persistence and fingerprints.
 - `harness/runtime_support/`: containers, native CLI environment, tools, credential transport and provenance.
 - `scripts/common/`: shared benchmark experiment workflows, not reusable runtime implementations.
-
-Directory ownership and dependency rules: [Repository Layout](docs/repository-layout.md).
-- `scripts/server/`: source deployment, provisioning and explicit batch entry points.
+- `scripts/server/`: source deployment, provisioning and server operations.
 - `scripts/probes/`: isolated native CLI and credential-containment checks.
 - `scripts/studies/`: study-specific execution and historical result maintenance, not baseline defaults.
 - `analysis/`: read-only native and historical evidence readers.
 - `tests/`: offline regressions; run on the server, not locally.
 - `docs/`: operational contracts; `docs/studies/` holds study protocols and reports.
+
+Directory ownership and dependency rules: [Repository Layout](docs/repository-layout.md).
 
 ## Safety And Execution
 

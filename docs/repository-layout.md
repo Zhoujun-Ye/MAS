@@ -75,3 +75,17 @@ Python/pytest caches and empty legacy `configs`/`.cache` directories were remove
 the active source inventory had no server-only files. Historical outputs, retired
 source snapshots, datasets, environments, package metadata and Docker images were
 preserved. This verification does not establish FULL/OBS accuracy improvements.
+
+A second cleanup removed eight superseded design/repair documents from both active
+trees after source snapshots and hash-checked server deletion; see
+[Retention](archive.md). The evidence harness README now describes decision-v3
+instead of reproducing the old ledger contract. Duplicate layout entries, obsolete
+timeout ownership and nonportable report links were corrected. Four documentation
+regressions were added; the final server suite passed **550 tests in 16.24 seconds**.
+All 31 script module help entrypoints passed before the documentation-only edits.
+
+Native Claude 2.1.286 fake-provider probes passed for Single/Subagents and FULL/OBS,
+using two concurrent probe groups with two conditions each. Receipts are under
+`/home/zhoujunye/mas/outputs/cleanup-audit-offline-20261106T041959Z/`.
+All four owned containers were removed; paid calls were zero. Runtime behavior
+against a real provider and benchmark efficacy were not retested.
