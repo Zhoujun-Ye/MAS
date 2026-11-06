@@ -13,16 +13,19 @@ import sys
 import threading
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
-from benchmarks._io import fingerprint, write_json
+from scripts.common.prompts.conditions import condition_instructions, organization_override
+from scripts.common.prompts.limits import limit_instructions
+from common.io import fingerprint, write_json
 from benchmarks.kramabench.evaluation import scoring_contract
 from benchmarks.kramabench.semantic_judge import judge_once
 from benchmarks.kramabench.tasks import load_tasks
 from scripts.kramabench import cli_runtime as runtime
 from scripts.kramabench.cli_runtime import compact
-from scripts.common import runtime as shared
-from scripts.common.runtime import monitor, safe_balance
+from harness.runtime_support import runtime as shared
+from harness.runtime_support.runtime import (monitor, safe_balance)
 from analysis.native_evidence import native_single_agent, native_subagents
-from scripts.common.proof import validate_runtime
+from harness.runtime_support.proof import validate_runtime
+from scripts.common import evidence
 
 
 
@@ -52,6 +55,7 @@ def validate_native_proof(args, plan, *, frozen=False):
     if frozen and plan.get("offline_proof_sha256") != proof_digest:
         raise ValueError("Offline proof changed after freeze")
     proof = json.loads(raw)
+    evidence.validate_proof(proof,getattr(args,'evidence_mode',None))
     binary = plan["cli_binaries"]["claude"]
     validate_runtime(proof, args.backend, image_id=plan["image_id"],
                      binary_sha256=binary["sha256"])
@@ -79,12 +83,14 @@ def validate(args):
     validate_native_proof(args, plan, frozen=True)
     if plan.get("effort", "max") != getattr(args, "effort", "max"):
         raise ValueError("Frozen effort changed")
+    if plan.get('evidence')!=evidence.configuration(getattr(args,'evidence_mode',None)):
+        raise ValueError('Frozen evidence configuration changed')
     tasks, _ = load_tasks(args.upstream)
     selected = tasks if args.all_tasks else [next(t for t in tasks if t.id == i) for i in args.selected_task_ids]
     if (plan["kind"] != "native_cli_benchmark" or plan["backend"] != args.backend or [asdict(t) for t in selected] != plan["tasks"]
             or plan.get("organization_override") != getattr(args, "organization_override", None)
-            or plan["backend_instructions"] != {b: shared.condition_instructions(args, b) for b in args.backends}
-            or plan.get("limit_instructions") != shared.limit_instructions(args.timeout)
+            or plan["backend_instructions"] != {b: condition_instructions(args, b) for b in args.backends}
+            or plan.get("limit_instructions") != limit_instructions(args.timeout)
             # Compare the persisted JSON representation: tuples freeze as arrays.
             or fingerprint(plan["backend_options"]) != fingerprint(
                 {b: runtime.options(b) for b in args.backends})
@@ -192,7 +198,7 @@ def main(argv=None):
     parser.add_argument("--organization-prompt", type=Path,
                         help="Explicit Subagents study instruction override; frozen with its SHA-256")
     parser.add_argument("--credentials", type=Path, default=Path("/home/zhoujunye/mas/.env"))
-    parser.add_argument("--image", default="mas-information/kramabench:20261101-v1")
+    parser.add_argument("--image", default="mas/kramabench:20261101-v1")
     parser.add_argument("--concurrency", type=int, default=12)
     parser.add_argument("--timeout", type=int, default=3600)
     parser.add_argument("--replay-timeout", type=int, default=600)
@@ -200,11 +206,13 @@ def main(argv=None):
     parser.add_argument("--from-plan", action="store_true")
     parser.add_argument("--execute", action="store_true")
     parser.add_argument("--effort", choices=("high", "max"), default="max")
+    parser.add_argument('--evidence-mode',choices=evidence.MODES)
     args = parser.parse_args(argv)
     if not 1 <= args.concurrency <= 12 or args.timeout <= 0 or args.replay_timeout <= 0:
         parser.error("Expected 1-12 CLIs and positive timeouts")
     args.upstream, args.output = args.upstream.resolve(), args.output.resolve()
-    args.organization_override = shared.organization_override(args.organization_prompt, args.backend)
+    args.organization_override = organization_override(args.organization_prompt, args.backend)
+    evidence.validate_condition(args)
     tasks, _ = load_tasks(args.upstream)
     if len(args.task_id) != len(set(args.task_id)) or set(args.task_id) - {t.id for t in tasks}:
         parser.error("Task IDs must be unique members of the pinned workload")

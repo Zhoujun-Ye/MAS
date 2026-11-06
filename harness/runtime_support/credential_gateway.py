@@ -1,4 +1,4 @@
-"""Per-run credential injection and host-only request receipts; no model orchestration."""
+"""Shared harness credential transport and host receipts; no model orchestration."""
 
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -111,12 +111,13 @@ class UsageObserver:
 
 
 class CredentialGateway:
-    def __init__(self, key, *, bind="127.0.0.1", web_limit=0, unix_path=None, ledger_path=None):
+    def __init__(self, key, *, bind="127.0.0.1", web_limit=0, unix_path=None, ledger_path=None, budget=None):
         if not isinstance(key, str) or not key or not key.isascii() or any(c.isspace() for c in key):
             raise ValueError("Invalid provider credential format")
         if web_limit < 0:
             raise ValueError("Web limit must be nonnegative")
         self.key, self.token = key, secrets.token_urlsafe(32)
+        self.budget = budget
         self.web_limit, self.web_calls = web_limit, 0
         self.lock = threading.Lock()
         self.ledger_lock = threading.Lock()
@@ -227,6 +228,12 @@ class CredentialGateway:
                                     return
                                 gateway.web_calls += 1
                                 self.record.update(web_reserved=True, web_reservation=gateway.web_calls)
+                        if gateway.budget is not None:
+                            try:
+                                gateway.budget.reserve(request_id, payload, parsed.path)
+                            except ValueError:
+                                self.json_error(402, "run_budget_rejected", "Budget admission rejected; no provider request sent; do not retry")
+                                return
                         self.record.update(upstream_attempted=True, dispatched_at=now())
                         gateway.receipt(dict(self.record, event="dispatched"))
                     try:
@@ -285,6 +292,8 @@ class CredentialGateway:
                             self.record["provider_response_id"] = gateway.redact(observer.response_id)
                         self.record["provider_output_ids"] = sorted(gateway.redact(i) for i in observer.output_ids)
                     self.record["finished_at"] = now()
+                    if gateway.budget is not None:
+                        gateway.budget.settle(self.record)
                     gateway.receipt(dict(self.record, event="finished"))
 
             def safe_headers(self, headers):

@@ -17,7 +17,7 @@ The upstream checkout is an external data/evaluation dependency, not adapter sou
 It need not live inside `benchmarks/kramabench/`. Pass its location through
 `--upstream`; the loader still verifies the pinned revision and input content.
 Local checkout location: `/Users/zhoujun/Desktop/MAS-information-data/kramabench/upstream`.
-The server checkout is now `/home/zhoujunye/MAS-information-data/kramabench/upstream`;
+The server checkout is now `/home/zhoujunye/mas-data/kramabench/upstream`;
 its old path remains a compatibility symlink for historical commands.
 
 Use the same convention for all three benchmarks outside the source repository:

@@ -5,9 +5,9 @@ from types import SimpleNamespace
 import pytest
 
 from scripts.common import grading
-from scripts.server import benchmark_matrix
+from scripts.studies import benchmark_matrix
 from scripts.studies import grade_interrupted_matrix
-from benchmarks._io import read_json
+from common.io import read_json
 from scripts.studies.matched_matrix_report import read
 
 
@@ -82,7 +82,7 @@ def test_krama_reuses_numeric_grade_and_only_judges_authorized_completed_attempt
         'claude-code-subagents', tmp_path, data_root=tmp_path, grades_root=tmp_path/'grades',
         credentials=tmp_path/'unused.env', judge_enabled=enabled, key='fake',
         command_run=lambda *a: pytest.fail('Krama must not launch an external scorer'), log=tmp_path/'log')
-    expected = int(enabled and status == 'cli_exited' and grade_status == 'pending_judge')
+    expected = int(enabled and grade_status == 'pending_judge')
     assert len(calls) == result['judge_calls'] == expected
     assert result['pipeline_exit_code'] == 0
     assert result['pipeline_answer_matches_submission'] is True

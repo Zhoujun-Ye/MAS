@@ -11,7 +11,7 @@ import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from benchmarks._external import asset_manifest, digest, verify_sources, write_jsonl, jsonl
-from benchmarks._io import write_json
+from common.io import write_json
 from benchmarks.dataclawbench.tasks import load_tasks as dc_tasks
 from benchmarks.hybriddeepresearch.tasks import load_tasks as hdr_tasks
 from benchmarks.hybriddeepresearch.evaluation import evaluation_rows

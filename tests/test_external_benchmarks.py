@@ -1,3 +1,4 @@
+from scripts.common.prompts.conditions import backend_instructions
 import base64
 import hashlib
 import json
@@ -13,7 +14,7 @@ from benchmarks.dataclawbench.evaluation import validate_verdict
 from benchmarks.hybriddeepresearch.tasks import CANARY, decode, load_tasks as hdr_tasks
 from benchmarks.hybriddeepresearch.evaluation import evaluation_rows
 from scripts.common.run import instructions, mounts, plan
-from scripts.common.tools import run_sql
+from harness.runtime_support.tools import run_sql
 from scripts.common.score import judge_rows
 
 
@@ -82,7 +83,7 @@ def test_native_baseline_uses_ordinary_prompt_without_judge_intervention(benchma
     task = SimpleNamespace(benchmark=benchmark, web=web, db="retail")
     prompt = instructions(task, "claude-code-subagents", timeout=1800, web_limit=4 if web else 0)
     assert "submission.json" in prompt
-    from scripts.common.runtime import backend_instructions
+
     assert prompt.endswith(backend_instructions("claude-code-subagents"))
     assert "Use Claude Code's native subagents as an orchestrator-worker team." in prompt
     for intervention in ("judge", "1000 words", "at most THREE", "250 words"):

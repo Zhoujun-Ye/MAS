@@ -1,8 +1,9 @@
+from scripts.common.prompts.conditions import backend_instructions
 import json
 import pytest
 
 from scripts.kramabench.run import admission
-from scripts.common.runtime import backend_instructions, options
+from harness.runtime_support.runtime import (options)
 
 
 def test_authorized_conditions_are_explicit():

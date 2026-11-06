@@ -15,16 +15,19 @@ import tarfile
 from types import SimpleNamespace
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+from scripts.common.prompts.conditions import condition_instructions, organization_override
+from scripts.common.prompts.limits import limit_instructions
 from benchmarks._external import asset_manifest, digest, verify_sources, write_jsonl
 from benchmarks.dataclawbench.tasks import load_tasks as dataclaw_tasks, REVISION as DC_REVISION
 from benchmarks.hybriddeepresearch.tasks import load_tasks as hybrid_tasks, REVISION as HDR_REVISION
 from harness import ClaudeCodeSingleAgentCLI, ClaudeCodeSubagentsCLI
 from analysis.run_integrity import inspect_run
-from scripts.common import runtime
-from scripts.common.credential_gateway import CredentialGateway
-from scripts.common.proof import validate as validate_proof, validate_runtime
-from scripts.common.timeouts import default_timeout, timeout_policy
+from harness.runtime_support import runtime
+from harness.runtime_support.credential_gateway import CredentialGateway
+from harness.runtime_support.proof import validate as validate_proof, validate_runtime
+from benchmarks.policy import default_timeout, timeout_policy
 from analysis.native_evidence import native_single_agent, native_subagents
+from scripts.common import evidence
 
 BACKENDS = {"claude-code-single-agent": ClaudeCodeSingleAgentCLI, "claude-code-subagents": ClaudeCodeSubagentsCLI}
 
@@ -69,7 +72,7 @@ def run_web_limit(task, args):
     return (getattr(args, "max_web_requests", None) or 4) if task.web else 0
 
 
-def instructions(task, backend, organization_override=None, *, timeout, web_limit=0):
+def instructions(task, backend, organization_override=None, *, timeout, web_limit=0, evidence_mode=None, worker=False):
     if web_limit and not task.web:
         raise ValueError("A web request limit requires a web-enabled task")
     common = "Do not install packages or seek benchmark questions, gold answers, reference SQL or solutions.\n"
@@ -82,11 +85,13 @@ def instructions(task, backend, organization_override=None, *, timeout, web_limi
                    "Return concise text for entity/intersection questions; for a SQL question return one canonical query in a fenced sql block.\n")
     common += ("Web search/fetch are enabled: python3 /benchmark-tools.py search --query TEXT; "
                "python3 /benchmark-tools.py fetch --url URL.\n" if task.web else "No web search, fetching, or other external data access.\n")
-    common += runtime.limit_instructions(timeout, web_limit)
+    common += limit_instructions(timeout, web_limit)
+    if worker:
+        return common
     common += ('Write /workspace/submission.json with exactly {"final_answer": "your answer as text"}. '
                'If incomplete, use empty final_answer and explain in the CLI final response.\n')
-    return common + runtime.condition_instructions(
-        SimpleNamespace(organization_override=organization_override), backend)
+    return common + condition_instructions(
+        SimpleNamespace(organization_override=organization_override,evidence_mode=evidence_mode), backend)
 
 
 def mounts(task, args):
@@ -120,7 +125,7 @@ def plan(args, tasks):
         for source, target, _ in mounts(task, args):
             assets[str(source)] = asset_manifest(source) if source.is_dir() else digest(source)
     prompts = {t.id: t.question + "\n\n" + instructions(t, args.backend, getattr(args, "organization_override", None),
-                                                         timeout=args.timeout, web_limit=run_web_limit(t, args))
+                                                         timeout=args.timeout, web_limit=run_web_limit(t, args),evidence_mode=getattr(args,'evidence_mode',None))
                for t in tasks}
     options = runtime.options(args.backend)
     if any(t.web for t in tasks) and not args.web_search:
@@ -137,7 +142,7 @@ def plan(args, tasks):
                 effort=getattr(args, "effort", "max"),
                 max_budget_usd=getattr(args, "max_budget_usd", None),
                 max_web_requests=getattr(args, "max_web_requests", None),
-                organization_prompt=runtime.condition_instructions(args, args.backend),
+                organization_prompt=condition_instructions(args, args.backend), evidence=evidence.configuration(getattr(args,'evidence_mode',None)),
                 organization_override=getattr(args, "organization_override", None),
                 data_variant=args.data_variant if args.benchmark == "dataclawbench" else None,
                 source=runtime.source_manifest(), evaluator=evaluator, status="planned", model_calls_started=False,
@@ -167,15 +172,17 @@ def attempt(task, args, key):
     # The explicit helper keeps search-provider behavior consistent across modes.
     opts["disallowed_tools"] = ("WebSearch", "WebFetch")
     web_limit = run_web_limit(task, args)
-    prompt = task.question + "\n\n" + instructions(task, args.backend, getattr(args, "organization_override", None),
-                                                   timeout=args.timeout, web_limit=web_limit)
+    mode=getattr(args,'evidence_mode',None)
+    rules=instructions(task,args.backend,getattr(args,'organization_override',None),timeout=args.timeout,
+                       web_limit=web_limit,evidence_mode=mode)
+    prompt = task.question + "\n\n" + rules
     result = dict(instance_id=task.id, final_answer="", status="not_started", cost_usd=None)
     runtime.write_json(folder / "report.json", result)
     identity = None
     gateway = None
     interrupted = None
     try:
-        inputs = mounts(task, args) + [(Path(__file__).with_name("tools.py"), "/benchmark-tools.py", True)]
+        inputs = mounts(task, args) + [(Path(__file__).resolve().parents[2] / "harness/runtime_support/tools.py", "/benchmark-tools.py", True)] + evidence.source_mounts(mode)
         environment = {"MAS_BENCHMARK_WEB": "1" if task.web else "0", "MAS_WEB_LEDGER": "/native/web-usage.jsonl",
                        "MAS_WEB_PROVIDER": args.web_search or "none"}
         environment["MAS_WEB_MAX_REQUESTS"] = str(web_limit)
@@ -191,8 +198,14 @@ def attempt(task, args, key):
         kwargs = dict(command_prefix=("docker", "exec", "-i", "--workdir", "/workspace", identity))
         kwargs.update(observer_dir=profile / "observer", observer_target="/native/observer", hook_script="/adapter-hooks.py")
         adapter = BACKENDS[args.backend](str(runtime.CLAUDE))
-        native = adapter.run(prompt, workspace=work, output=folder / "cli", timeout=args.timeout,
-                             execute=True, **opts, **kwargs)
+        if mode:
+            native=evidence.launch(mode,runtime.CLAUDE,task.question,rules,work,folder,identity,
+                worker_rules=instructions(task,args.backend,timeout=args.timeout,web_limit=web_limit,worker=True),
+                model=opts['model'],allowed_tools=opts['allowed_tools'],disallowed_tools=opts['disallowed_tools'],
+                timeout=args.timeout,max_budget_usd=getattr(args,'max_budget_usd',None))
+        else:
+            native = adapter.run(prompt, workspace=work, output=folder / "cli", timeout=args.timeout,
+                                 execute=True, **opts, **kwargs)
         result.update(status=native["status"], cli=native)
     except BaseException as error:
         result.update(status="launcher_error", error=dict(type=type(error).__name__, message=str(error).replace(key, "[REDACTED]")))
@@ -213,6 +226,11 @@ def attempt(task, args, key):
             if hasattr(gateway, "summary"):
                 result["gateway"] = gateway.summary()
         result["finished_at"] = runtime.now()
+        if mode:
+            try:
+                result['evidence_workspace']=evidence.audit(folder,mode)
+            except Exception as error:
+                result['evidence_workspace']=dict(available=False,error_type=type(error).__name__)
         runtime.write_json(folder / "report.json", result)
     if interrupted is not None:
         raise interrupted
@@ -220,11 +238,11 @@ def attempt(task, args, key):
         return result
     result["integrity_audit"] = inspect_run(folder, args.backend)
     try:
-        evidence = subprocess.run([sys.executable, "-I",
+        native_evidence = subprocess.run([sys.executable, "-I",
             str(Path(__file__).resolve().parents[2] / ("analysis/native_evidence.py")),
             "--backend", args.backend, "--profile", str(profile)], capture_output=True, text=True, timeout=120)
-        if evidence.returncode == 0:
-            result["accounting"] = json.loads(evidence.stdout)
+        if native_evidence.returncode == 0:
+            result["accounting"] = json.loads(native_evidence.stdout)
         else:
             result["accounting_status"] = "native_reader_failed; usage and costs unknown"
     except (OSError, ValueError, subprocess.TimeoutExpired):
@@ -246,6 +264,12 @@ def attempt(task, args, key):
         data = json.loads(submission.read_text())
         if set(data) != {"final_answer"} or not isinstance(data["final_answer"], str):
             raise ValueError("Expected exactly one final_answer text field")
+        if mode == 'full':
+            result['decision_gate'] = evidence.host_check(folder, data)
+            if not result['decision_gate']['accepted']:
+                result['protocol_status'] = 'incomplete'
+            else:
+                result['protocol_status'] = 'complete'
         result["submission_sha256"] = digest(submission)
         shutil.copyfile(submission, folder / "submission.json")
         if evaluable_prediction(result):
@@ -286,8 +310,10 @@ def main(argv=None, *, benchmark=None):
     parser.add_argument("--effort", choices=("high", "max"), default="max")
     parser.add_argument("--organization-prompt", type=Path,
                         help="Explicit lead-only Claude Subagents study prompt override")
+    parser.add_argument('--evidence-mode',choices=evidence.MODES)
     args = parser.parse_args(argv)
-    args.organization_override = runtime.organization_override(args.organization_prompt, args.backend)
+    args.organization_override = organization_override(args.organization_prompt, args.backend)
+    evidence.validate_condition(args)
     if args.timeout is None:
         args.timeout = default_timeout(args.benchmark)
     if args.max_web_requests is None:
@@ -315,6 +341,7 @@ def main(argv=None, *, benchmark=None):
     if args.authorized_attempts != len(tasks) or args.offline_proof is None:
         raise ValueError("Execution requires exact authorized attempt count and offline native proof")
     proof = json.loads(args.offline_proof.read_text())
+    evidence.validate_proof(proof,args.evidence_mode)
     validate_proof(proof, args.backend)
     key = runtime.credential(args.credentials)
     args.image = json.loads(subprocess.check_output(["docker", "image", "inspect", args.image]))[0]["Id"]

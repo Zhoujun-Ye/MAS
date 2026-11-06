@@ -11,12 +11,12 @@ import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from analysis.native_evidence import native_single_agent, native_subagents
-from benchmarks._io import write_json
+from common.io import write_json
 from benchmarks.dataclawbench.tasks import load_tasks as dataclaw_tasks
 from benchmarks.hybriddeepresearch.tasks import load_tasks as hybrid_tasks
 from harness import ClaudeCodeSingleAgentCLI, ClaudeCodeSubagentsCLI
 from harness._claude_cli import hook_settings
-from scripts.common import runtime
+from harness.runtime_support import runtime
 from scripts.common.run import mounts
 
 
@@ -54,7 +54,7 @@ def main():
             data = dc_root / "assets/database" if task.benchmark == "dataclawbench" else args.root / "hybriddeepresearch/data"
             inputs = mounts(task, argparse.Namespace(upstream=dc_root, data=data, data_variant="database"))
             script = code / "scripts/probes" / ("single_agent.py" if mode == "single-agent" else "subagents.py")
-            inputs += [(script, "/probe.py", True), (code / "scripts/common/tools.py", "/benchmark-tools.py", True)]
+            inputs += [(script, "/probe.py", True), (code / "harness/runtime_support/tools.py", "/benchmark-tools.py", True)]
             identity = runtime.container(work, profile, data, args.image, network="none", backend=backend, dataset_mounts=inputs)
             try:
                 if task.benchmark == "hybriddeepresearch":

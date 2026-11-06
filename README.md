@@ -1,4 +1,4 @@
-# MAS Information
+# MAS
 
 Benchmark adapters for the externally installed Claude Code CLI.
 No upstream agent runtime is vendored or imported as an SDK.
@@ -91,11 +91,17 @@ See [current result status](docs/current-results.md) and
 
 ## Layout
 
-- `harness/`: native arguments, hooks, version checks and process transport.
+- `harness/`: native CLI adapters and our opt-in MAS harness; see [ownership](harness/README.md).
+- `harness/evidence_mas/`: observation store, analytical decision ledger and hook/MCP interfaces.
+- `harness/runtime_support/`: reusable SQL/web tools, credential transport and proof validation.
 - `scripts/common/prompts/`: solver condition text, prompt selection and shared run-limit wording.
 - `benchmarks/{kramabench,dataclawbench,hybriddeepresearch}/`: tasks and independent evaluation.
 - `scripts/<benchmark>/{catalog,run,score}.py`: benchmark entry points.
-- `scripts/common/`: shared runners, containers, credential gateway, proof admission and tools.
+- `common/`: domain-independent JSON persistence and fingerprints.
+- `harness/runtime_support/`: containers, native CLI environment, tools, credential transport and provenance.
+- `scripts/common/`: shared benchmark experiment workflows, not reusable runtime implementations.
+
+Directory ownership and dependency rules: [Repository Layout](docs/repository-layout.md).
 - `scripts/server/`: source deployment, provisioning and explicit batch entry points.
 - `scripts/probes/`: isolated native CLI and credential-containment checks.
 - `scripts/studies/`: study-specific execution and historical result maintenance, not baseline defaults.

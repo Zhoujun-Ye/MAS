@@ -2,7 +2,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from scripts.common.timeouts import TIMEOUT_SECONDS_BY_BENCHMARK, default_timeout, timeout_policy
+from benchmarks.policy import TIMEOUT_SECONDS_BY_BENCHMARK, default_timeout, timeout_policy
 
 
 @pytest.mark.parametrize("benchmark,seconds,provisional", [

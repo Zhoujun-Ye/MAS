@@ -9,7 +9,7 @@ import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from benchmarks._external import jsonl
-from benchmarks._io import read_json as read
+from common.io import read_json as read
 
 
 def lines(path):
@@ -43,10 +43,11 @@ def collect(root):
     for item in summary['rows']:
         b, t, k = item['benchmark'], item['task_id'], item['backend']
         out = Path(item['run'])
-        folder = out / t / k
+        actual_backend=item.get('runtime_backend',k)
+        folder = out / t / actual_backend
         report = read(folder / 'report.json', {})
         grade = grade_by_id.get((b, t, k), {})
-        target = root / 'grades' / b / t / k
+        target = root/'grades'/k/b/t/actual_backend if item.get('evidence_mode') else root/'grades'/b/t/k
         score, grade_status, judge_cost = None, grade.get('status'), None
         if b == 'kramabench':
             g = grade.get('grade') or {}
@@ -105,6 +106,11 @@ def collect(root):
             subagent_stops=audit.get('subagent_stops'),
             reconciliation=report.get('integrity_audit', {}).get('gateway_reconciliation', {}).get('status'),
             prompt=prompt, evidence=str(folder)))
+        if item.get('evidence_mode'):
+            result[-1].update(evidence_mode=item['evidence_mode'],evidence_workspace=report.get('evidence_workspace'))
+        gate = report.get('decision_gate')
+        result[-1].update(raw_score=score, compliant_score=0 if gate and not gate['accepted'] else score,
+                          protocol_accepted=gate.get('accepted') if gate else None)
     return dict(run=root.name, authorization=summary['authorization'], account_delta=summary.get('account_delta'),
         groups=summarize(result), rows=result,
         limitations=['One attempt per task and condition; descriptive validation set, not a general superiority claim.',
@@ -119,7 +125,7 @@ def collect(root):
 def summarize(result):
     groups = []
     for b in ('dataclawbench', 'hybriddeepresearch', 'kramabench', 'all'):
-        for k in ('claude-code-single-agent', 'claude-code-subagents'):
+        for k in ('claude-code-single-agent', 'claude-code-subagents','observations','full'):
             selected = [r for r in result if r['backend'] == k and (b == 'all' or r['benchmark'] == b)]
             if not selected:
                 continue
@@ -127,6 +133,11 @@ def summarize(result):
             elapsed = [r['seconds'] for r in selected if r['seconds'] is not None]
             costs = [r['total_usd_offpeak'] for r in selected]
             groups.append(dict(benchmark=b, backend=k, attempts=len(selected), graded=len(known),
+                raw_accuracy=sum(known)/len(selected) if len(known)==len(selected) else None,
+                compliant_accuracy=sum(r.get('compliant_score',r['score']) for r in selected)/len(selected)
+                    if all(r.get('compliant_score',r['score']) is not None for r in selected) else None,
+                protocol_accepted=sum(r.get('protocol_accepted') is True for r in selected),
+                protocol_measured=sum(r.get('protocol_accepted') is not None for r in selected),
                 full_score=sum(s == 1 for s in known),
                 mean_score=sum(known)/len(selected) if b != 'all' and selected and len(known) == len(selected) else None,
                 statuses=dict(Counter(r['status'] for r in selected)),
@@ -143,7 +154,7 @@ def timeout_zero(report):
     revised = copy.deepcopy(report)
     for row in revised['rows']:
         if row['status'] == 'timed_out' and row['score'] is None:
-            row.update(score=0.0, grade_status='timeout_zero_by_user_policy')
+            row.update(score=0.0, raw_score=0.0, compliant_score=0.0, grade_status='timeout_zero_by_user_policy')
     revised['groups'] = summarize(revised['rows'])
     revised['score_policy'] = 'Timeouts score zero; other unknown scores remain unknown.'
     revised['limitations'].append(revised['score_policy'])
@@ -154,6 +165,7 @@ def write_report(report, output):
     """Export public operational metadata without copying private run artifacts."""
     output.mkdir(parents=True, exist_ok=False)
     columns = ['benchmark', 'task_id', 'backend', 'status', 'native_audit_passed', 'grade_status', 'score',
+               'raw_score','compliant_score','protocol_accepted',
                'seconds', 'model_requests', 'model_usd_offpeak', 'web_usd_estimate', 'judge_usd_offpeak',
                'total_usd_offpeak', 'evidence']
     with (output / 'task-results.csv').open('w', newline='') as stream:
@@ -174,8 +186,8 @@ def write_report(report, output):
         if group['benchmark'] == 'all':
             continue
         count = group['attempts']
-        condition = ('Single' if group['backend'].endswith('single-agent') else
-                     report.get('condition_label', 'Subagents'))
+        condition = ({'observations':'Observation','full':'Full'}.get(group['backend']) or
+                     ('Single' if group['backend'].endswith('single-agent') else report.get('condition_label', 'Subagents')))
         text.append(f"| {group['benchmark']} | {condition} | {group['graded']}/{count} | {fmt(group['mean_score'])} | "
                     f"{group['full_score']}/{count} | {fmt(group['mean_minutes'], '.2f')} | "
                     f"{fmt(group['total_usd_offpeak'], '.6f')} | {group['native_audit_passes']}/{count} |")

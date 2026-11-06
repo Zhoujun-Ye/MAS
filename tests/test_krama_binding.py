@@ -1,3 +1,5 @@
+from scripts.common.prompts.conditions import condition_instructions
+from scripts.common.prompts.limits import limit_instructions
 import json
 import hashlib
 import threading
@@ -6,7 +8,7 @@ from types import SimpleNamespace
 import pytest
 
 from benchmarks.kramabench.tasks import Task
-from benchmarks._io import fingerprint
+from common.io import fingerprint
 from scripts.kramabench import cli_runtime as runtime
 from scripts.kramabench import run
 
@@ -80,8 +82,8 @@ def roundtrip_plan(request, tmp_path, monkeypatch):
         upstream=tmp_path, offline_proof=proof_path, all_tasks=False, selected_task_ids=[task.id],
         concurrency=1, timeout=3600, judge_limit=1, replay_timeout=180)
     plan.update(attempts=1, tasks=[dict(id=task.id, domain=task.domain, query=task.query)],
-        organization_override=None, backend_instructions={backend: run.shared.condition_instructions(args, backend)},
-        limit_instructions=run.shared.limit_instructions(3600),
+        organization_override=None, backend_instructions={backend: run.condition_instructions(args, backend)},
+        limit_instructions=run.limit_instructions(3600),
         backend_options={backend: runtime.options(backend)}, source={"fixture": "source-hash"},
         inputs_sha256=fingerprint({"fixture": "data-hash"}), scoring={"version": 1},
         concurrency=1, timeout_seconds=3600, judge_limit=1, replay_timeout_seconds=180)
@@ -127,7 +129,7 @@ def test_roundtrip_still_rejects_real_changes(roundtrip_plan, monkeypatch, chang
     elif change == "scoring":
         monkeypatch.setattr(run, "scoring_contract", lambda path: {"version": 2})
     elif change == "prompt":
-        monkeypatch.setattr(run.shared, "condition_instructions", lambda *a: "changed")
+        monkeypatch.setattr(run, "condition_instructions", lambda *a: "changed")
     else:
         args.timeout += 1
     with pytest.raises(ValueError, match="Frozen condition/source/data/scoring changed|Frozen settings changed"):
@@ -136,7 +138,7 @@ def test_roundtrip_still_rejects_real_changes(roundtrip_plan, monkeypatch, chang
 
 @pytest.mark.parametrize("removed", [True, False])
 def test_startup_failure_preserves_owned_container(tmp_path, monkeypatch, removed):
-    from scripts.common.runtime import ContainerStartupError
+    from harness.runtime_support.runtime import (ContainerStartupError)
     captured = {}
     class Gateway:
         def __init__(self, *args, **kwargs):

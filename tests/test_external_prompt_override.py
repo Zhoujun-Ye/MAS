@@ -1,9 +1,11 @@
+from scripts.common.prompts.conditions import organization_override
+from scripts.common.prompts.limits import limit_instructions
 from types import SimpleNamespace
 
 import pytest
 
 from scripts.common.run import instructions
-from scripts.common.runtime import limit_instructions, organization_override
+
 
 
 @pytest.mark.parametrize("benchmark", ["dataclawbench", "hybriddeepresearch"])

@@ -8,8 +8,8 @@ import urllib.request
 
 import pytest
 
-from scripts.common import credential_gateway, tools
-from scripts.common.credential_gateway import CredentialGateway
+from harness.runtime_support import credential_gateway, tools
+from harness.runtime_support.credential_gateway import CredentialGateway
 
 
 _connect = socket.socket.connect
@@ -33,6 +33,18 @@ def post(gateway, path="/responses", payload=None):
         data=json.dumps(payload or {"model": "deepseek-flash", "input": "private question"}).encode(),
         headers={"Authorization": "Bearer " + gateway.token})
     return urllib.request.urlopen(request, timeout=3)
+
+
+def test_budget_rejection_never_dispatches(tmp_path, monkeypatch):
+    from harness.runtime_support.budget import RequestBudget
+    calls = []
+    monkeypatch.setattr(credential_gateway, 'open_upstream', lambda request: calls.append(request))
+    with CredentialGateway('synthetic', ledger_path=tmp_path/'ledger', budget=RequestBudget('.01')) as gateway:
+        with pytest.raises(urllib.error.HTTPError) as caught:
+            post(gateway, '/anthropic/v1/messages', {'model': 'deepseek-flash', 'max_tokens': 8192})
+        assert caught.value.code == 402
+    assert calls == []
+    assert gateway.summary()['upstream_attempts'] == 0
 
 
 def test_error_preserves_protocol_without_secrets(tmp_path, monkeypatch):

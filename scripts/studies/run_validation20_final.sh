@@ -3,17 +3,17 @@
 set -uo pipefail
 umask 077
 cd "$(dirname "$0")/../.."
-PY=/home/zhoujunye/MAS-information-data/environments/evaluation/bin/python
-DATA=/home/zhoujunye/MAS-information-data
+PY=/home/zhoujunye/mas-data/environments/evaluation/bin/python
+DATA=/home/zhoujunye/mas-data
 RUN=${1:?Supply a fresh absolute server output directory}
 PROOFS=${2:?Supply matching offline proof directory}
 if [[ "$RUN" != /home/zhoujunye/mas/outputs/* || -e "$RUN" || -e "$RUN.driver-status.json" || -e "$RUN-report" ]]; then
   echo "Refusing existing or out-of-scope output" >&2
   exit 2
 fi
-"$PY" -m scripts.server.benchmark_matrix \
+"$PY" -m scripts.studies.benchmark_matrix \
   --root "$DATA" --output "$RUN" --proofs "$PROOFS" \
-  --image mas-information/research-benchmarks:20261103-v1 \
+  --image mas/research-benchmarks:20261103-v1 \
   --effort high --concurrency 6 --judge-concurrency 2 \
   --task-manifest docs/studies/validation20-v1-manifest.json \
   --protocol-settings docs/studies/validation20-final-protocol.json \

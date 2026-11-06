@@ -1,4 +1,4 @@
-"""Persistence and provenance helpers for benchmark data, not agent execution."""
+"""Domain-independent JSON persistence and canonical fingerprints."""
 
 import hashlib
 import json

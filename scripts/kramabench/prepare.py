@@ -13,7 +13,7 @@ import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from benchmarks.kramabench.tasks import DOMAINS, UPSTREAM_COMMIT, load_tasks
-from benchmarks._io import write_json
+from common.io import write_json
 
 REQUIREMENTS = """numpy==2.2.6
 pandas==2.2.3

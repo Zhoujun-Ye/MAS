@@ -1,4 +1,4 @@
-"""Container-local byte transport to a host Unix socket; contains no provider key."""
+"""Harness container byte transport to a host Unix socket; no provider key."""
 
 from pathlib import Path
 import select

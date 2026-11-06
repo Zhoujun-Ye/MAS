@@ -1,7 +1,7 @@
 # Current Lead Prompt
 
-Only the current orchestrator-worker lead prompt in `scripts/common/prompts/structured_subagents.py`
-is used for Subagents. The user froze its text on 2026-11-04 and requested
+The default Subagents lead prompt is `scripts/common/prompts/structured_subagents.py`.
+The user froze its text on 2026-11-04 and requested
 removing superseded lead prompt files and version labels.
 
 UTF-8 SHA-256 without trailing newline:
@@ -17,3 +17,16 @@ is not a prompt version. Current settings are in `validation20-final-protocol.js
 Neither condition sets a project output token cap. See [run record](validation20-final.md),
 [lifecycle fix](lifecycle-fix-20261104.md) and [current results](../current-results.md).
 Historical raw run names and frozen manifests are not renamed or rewritten.
+
+## Explicit Evidence Studies
+
+These opt-in studies are separate from the frozen Structured baseline. Native,
+OBS and FULL use the existing Native (N) prompt, not the default Structured prompt.
+
+- [Decision FULL protocol](decision-full.md)
+- [Intermediate measurements and shadow grading](intermediate-full.md)
+- [Shared evidence native integration](shared-evidence-native.md)
+- [Evidence review repairs](evidence-review-repair.md)
+
+Study documents and offline checks do not establish benchmark gains or authorize
+paid execution. Retain original attempts, frozen settings and accounting evidence.

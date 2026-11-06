@@ -3,7 +3,7 @@ requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "mas-information"
+name = "mas"
 version = "0.1.0"
 description = "External Claude Code Single and Subagents CLI adapters"
 requires-python = ">=3.12,<3.14"
@@ -14,7 +14,7 @@ dependencies = []
 test = ["pytest>=8"]
 
 [tool.setuptools.packages.find]
-include = ["harness*", "benchmarks*", "analysis*"]
+include = ["common*", "harness*", "benchmarks*", "analysis*"]
 exclude = ["*.upstream*", "*.assets*"]
 
 [tool.pytest.ini_options]

@@ -4,10 +4,10 @@ import urllib.request
 import urllib.error
 import socket
 import stat
-from scripts.common.credential_gateway import CredentialGateway
-from scripts.common import credential_gateway
+from harness.runtime_support.credential_gateway import CredentialGateway
+from harness.runtime_support import credential_gateway
 
-from scripts.common import runtime
+from harness.runtime_support import runtime
 
 _connect = socket.socket.connect
 _connect_ex = socket.socket.connect_ex

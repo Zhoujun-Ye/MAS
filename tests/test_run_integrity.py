@@ -1,7 +1,7 @@
 import json
 
 from analysis.run_integrity import inspect_run
-from scripts.common.credential_gateway import UsageObserver
+from harness.runtime_support.credential_gateway import UsageObserver
 
 
 def write(path, rows):

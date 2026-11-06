@@ -13,11 +13,8 @@ import urllib.request
 import uuid
 import time
 
-from benchmarks._io import write_json
+from common.io import write_json
 from harness._claude_hooks import BLOCKED_TOOLS
-# Preserve existing runner imports while prompts live in their own package.
-from scripts.common.prompts.conditions import backend_instructions, condition_instructions, organization_override
-from scripts.common.prompts.limits import limit_instructions
 
 CLAUDE = Path("/home/zhoujunye/.local/bin/claude").resolve()
 
@@ -132,7 +129,7 @@ def container(work, profile, dataset, image, key=None, network="bridge", backend
     environment = native_env(backend, effort=effort)
     environment.update(environment_overrides or {})
     if gateway is not None:
-        from scripts.common.credential_gateway import CredentialGateway
+        from harness.runtime_support.credential_gateway import CredentialGateway
         if not isinstance(gateway, CredentialGateway):
             raise TypeError("Expected a host credential gateway")
         environment.update(ANTHROPIC_BASE_URL=gateway.url + "/anthropic",
@@ -140,7 +137,7 @@ def container(work, profile, dataset, image, key=None, network="bridge", backend
         # The Unix gateway is the only provider/web route, including shell tools.
         network = "none"
     args = ["docker", "run", "-d", "--pull", "never", "--name", container_name,
-            "--label", "purpose=mas-information-cli6", "--network", network, "--cpus", "2",
+            "--label", "purpose=mas-cli6", "--network", network, "--cpus", "2",
             "--memory", "8g", "--pids-limit", "512", "--cap-drop", "ALL",
             "--security-opt", "no-new-privileges", "--user", f"{os.getuid()}:{os.getgid()}",
             "--workdir", "/workspace"]
@@ -150,7 +147,7 @@ def container(work, profile, dataset, image, key=None, network="bridge", backend
     mounts.extend(dataset_mounts if dataset_mounts is not None else [(dataset, "/data", True)])
     if gateway is not None and gateway.unix_path is not None:
         mounts += [(gateway.unix_path, "/host-gateway.sock", True),
-                   (Path(__file__).with_name("gateway_bridge.py"), "/gateway-bridge.py", True)]
+                   (Path(__file__).resolve().parents[2] / "harness/runtime_support/gateway_bridge.py", "/gateway-bridge.py", True)]
     for source, target, readonly in mounts:
         args += ["--mount", f"type=bind,src={source},dst={target}" + (",readonly" if readonly else "")]
     for variable, value in environment.items():

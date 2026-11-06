@@ -12,7 +12,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 def kramabench_upstream():
     configured = os.environ.get("KRAMABENCH_UPSTREAM")
     root = (Path(configured) if configured else Path(__file__).resolve().parents[2]
-            / "MAS-information-data/kramabench/upstream")
+            / "mas-data/kramabench/upstream")
     if not root.is_dir():
         if configured:
             pytest.fail("KRAMABENCH_UPSTREAM does not point to an existing checkout")

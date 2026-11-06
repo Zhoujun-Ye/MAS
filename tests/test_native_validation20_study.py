@@ -3,7 +3,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from scripts.server import benchmark_matrix as matrix
+from scripts.studies import benchmark_matrix as matrix
 from scripts.server import smoke
 from scripts.studies import run_validation20_native as study
 

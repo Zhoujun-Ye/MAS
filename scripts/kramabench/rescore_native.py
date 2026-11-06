@@ -8,7 +8,7 @@ from pathlib import Path
 import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
-from benchmarks._io import write_json
+from common.io import write_json
 from benchmarks.kramabench.evaluation import (NUMERIC_POLICY, UPSTREAM_NUMERIC_POLICY,
     grade_answer, number, scoring_contract)
 

@@ -2,7 +2,7 @@ from copy import deepcopy
 
 import pytest
 
-from scripts.common.proof import validate, validate_runtime
+from harness.runtime_support.proof import validate, validate_runtime
 
 
 def claude_proof():

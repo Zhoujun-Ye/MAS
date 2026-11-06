@@ -1,10 +1,10 @@
+from scripts.common.prompts.conditions import backend_instructions, condition_instructions, organization_override
 import json
 from types import SimpleNamespace
 
 import pytest
 
-from scripts.common.runtime import (balance_deltas, backend_instructions, condition_instructions,
-    credential, native_env, options, organization_override)
+from harness.runtime_support.runtime import (balance_deltas, credential, native_env, options)
 from scripts.kramabench.cli_runtime import submission
 from analysis.native_evidence import read_evidence
 
@@ -25,7 +25,7 @@ def test_output_limit_uses_native_default(backend):
 
 
 def test_claude_container_has_no_retired_runtime_dependency(tmp_path, monkeypatch):
-    from scripts.common import runtime
+    from harness.runtime_support import runtime
     captured = {}
     def check(command, **kwargs):
         captured.update(command=command, environment=kwargs["env"])

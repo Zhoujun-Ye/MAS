@@ -12,7 +12,7 @@ import urllib.request
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from benchmarks._external import digest
-from benchmarks._io import write_json
+from common.io import write_json
 from benchmarks.dataclawbench.tasks import REVISION as DC_REVISION
 
 HDR_RELEASE = "31304784b7aec82f22d59772a8afeb78567fd8b3"

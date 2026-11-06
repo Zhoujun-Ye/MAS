@@ -3,7 +3,7 @@
 import sys
 
 from benchmarks._external import jsonl
-from benchmarks._io import read_json
+from common.io import read_json
 from benchmarks.kramabench.semantic_judge import judge_once
 
 
@@ -19,11 +19,18 @@ def grade_attempt(benchmark, task, backend, run, *, data_root, grades_root,
         result.update(status=record.get("grade", {}).get("status"), grade=record.get("grade"),
                       pipeline_exit_code=record.get("pipeline_exit_code"),
                       pipeline_answer_matches_submission=record.get("pipeline_answer_matches_submission"))
-        if record.get("status") == "cli_exited" and result["status"] == "pending_judge" and judge_enabled:
+        # Lifecycle evidence and answer eligibility are separate. judge_once
+        # validates the retained submission before any authorized dispatch.
+        if record.get("status") in {"cli_exited","native_condition_unverified"} and result["status"] == "pending_judge" and judge_enabled:
             judged = judge_once(upstream=data_root / benchmark / "upstream", task_id=task.id, backend=backend,
                 submission_path=run / task.id / backend / "submission.json", question=task.query,
                 key=key, output=target)
             result.update(status=judged["status"], grade=judged.get("grade"), judge_calls=judged["attempted_calls"])
+        if 'decision_gate' in record:
+            raw = (result.get('grade') or {}).get('score')
+            accepted = record['decision_gate']['accepted']
+            result['accuracy'] = dict(raw_score=raw, compliant_score=raw if accepted else 0,
+                                      protocol_accepted=accepted, grading_calls_shared=True)
         return result
     predictions = run / "predictions.jsonl"
     if not predictions.exists():

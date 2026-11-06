@@ -1,6 +1,7 @@
+from scripts.common.prompts.conditions import backend_instructions
 import hashlib
 
-from scripts.common.runtime import backend_instructions
+
 from scripts.common.prompts.conditions import backend_instructions as prompt_backend_instructions
 from scripts.common.prompts.single_agent import PROMPT as SINGLE_AGENT_PROMPT
 from scripts.common.prompts.structured_subagents import PROMPT as STRUCTURED_SUBAGENTS_PROMPT

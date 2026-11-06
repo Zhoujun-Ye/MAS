@@ -11,10 +11,10 @@ import sys
 import time
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
-from benchmarks._io import write_json
+from common.io import write_json
 from benchmarks.dataclawbench.tasks import load_tasks as dc_tasks
 from benchmarks.hybriddeepresearch.tasks import load_tasks as hdr_tasks
-from scripts.common import runtime
+from harness.runtime_support import runtime
 
 
 def cny(receipt):

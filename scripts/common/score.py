@@ -13,7 +13,7 @@ from benchmarks._external import digest, predictions, verify_sources, write_json
 from benchmarks.dataclawbench.evaluation import evaluation_rows as dc_rows, outcome_rubric, validate_verdict, normalize_verdict
 from benchmarks.hybriddeepresearch.evaluation import evaluation_rows as hdr_rows
 from scripts.common.run import load, evaluator_manifest, evaluable_prediction
-from benchmarks._io import write_json
+from common.io import write_json
 
 
 def module(path, name):
@@ -144,13 +144,18 @@ def main(argv=None, *, benchmark=None):
     if args.execute_judges:
         rows = judge_inputs
         from openai import OpenAI
-        from scripts.common.runtime import credential
+        from harness.runtime_support.runtime import (credential)
         key = credential(args.credentials) if args.credentials else os.environ["JUDGE_API_KEY"]
         base_url = args.judge_base_url or os.environ.get("JUDGE_BASE_URL")
         client = OpenAI(api_key=key, max_retries=0, timeout=180,
                         **({"base_url": base_url} if base_url else {}))
         judged = judge_rows(rows, benchmark=args.benchmark, upstream=args.upstream, model=args.judge_model,
                             output=args.output, client=client)
+        for row in judged:
+            gate = predicted[row['instance_id']].get('decision_gate')
+            if gate is not None:
+                row.update(raw_score=row['score'], compliant_score=row['score'] if gate['accepted'] else 0,
+                           protocol_accepted=gate['accepted'])
         write_jsonl(args.output / "judge-results.jsonl", judged)
         receipt["judge_calls"] = sum(row.get("attempted_calls", 0) for row in judged)
         receipt["judge_model"] = args.judge_model
@@ -158,6 +163,24 @@ def main(argv=None, *, benchmark=None):
         write_json(args.output / "receipt.json", receipt)
         if receipt["judge_status"] == "incomplete":
             return 1
+    if any('decision_gate' in row for row in predicted.values()):
+        from benchmarks._external import jsonl
+        values = {}
+        for filename, field in [('judge-results.jsonl','score'), ('s2sql-results.jsonl','match')]:
+            path = args.output / filename
+            if path.is_file():
+                for row in jsonl(path):
+                    values[row.get('instance_id', row.get('task_id', row.get('id')))] = row.get(field)
+        metrics = []
+        for identity, prediction in predicted.items():
+            gate = prediction.get('decision_gate')
+            raw = values.get(identity)
+            metrics.append(dict(instance_id=identity, raw_score=raw,
+                compliant_score=0 if gate and not gate['accepted'] else raw,
+                protocol_accepted=gate.get('accepted') if gate else None))
+        write_json(args.output / 'protocol-metrics.json', dict(rows=metrics, grading_calls_shared=True,
+            raw_accuracy=sum(r['raw_score'] for r in metrics)/len(metrics) if metrics and all(r['raw_score'] is not None for r in metrics) else None,
+            compliant_accuracy=sum(r['compliant_score'] for r in metrics)/len(metrics) if metrics and all(r['compliant_score'] is not None for r in metrics) else None))
     return 0
 
 

@@ -1,10 +1,11 @@
+from scripts.common.prompts.limits import limit_instructions
 import threading
 from types import SimpleNamespace
 
 import pytest
 
 from scripts.common.run import instructions, run_web_limit
-from scripts.common.runtime import TOOLS, limit_instructions, options
+from harness.runtime_support.runtime import (TOOLS, options)
 
 
 def test_limit_text_states_time_and_shared_web_budget():

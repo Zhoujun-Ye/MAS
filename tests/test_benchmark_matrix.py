@@ -3,7 +3,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from scripts.server import benchmark_matrix as matrix
+from scripts.studies import benchmark_matrix as matrix
 
 
 def selected_tasks():

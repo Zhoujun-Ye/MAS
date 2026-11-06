@@ -12,30 +12,35 @@ import tarfile
 import uuid
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
-from benchmarks._io import fingerprint, write_json
+from scripts.common.prompts.conditions import condition_instructions
+from scripts.common.prompts.limits import limit_instructions
+from common.io import fingerprint, write_json
 from benchmarks.kramabench.evaluation import grade_answer, scoring_contract
 from benchmarks.kramabench.tasks import load_tasks
 from harness import ClaudeCodeSubagentsCLI, ClaudeCodeSingleAgentCLI
-from scripts.common.runtime import (CLAUDE, THREADS, condition_instructions, container, limit_instructions, native_env,
-                                    now, options, snapshot, source_files, source_manifest, stop_container)
+from harness.runtime_support.runtime import (CLAUDE, THREADS, container, native_env, now, options, snapshot, source_files, source_manifest, stop_container)
 from scripts.kramabench.prepare import verify_inputs
-from scripts.common.credential_gateway import CredentialGateway
+from harness.runtime_support.credential_gateway import CredentialGateway
 from analysis.native_evidence import native_single_agent, native_subagents
 from analysis.run_integrity import inspect_run
+from scripts.common import evidence
+from harness.evidence_mas.decision import host_check as decision_host_check
 
 
-INSTRUCTIONS = """Solve the public data-analysis question using only the supplied input lake at /data.
+SHARED_INSTRUCTIONS = """Solve the public data-analysis question using only the supplied input lake at /data.
 The Python data-analysis environment is python3 at /usr/local/bin/python3.
 Do not install packages, use network searches, or seek benchmark answers/reference solutions.
 Inspect actual files and columns; check units, dates, missingness, joins and the requested estimand.
 Save a runnable Python pipeline under /workspace, run it and check its printed answer.
 The last nonempty pipeline stdout line must be exactly a JSON object with a single key:
 {"answer": YOUR_ANSWER}. Use json.dumps, not prefixed text, prose, or extra diagnostic fields.
-Save /workspace/submission.json with exactly these keys:
+"""
+SUBMISSION_INSTRUCTIONS = """Save /workspace/submission.json with exactly these keys:
 answer (the requested scalar or list), pipeline_path (workspace-relative .py path),
 evidence (a short string), unfinished (a list of strings).
 Do not copy pipeline code into the final response. If incomplete, use null answer/path and explain unfinished.
 """
+INSTRUCTIONS = SHARED_INSTRUCTIONS + SUBMISSION_INSTRUCTIONS
 
 
 def submission(work):
@@ -66,10 +71,11 @@ def run_attempt(task, backend, args, key, stop, active, lock):
     profile.mkdir(mode=0o700)
     (profile / "home").mkdir()
     instructions = INSTRUCTIONS + limit_instructions(args.timeout) + "\n" + condition_instructions(args, backend)
+    mode=getattr(args,'evidence_mode',None)
     # Readable task rules only. Isolated settings (--setting-sources "") do not auto-load
     # these files, so workers see them only if they read them; lead-only text stays in the prompt.
-    (work / "AGENTS.md").write_text(INSTRUCTIONS)
-    (work / "CLAUDE.md").write_text(INSTRUCTIONS)
+    (work / "AGENTS.md").write_text(SHARED_INSTRUCTIONS if mode else INSTRUCTIONS)
+    (work / "CLAUDE.md").write_text(SHARED_INSTRUCTIONS if mode else INSTRUCTIONS)
     subprocess.run(["git", "init", "--quiet", str(work)], check=True)
     prompt = task.query + "\n\n" + instructions
     write_json(folder / "task.json", asdict(task))
@@ -82,8 +88,9 @@ def run_attempt(task, backend, args, key, stop, active, lock):
         gateway = CredentialGateway(key, unix_path=folder / "gateway.sock", web_limit=0,
                                     ledger_path=folder / "gateway-requests.jsonl")
         gateway.__enter__()
+        mount_kwargs={'dataset_mounts':[(args.upstream/'data','/data',True)]+evidence.source_mounts(mode)} if mode else {}
         identity = container(work, profile, args.upstream / "data", args.image,
-                             gateway=gateway, backend=backend, effort=getattr(args, "effort", "max"))
+                             gateway=gateway, backend=backend, effort=getattr(args, "effort", "max"),**mount_kwargs)
         with lock:
             active.add(identity)
         adapter = ({"claude-code-subagents": ClaudeCodeSubagentsCLI, "claude-code-single-agent": ClaudeCodeSingleAgentCLI}[backend](str(CLAUDE)))
@@ -94,8 +101,13 @@ def run_attempt(task, backend, args, key, stop, active, lock):
         report.update(status="running", started_at=now(), container_id=identity)
         write_json(folder / "report.json", report)
         opts = options(backend)
-        result = adapter.run(prompt, workspace=work, output=folder / "cli", timeout=args.timeout,
-                             execute=True, **terminal_options, **opts)
+        if mode:
+            result=evidence.launch(mode,CLAUDE,task.query,instructions,work,folder,identity,
+                worker_rules=SHARED_INSTRUCTIONS + limit_instructions(args.timeout),
+                model=opts['model'],allowed_tools=opts['allowed_tools'],disallowed_tools=opts['disallowed_tools'],timeout=args.timeout)
+        else:
+            result = adapter.run(prompt, workspace=work, output=folder / "cli", timeout=args.timeout,
+                                 execute=True, **terminal_options, **opts)
         report.update(status=result["status"], cli=result, finished_at=now())
         write_json(folder / "report.json", report)
         if backend == "claude-code-subagents":
@@ -152,6 +164,11 @@ def run_attempt(task, backend, args, key, stop, active, lock):
                 if hasattr(gateway, "summary"):
                     report["gateway"] = gateway.summary()
             report["integrity_audit"] = inspect_run(folder, backend)
+            if mode:
+                try:
+                    report['evidence_workspace']=evidence.audit(folder,mode)
+                except Exception as error:
+                    report['evidence_workspace']=dict(available=False,error_type=type(error).__name__)
             write_json(folder / "report.json", report)
     return report
 
@@ -184,8 +201,16 @@ def collect_attempt(folder, report, args):
         candidate = json.loads(raw_submission.read_text())
         if not isinstance(candidate, dict) or "answer" not in candidate:
             raise ValueError("Submission must contain answer")
+        if getattr(args, 'evidence_mode', None) == 'full':
+            report['decision_gate'] = decision_host_check(folder, candidate)
+            report['protocol_status'] = 'complete' if report['decision_gate']['accepted'] else 'incomplete'
         shutil.copyfile(raw_submission, folder / "submission.json")
         report["grade"] = grade_answer(args.upstream, task_id, folder / "submission.json")
+        if 'decision_gate' in report:
+            raw = report['grade'].get('score')
+            report['accuracy'] = dict(raw_score=raw,
+                compliant_score=raw if report['decision_gate']['accepted'] else 0,
+                protocol_accepted=report['decision_gate']['accepted'], grading_calls_shared=True)
         data = submission(work)
         report["submission"] = data
         # Never execute submitted code on the host; use a fresh offline copy.
@@ -245,7 +270,7 @@ def preflight(args):
                 limit_instructions=limit_instructions(args.timeout),
                 backend_options={b: options(b) for b in backends},
                 backend_instructions={b: condition_instructions(args, b) for b in backends},
-                organization_override=getattr(args, "organization_override", None),
+                organization_override=getattr(args, "organization_override", None), evidence=evidence.configuration(getattr(args,'evidence_mode',None)),
                 native_environment={b: native_env(b, effort=getattr(args, "effort", "max")) for b in backends}, cpu_per_attempt=2, memory_per_attempt="8g",
                 source=source_manifest(),
                 judge_limit=getattr(args, "judge_limit", 0),

@@ -1,4 +1,4 @@
-"""Read-only SQLite and explicit DeepSeek/Tavily web tools; no model client."""
+"""Shared harness SQLite and explicit web tools; no model client."""
 
 import argparse
 import fcntl

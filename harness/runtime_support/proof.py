@@ -1,4 +1,4 @@
-"""Validate native-mode evidence; mock model success is not benchmark correctness."""
+"""Validate harness runtime evidence; mocks do not establish benchmark correctness."""
 
 
 def validate(proof, backend):

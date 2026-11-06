@@ -2,8 +2,8 @@ from types import SimpleNamespace
 
 import pytest
 
-from scripts.common import runtime
-from scripts.server.benchmark_matrix import solver_command
+from harness.runtime_support import runtime
+from scripts.studies.benchmark_matrix import solver_command
 
 
 @pytest.mark.parametrize("backend", ["claude-code-single-agent", "claude-code-subagents"])

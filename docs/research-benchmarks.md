@@ -9,7 +9,7 @@ agents that notify the lead on completion (2.1.286 has no TaskOutput tool), with
 Agent Teams disabled. Interactive Agent Teams is retired, including the KramaBench adapter.
 
 The Subagents baseline uses the fixed current lead prompt in
-`scripts/common/runtime.py`. Only native Claude Single and Subagents are active.
+`harness/runtime_support/runtime.py`. Only native Claude Single and Subagents are active.
 
 Both conditions receive the same shared task rules, ending with a run-limits line:
 the wall-clock timeout and, for web tasks, the request budget shared by every agent

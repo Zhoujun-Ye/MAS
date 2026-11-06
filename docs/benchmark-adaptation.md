@@ -10,6 +10,12 @@ pre-provisioning snapshot, not the current server installation state.
 
 ## Common Structure
 
+The tree below records the 2026-11-03 audit layout. Reusable tools, credential
+transport and proof validation moved to `harness/runtime_support/` on 2026-11-05;
+our new MAS components live in `harness/evidence_mas/`. See the current
+[ownership guide](../harness/README.md). Historical readiness observations below
+are not rewritten as current runtime verification.
+
 ```text
 harness/                          external Claude CLI adapters only
 benchmarks/

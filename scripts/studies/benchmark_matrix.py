@@ -12,15 +12,18 @@ import sys
 import threading
 import time
 
-from benchmarks._io import write_json
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+from scripts.common.prompts.conditions import organization_override, backend_instructions
+from common.io import write_json
 from benchmarks.dataclawbench.tasks import load_tasks as dc_tasks
 from benchmarks.hybriddeepresearch.tasks import load_tasks as hdr_tasks
 from benchmarks.kramabench.tasks import load_tasks as krama_tasks
-from scripts.common import runtime
+from harness.runtime_support import runtime
 from scripts.common.grading import grade_attempt
-from scripts.common.proof import validate_runtime
+from harness.runtime_support.proof import validate_runtime
 from benchmarks._external import digest
-from scripts.common.timeouts import TIMEOUT_SECONDS_BY_BENCHMARK, default_timeout, timeout_policy
+from benchmarks.policy import TIMEOUT_SECONDS_BY_BENCHMARK, default_timeout, timeout_policy
+from scripts.common import evidence
 
 BACKENDS = ("claude-code-single-agent", "claude-code-subagents",)
 BENCHMARKS = ("dataclawbench", "hybriddeepresearch", "kramabench")
@@ -93,11 +96,40 @@ def selections(root, count=2, seed=42):
     return [("dataclawbench", t) for t in dc] + [("hybriddeepresearch", t) for t in hdr] + [("kramabench", t) for t in krama[:2]]
 
 
+def runtime_backend(condition):
+    return 'claude-code-subagents' if condition in evidence.MODES else condition
+
+
+def retained_attempts(path, jobs, settings, manifest_sha):
+    if path is None:
+        return {}
+    previous=json.loads((path/'summary.json').read_text())
+    authorization=previous['authorization']
+    if not previous.get('interrupted') or authorization['protocol_settings']!=settings or authorization['task_manifest_sha256']!=manifest_sha:
+        raise ValueError('Only a sealed interrupted batch with identical task/settings scope may continue')
+    key=lambda r:(r['benchmark'],r['task_id'],r['backend'])
+    expected={(b,t.id,k) for b,t,k,_ in jobs}
+    rows=previous['rows']
+    if len(rows)!=len(expected) or {key(r) for r in rows}!=expected:
+        raise ValueError('Retained batch question/condition scope differs')
+    if any(r['status']=='running' for r in rows):
+        raise ValueError('Cannot continue a live batch')
+    retained={key(r):r for r in rows if r['status']!='not_started'}
+    for r in retained.values():
+        if not Path(r['run']).resolve().is_relative_to((path/'solvers').resolve()):
+            raise ValueError('Retained artifact lies outside its original batch')
+    return retained
+
+
 def solver_command(args, benchmark, task, backend, output, *, execute=False):
+    condition=backend
+    backend=runtime_backend(condition)
     command = [sys.executable, "-m", "scripts." + benchmark + ".run", "--upstream", str(args.root / benchmark / "upstream"),
                "--backend", backend, "--task-id", task.id, "--image", args.image, "--output", str(output),
                "--credentials", str(args.credentials), "--timeout", str(default_timeout(benchmark)),
-               "--offline-proof", str(args.proofs / backend / "proof.json")]
+               "--offline-proof", str(args.proofs / condition / "proof.json")]
+    if condition in evidence.MODES:
+        command += ['--evidence-mode',condition]
     command += ["--effort", getattr(args, "effort", "max")]
     if backend == "claude-code-subagents" and getattr(args, "organization_prompt", None):
         command += ["--organization-prompt", str(args.organization_prompt)]
@@ -120,11 +152,12 @@ def solver_command(args, benchmark, task, backend, output, *, execute=False):
 
 def protocol_settings(args):
     backends = getattr(args, "backends", BACKENDS)
-    override = runtime.organization_override(getattr(args, "organization_prompt", None), "claude-code-subagents")
+    override = organization_override(getattr(args, "organization_prompt", None), "claude-code-subagents")
     return dict(effort=args.effort,
                 organization_sha256={k: hashlib.sha256(
                     (override["text"] if override and k == "claude-code-subagents"
-                     else runtime.backend_instructions(k)).encode()).hexdigest() for k in backends},
+                     else evidence.lead_prompt(k)
+                     if k in evidence.MODES else backend_instructions(k)).encode()).hexdigest() for k in backends},
                 timeout_seconds_by_benchmark=dict(TIMEOUT_SECONDS_BY_BENCHMARK),
                 solver_concurrency=args.concurrency, judge_concurrency=args.judge_concurrency)
 
@@ -141,6 +174,8 @@ def main(argv=None):
     parser.add_argument("--organization-prompt", type=Path)
     parser.add_argument("--backends", nargs="+", choices=BACKENDS, default=BACKENDS,
                         help="Explicit conditions to run; defaults to the matched Single/Subagents pair")
+    parser.add_argument('--evidence-modes',nargs='+',choices=evidence.MODES)
+    parser.add_argument('--retain-started-from',type=Path,help='Never rerun started attempts; dispatch only previously not_started slots')
     parser.add_argument("--tasks-per-benchmark", type=int, default=2, choices=range(1, 101))
     parser.add_argument("--sample-seed", type=int, default=42)
     parser.add_argument("--task-manifest", type=Path, help="Frozen public ID/hash manifest, never questions or gold")
@@ -151,6 +186,10 @@ def main(argv=None):
     parser.add_argument("--authorized-judges", type=int, default=0)
     parser.add_argument("--execute", action="store_true")
     args = parser.parse_args(argv)
+    if args.evidence_modes:
+        if args.organization_prompt or args.backends!=['claude-code-subagents'] or len(set(args.evidence_modes))!=len(args.evidence_modes):
+            raise ValueError('Select only Subagents, unique evidence modes, and no organization override')
+        args.backends=args.evidence_modes
     args.root, args.output, args.proofs = args.root.resolve(), args.output.resolve(), args.proofs.resolve()
     manifest = json.loads(args.task_manifest.read_text()) if args.task_manifest else None
     explicit_protocol = json.loads(args.protocol_settings.read_text()) if args.protocol_settings else None
@@ -170,9 +209,13 @@ def main(argv=None):
                 else selections(args.root, args.tasks_per_benchmark, args.sample_seed))
     jobs = [(bench, task, backend, args.output / "solvers" / bench / task.id / backend)
             for bench, task in selected for backend in args.backends]
+    retained=retained_attempts(args.retain_started_from,jobs,observed_settings,digest(args.task_manifest) if args.task_manifest else None)
+    jobs=[(b,t,k,Path(retained[(b,t.id,k)]['run']) if (b,t.id,k) in retained else out) for b,t,k,out in jobs]
     maximum_judges = sum(1 for b, t, _, _ in jobs
                          if b != "hybriddeepresearch" or t.category != "search_to_sql")
     authorization = dict(attempts=len(jobs), maximum_judge_calls=maximum_judges, retries=0, effort=args.effort,
+        retained_started_attempts=len(retained),new_solver_attempts=len(jobs)-len(retained),
+        retained_from=str(args.retain_started_from) if args.retain_started_from else None,
         tasks_per_benchmark=args.tasks_per_benchmark, sample_seed=args.sample_seed,
         selection_policy="frozen-validation-manifest" if manifest else "legacy-two" if args.tasks_per_benchmark == 2 else "seeded-public-strata-round-robin",
         task_offset=args.task_offset,
@@ -180,7 +223,7 @@ def main(argv=None):
         protocol_settings=observed_settings,
         protocol_settings_source="explicit-protocol" if args.protocol_settings else "frozen-manifest" if manifest else "current-runtime",
         protocol_settings_sha256=digest(args.protocol_settings) if args.protocol_settings else None,
-        organization_override=runtime.organization_override(args.organization_prompt, "claude-code-subagents"),
+        organization_override=organization_override(args.organization_prompt, "claude-code-subagents"),
         timeout_seconds_by_benchmark=dict(TIMEOUT_SECONDS_BY_BENCHMARK),
         timeout_policy_by_benchmark={b: timeout_policy(b) for b in TIMEOUT_SECONDS_BY_BENCHMARK},
         solver_concurrency=args.concurrency, judge_concurrency=args.judge_concurrency,
@@ -208,7 +251,8 @@ def main(argv=None):
     args.image = json.loads(subprocess.check_output(["docker", "image", "inspect", args.image], text=True))[0]["Id"]
     for backend in args.backends:
         proof = json.loads((args.proofs / backend / "proof.json").read_text())
-        validate_runtime(proof, backend, image_id=args.image,
+        evidence.validate_proof(proof,backend if backend in evidence.MODES else None)
+        validate_runtime(proof, runtime_backend(backend), image_id=args.image,
             binary_sha256=digest(runtime.CLAUDE))
         if args.effort != "max" and not (proof.get("requested_effort") == args.effort
                 and proof.get("request_effort_verified") is True):
@@ -265,7 +309,7 @@ def main(argv=None):
         # All offline preflights must pass before any paid attempt starts.
         with ThreadPoolExecutor(max_workers=args.concurrency) as pool:
             futures = [pool.submit(checked, command_run, solver_command(args, b, t, k, out),
-                                   args.output / "logs" / (b + "-" + t.id + "-" + k + "-preflight")) for b, t, k, out in jobs]
+                                   args.output / "logs" / (b + "-" + t.id + "-" + k + "-preflight")) for b, t, k, out in jobs if (b,t.id,k) not in retained]
             if any(f.result() != 0 for f in futures):
                 raise RuntimeError("Matrix preflight failed; no paid attempts dispatched")
         key = runtime.credential(args.credentials)
@@ -275,10 +319,15 @@ def main(argv=None):
 
         def solve(job):
             b, t, k, out = job
+            if (b,t.id,k) in retained:
+                return dict(retained[(b,t.id,k)],retained_without_rerun=True)
             code = command_run(solver_command(args, b, t, k, out, execute=True),
                                args.output / "logs" / (b + "-" + t.id + "-" + k + "-solver"))
-            report = out / t.id / k / "report.json"
+            actual_backend=runtime_backend(k)
+            report = out / t.id / actual_backend / "report.json"
             row = dict(benchmark=b, task_id=t.id, backend=k, returncode=code, run=str(out), status="not_started")
+            if k in evidence.MODES:
+                row.update(runtime_backend=actual_backend,evidence_mode=k)
             if report.exists():
                 record = json.loads(report.read_text())
                 row["status"] = record["status"]
@@ -296,9 +345,14 @@ def main(argv=None):
             b, t, k, out = job
             if stop.is_set():
                 return dict(benchmark=b, task_id=t.id, backend=k, judge_calls=0, status="not_started")
-            return grade_attempt(b, t, k, out, data_root=args.root, grades_root=args.output / "grades",
+            actual_backend=runtime_backend(k)
+            grades_root=args.output/'grades'/k if k in evidence.MODES else args.output/'grades'
+            result=grade_attempt(b, t, actual_backend, out, data_root=args.root, grades_root=grades_root,
                 credentials=args.credentials, judge_enabled=bool(args.authorized_judges), key=key,
                 command_run=command_run, log=args.output / "logs" / (b + "-" + t.id + "-" + k + "-grade"))
+            if k in evidence.MODES:
+                result.update(backend=k,runtime_backend=actual_backend)
+            return result
 
         grades = []
         with ThreadPoolExecutor(max_workers=args.judge_concurrency) as pool:

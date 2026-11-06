@@ -7,8 +7,9 @@ from pathlib import Path
 
 from analysis.native_evidence import native_subagents
 from benchmarks._external import digest, write_jsonl
-from benchmarks._io import write_json
-from scripts.common import runtime, score
+from common.io import write_json
+from harness.runtime_support import runtime
+from scripts.common import score
 from scripts.studies.matched_matrix_report import collect, lines, price, summarize, write_report
 
 IDS = ('sql2s_103', 'parallel_009')

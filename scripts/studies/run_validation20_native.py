@@ -6,10 +6,10 @@ import json
 import os
 from pathlib import Path
 
-from benchmarks._io import write_json
+from common.io import write_json
 from scripts.common.prompts.native_subagents import PROMPT
-from scripts.common.runtime import now
-from scripts.server import benchmark_matrix
+from harness.runtime_support.runtime import (now)
+from scripts.studies import benchmark_matrix
 from scripts.studies.matched_matrix_report import collect, timeout_zero, write_report
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -49,9 +49,9 @@ def main(argv=None):
     os.umask(0o077)
     with prompt_path.open("x", encoding="utf-8") as stream:
         stream.write(PROMPT)
-    command = ["--root", "/home/zhoujunye/MAS-information-data", "--output", str(output),
+    command = ["--root", "/home/zhoujunye/mas-data", "--output", str(output),
                "--proofs", str(args.proofs.resolve()),
-               "--image", "mas-information/research-benchmarks:20261103-v1",
+               "--image", "mas/research-benchmarks:20261103-v1",
                "--backends", "claude-code-subagents", "--organization-prompt", str(prompt_path),
                "--effort", frozen["effort"], "--concurrency", str(frozen["solver_concurrency"]),
                "--judge-concurrency", str(frozen["judge_concurrency"]),

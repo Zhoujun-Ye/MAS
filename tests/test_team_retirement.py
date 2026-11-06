@@ -1,12 +1,14 @@
 """Retired Team launch paths must not silently become Subagents runs."""
 
+from scripts.common.prompts.conditions import backend_instructions
+
 import json
 
 import pytest
 
 import harness
 from harness.__main__ import main
-from scripts.common.runtime import backend_instructions, native_env, options
+from harness.runtime_support.runtime import (native_env, options)
 
 
 def test_team_is_not_exported_or_launchable():

@@ -5,8 +5,9 @@ from types import SimpleNamespace
 
 import pytest
 
-from scripts.common import run, runtime
-from scripts.common.credential_gateway import CredentialGateway
+from scripts.common import run
+from harness.runtime_support import runtime
+from harness.runtime_support.credential_gateway import CredentialGateway
 
 
 def test_creation_interrupt_uses_registered_name(tmp_path, monkeypatch):

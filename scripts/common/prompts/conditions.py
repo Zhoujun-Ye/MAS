@@ -29,6 +29,10 @@ def organization_override(path, backend):
 
 
 def condition_instructions(args, backend):
+    if getattr(args,'evidence_mode',None):
+        if backend!='claude-code-subagents' or getattr(args,'organization_override',None):
+            raise ValueError('Evidence mode cannot be combined with Single or an organization override')
+        return ''  # Explicit evidence studies use native organization plus their tool protocol.
     override = getattr(args, "organization_override", None)
     if override is not None:
         if backend != "claude-code-subagents":

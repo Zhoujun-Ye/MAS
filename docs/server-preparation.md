@@ -6,15 +6,15 @@
 - Compatibility symlink: `/home/zhoujunye/MAS-information` points to `mas`,
   preserving historical absolute artifact paths. External data, environments and
   frozen source stages retain their original directories.
-- Data and evaluation: `/home/zhoujunye/MAS-information-data`.
-- Evaluation Python: `/home/zhoujunye/MAS-information-data/environments/evaluation/bin/python`.
+- Data and evaluation: `/home/zhoujunye/mas-data`.
+- Evaluation Python: `/home/zhoujunye/mas-data/environments/evaluation/bin/python`.
 - Datasets: `kramabench/upstream`, `dataclawbench/upstream`,
   `hybriddeepresearch/upstream`, `hybriddeepresearch/release/hybrid_ds_release/hybrid_ds_release.jsonl`,
   and `hybriddeepresearch/data` under the external data root.
 - Current results: [current-results.md](current-results.md).
 
 Claude Code is pinned to 2.1.286. The current solver image is
-`mas-information/research-benchmarks:20261103-v1`, ID
+`mas/research-benchmarks:20261103-v1`, ID
 `sha256:f940900759fee9d7f9fcdd819f5fc7062d4b1e11b192355b503ce33511bfa14b`.
 The existing KramaBench base image is retained for builds.
 

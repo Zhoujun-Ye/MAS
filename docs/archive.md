@@ -12,6 +12,8 @@ including failures, their frozen plans, gateway
 accounting, original scores, artifact-only HDR recovery inputs/verdicts and the
 current timeout-zero report. Original paths may contain historical identifiers;
 renaming or overwriting them would break provenance.
+Retain subsequent OBS/FULL study attempts, including interrupted or failed runs,
+their frozen source/settings, intermediate measurements and shadow grades.
 Keep original and accounting-audited reports separately. Code cleanup does not
 authorize deleting superseded exports or changing frozen run source.
 

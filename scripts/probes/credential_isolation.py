@@ -9,7 +9,8 @@ import secrets
 import subprocess
 from unittest.mock import patch
 
-from scripts.common import credential_gateway, runtime
+from harness.runtime_support import credential_gateway
+from harness.runtime_support import runtime
 
 
 def main():

@@ -16,6 +16,19 @@ coordinator/full modes, capability catalogs, or custom scheduling semantics.
 - `harness/claude_code_single_agent/`: print-mode strict Single, with native delegation tools removed and denied.
 - `harness/_claude_cli.py` and `_claude_hooks.py`: shared native arguments/observations and opt-in Single permission policy.
 - `harness/_cli.py`: CLI preflight, process lifetime, stdin and raw evidence only.
+- `harness/evidence_mas/`: our opt-in MAS harness, currently the observation
+  store, historical analytical ledger and decision-v3 FULL protocol. On 2026-11-05
+  the user authorized system-side candidate extraction and submission consistency
+  gates, without Structured prompting for the explicit FULL/OBS studies. The user
+  subsequently requested the exact existing Native (N) prompt in both, FULL as a
+  superset of OBS access, intermediate estimand capture and one-time shadow grading.
+  Preserve
+  the frozen Structured baseline separately. No Independent Framer, custom
+  scheduler, automatic semantic choice or automatic submission. Consistency is
+  not correctness; same-UID writable stores are not a security boundary.
+- `harness/runtime_support/`: reusable SQL/web tools, credential transport and
+  native proof validation shared across conditions. Keep these libraries out of
+  `scripts/`; scripts own executable workflows, not reusable harness mechanisms.
 - Agent contexts, tools, communication and scheduling belong to the external CLI.
 - Do not clone or vendor the upstream runtime, or import its SDK here.
 - Deep Agents is retired. Keep historical evidence/readers, not active adapters,
@@ -28,9 +41,14 @@ coordinator/full modes, capability catalogs, or custom scheduling semantics.
 - `benchmarks/` owns task data and evaluation, independently of the adapters.
 - Each benchmark owns `tasks.py`/`evaluation.py` and matching
   `scripts/<benchmark>/{catalog,run,score}.py` entry points. Shared CLI environment,
-  unchanged baseline prompts and containers belong in `scripts/common/`;
+  unchanged baseline prompts and workflow composition belong in `scripts/common/`;
+  reusable containers, CLI environment and provenance belong in
+  `harness/runtime_support/`; domain-independent persistence belongs in `common/`.
+  Benchmark timeout policies belong in `benchmarks/policy.py`.
   read-only native evidence belongs in `analysis/native_evidence.py`.
-  Historical study utilities live in `scripts/studies/`, not baseline defaults.
+  Historical study utilities and experiment drivers live in `scripts/studies/`,
+  not baseline defaults. Reusable MAS mechanisms belong in `harness/evidence_mas/`,
+  even when initially evaluated as a research condition.
 - `benchmarks/dataclawbench/` and `benchmarks/hybriddeepresearch/` keep gold/reference
   fields host-side. The latter decodes the public release in memory; never publish
   decrypted questions, gold SQL, answers, or evaluation logs.
@@ -60,7 +78,7 @@ See `docs/cli-adapters.md` for pinned versions, references and limitations.
 
 - Local `/Users/zhoujun/Desktop/MAS`; server
   `zhoujunye@10.123.4.30:22`, `/home/zhoujunye/mas`.
-- External server data and evaluation environment: `/home/zhoujunye/MAS-information-data`.
+- External server data and evaluation environment: `/home/zhoujunye/mas-data`.
   The old server KramaBench upstream path is a compatibility symlink. Current
   provisioning receipts and source-stage location are in `docs/server-preparation.md`.
 - Run tests and experiments on the server, not locally. Inspect live processes and

@@ -7,9 +7,9 @@ from pathlib import Path
 import subprocess
 from types import SimpleNamespace
 
-from benchmarks._io import write_json
+from common.io import write_json
 from benchmarks.kramabench.tasks import load_tasks
-from scripts.common import runtime
+from harness.runtime_support import runtime
 from scripts.common.grading import grade_attempt
 
 

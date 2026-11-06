@@ -7,7 +7,7 @@ import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from benchmarks.kramabench.tasks import load_tasks
-from benchmarks._io import write_json
+from common.io import write_json
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)

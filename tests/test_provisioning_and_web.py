@@ -4,7 +4,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from scripts.common import tools
+from harness.runtime_support import tools
 from scripts.server.prepare_data import download
 
 
