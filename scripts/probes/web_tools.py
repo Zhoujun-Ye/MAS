@@ -39,11 +39,16 @@ def main():
         return Response(json.dumps(dict(results=[dict(title=f'Fixture {i}',url=f'https://example.org/{i}',
             summary='s'*1800,content='COMPLETE_BODY_'+str(i)+'x'*10000) for i in range(10)])).encode())
     url='https://en.wikipedia.org/wiki/SQLite' if args.public_fetch else 'https://example.org/public'
-    commands=[['search','--query','synthetic-search'],['fetch','--url',url],
-              ['search','--query','synthetic-failure'],['search','--query','synthetic-after-failure']]
+    api=('https://en.wikipedia.org/w/api.php?action=query&list=search&srsearch=SQLite&format=json&srlimit=3'
+         if args.public_fetch else 'https://example.org/api.json')
+    # The last call runs outside /workspace: shared artifacts must still land there.
+    commands=[('/workspace',['search','--query','synthetic-search']),('/workspace',['fetch','--url',url]),
+              ('/workspace',['fetch','--url',api]),('/workspace',['search','--query','synthetic-failure']),
+              ('/workspace',['search','--query','synthetic-after-failure']),
+              ('/tmp',['search','--query','synthetic-outside-workspace'])]
     results=[]
     identity=None
-    fetch_patch=nullcontext() if args.public_fetch else patch.object(web_fetch,'fetch',lambda url:dict(url=url,title='Fixture',content='public fixture'))
+    fetch_patch=nullcontext() if args.public_fetch else patch.object(web_fetch,'fetch',lambda url,**kw:dict(url=url,title='Fixture',content='public fixture'))
     with patch.object(cg,'open_upstream',provider),fetch_patch:
         with cg.CredentialGateway('synthetic-host-key',web_limit=20,
                 unix_path=profile/'gateway.sock',ledger_path=args.output/'gateway-requests.jsonl') as gateway:
@@ -51,26 +56,30 @@ def main():
                 identity=runtime.container(work,profile,work,args.image,gateway=gateway,
                     dataset_mounts=[(Path(__file__).resolve().parents[2]/'harness/runtime_support/tools.py','/benchmark-tools.py',True)],
                     environment_overrides=dict(MAS_BENCHMARK_WEB='1',MAS_WEB_PROVIDER='deepseek',MAS_WEB_MAX_REQUESTS='20'))
-                for command in commands:
-                    result=subprocess.run(['docker','exec',identity,'python3','/benchmark-tools.py',*command],
-                                          capture_output=True,text=True,timeout=40)
+                for cwd,command in commands:
+                    # Longer than the helper's own client timeout, so the helper reports it.
+                    result=subprocess.run(['docker','exec','--workdir',cwd,identity,'python3','/benchmark-tools.py',*command],
+                                          capture_output=True,text=True,timeout=60)
                     assert 'synthetic-host-key' not in result.stdout+result.stderr
                     expected=command[-1]=='synthetic-failure'
                     assert (result.returncode!=0)==expected,(command,result.returncode,result.stderr)
                     if not expected:
                         first=json.loads(result.stdout.splitlines()[0])
-                        assert first['web_budget']['remaining'] in {19,18,17}
+                        assert first['web_budget']['remaining'] in range(15,20)
+                        assert first['full_result_file'].startswith('/workspace/web/')
                         if command[0]=='search':assert len(result.stdout.splitlines())==11
+                        if args.public_fetch and command[-1]==api:assert '"query"' in result.stdout
                         assert len(result.stdout.encode())<24000
-                    results.append(dict(action=command[0],failed_fixture=expected,returncode=result.returncode))
+                    results.append(dict(action=command[0],cwd=cwd,failed_fixture=expected,returncode=result.returncode))
             finally:
                 if identity:
                     runtime.stop_container(identity)
                     subprocess.run(['docker','rm','-f',identity],check=True,capture_output=True,timeout=15)
-        assert gateway.summary()['web_reservations']==3
-    assert len(calls)==3
+        assert gateway.summary()['web_reservations']==5
+    assert len(calls)==4
     files=list((work/'web').glob('search-*.json'))
-    assert len(files)==2 and all(len(json.loads(p.read_text())['results'])==10 for p in files)
+    assert len(files)==3 and all(len(json.loads(p.read_text())['results'])==10 for p in files)
+    assert len(list((work/'web').glob('fetch-*.json')))==2
     proof=dict(passed=True,paid_calls=0,real_credentials=False,network='none',
                public_fetch_via_local_tunnel=args.public_fetch,
                results=results,gateway=gateway.summary(),full_search_artifacts=len(files))

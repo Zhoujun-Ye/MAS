@@ -7,16 +7,23 @@ DEFAULT_WEB_LIMIT = 20
 SEARCH_RESULTS = 10
 SEARCH_SNIPPET_CHARS = 1500
 FETCH_CHARS = 20000
+FETCH_TIMEOUT_SECONDS = 30
+# The solver helper must outlast the host deadline so the host, not curl, reports
+# timeouts and an on-time result is never charged but undelivered.
+CLIENT_TIMEOUT_SECONDS = 45
 WEB_PRICE_USD = 0.00075
 PRICE_SOURCE = 'https://api-docs.deepseek.com/guides/search/'
 PROXY_SOCKET = Path.home()/'.cache/mas-web/clash.sock'
 
 
 def configuration(limit=DEFAULT_WEB_LIMIT):
-    return dict(protocol='web-v3',successful_call_limit=limit,attempt_limit=limit*2,
+    return dict(protocol='web-v4',successful_call_limit=limit,attempt_limit=limit*2,
         fetch_backend='local-clash-unix',fetch_proxy_socket=str(PROXY_SOCKET),
         fetch_proxy_failure='fail closed; no direct fallback',
-        fetch_timeout_seconds=30,fetch_character_limit=FETCH_CHARS,
+        fetch_timeout_seconds=FETCH_TIMEOUT_SECONDS,fetch_character_limit=FETCH_CHARS,
+        fetch_content_types='text/*, application/json|xml and +json|+xml; HTML stripped, other text verbatim',
+        fetch_failure_reporting='payload-free reason code and original target HTTP status',
+        client_timeout_seconds=CLIENT_TIMEOUT_SECONDS,
         search_results=SEARCH_RESULTS,search_snippet_characters=SEARCH_SNIPPET_CHARS,
         failed_call_policy='known failures release success reservation; no automatic retries',
         cost_policy='successful nonempty provider responses only; unknown completion stays unknown',

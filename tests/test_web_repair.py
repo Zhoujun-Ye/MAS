@@ -84,7 +84,7 @@ def test_unknown_response_retains_reservation_and_cost_is_unknown(tmp_path,monke
 def test_host_fetch_never_sends_provider_key_and_is_free(tmp_path,monkeypatch):
     monkeypatch.setattr(cg,'open_upstream',lambda *a:pytest.fail('No paid provider fetch'))
     urls=[]
-    monkeypatch.setattr(web_fetch,'fetch',lambda url:urls.append(url) or dict(content='public fixture',url=url))
+    monkeypatch.setattr(web_fetch,'fetch',lambda url,**kw:urls.append(url) or dict(content='public fixture',url=url))
     with cg.CredentialGateway('synthetic',web_limit=2,ledger_path=tmp_path/'ledger') as gateway:
         with post(gateway,'/v1/tools/fetch',{'url':'https://example.org'}) as response:value=json.load(response)
     assert urls==['https://example.org'] and value['content']=='public fixture'
@@ -134,6 +134,7 @@ def test_redirect_destination_is_revalidated_before_connect(monkeypatch):
     opened=[]
     class Redirect:
         status=302
+        def close(self):pass
         def getheader(self,key,default=None):return 'https://github.com/fixture' if key=='Location' else default
     class Connection:
         def __init__(self,host,*a,**kw):
@@ -144,7 +145,7 @@ def test_redirect_destination_is_revalidated_before_connect(monkeypatch):
         def close(self):pass
     monkeypatch.setattr(web_fetch,'public_address',lambda *a:'8.8.8.8')
     monkeypatch.setattr(web_fetch,'proxy_connection',lambda host,port,*a:Connection(host,port))
-    with pytest.raises(ValueError,match='Blocked'):
+    with pytest.raises(web_fetch.FetchFailure,match='url_policy_rejected'):
         web_fetch.fetch('https://example.org')
     assert opened==['example.org']
 
@@ -206,6 +207,45 @@ def test_web_shutdown_closes_response_and_keeps_uncertain_charge(tmp_path,monkey
         released.set();thread.join(5)
 
 
+@pytest.mark.parametrize('status,kind,reason',[(403,'text/html','target_http_error'),
+    (404,'text/html','target_http_error'),(200,'application/pdf','unsupported_content_type')])
+def test_fetch_errors_retain_safe_reason_and_original_status(monkeypatch,status,kind,reason):
+    class Page(io.BytesIO):
+        def getheader(self,key,default=None):return kind if key=='Content-Type' else default
+    page=Page(b'fixture');page.status=status
+    class Connection:
+        sock=SimpleNamespace(settimeout=lambda value:None)
+        def set_tunnel(self,*a):pass
+        def request(self,*a,**kw):pass
+        def getresponse(self):return page
+        def close(self):pass
+    monkeypatch.setattr(web_fetch,'public_address',lambda *a:'8.8.8.8')
+    monkeypatch.setattr(web_fetch,'proxy_connection',lambda *a:Connection())
+    with pytest.raises(web_fetch.FetchFailure) as error:web_fetch.fetch('https://example.org')
+    assert error.value.reason==reason and error.value.http_status==status
+
+
+def test_fetch_deadline_checked_between_single_reads_and_cancel_closes_handles(monkeypatch):
+    tick=[0];opened=[];closed=[]
+    class Page(io.BytesIO):
+        status=200
+        def getheader(self,key,default=None):return 'text/plain' if key=='Content-Type' else default
+        def read(self,*a):pytest.fail('Large blocking read bypasses overall deadline')
+        def read1(self,*a):tick[0]+=2;return b'x'
+    page=Page(b'fixture')
+    class Connection:
+        sock=SimpleNamespace(settimeout=lambda value:None)
+        def set_tunnel(self,*a):pass
+        def request(self,*a,**kw):pass
+        def getresponse(self):return page
+        def close(self):pass
+    monkeypatch.setattr(web_fetch.time,'monotonic',lambda:tick[0])
+    monkeypatch.setattr(web_fetch,'public_address',lambda *a:'8.8.8.8')
+    monkeypatch.setattr(web_fetch,'proxy_connection',lambda *a:Connection())
+    with pytest.raises(TimeoutError):web_fetch.fetch('https://example.org',timeout=3,on_open=opened.append,on_close=closed.append)
+    assert tick[0]==4 and set(opened)==set(closed) and page.closed
+
+
 def test_search_stdout_preserves_all_ten_results_and_shares_full_text(tmp_path,monkeypatch,capsys):
     monkeypatch.chdir(tmp_path)
     value=dict(web_budget=dict(remaining=19),results=[dict(title=f'Title {i}',url=f'https://example.org/{i}',
@@ -225,3 +265,107 @@ def test_concurrent_search_artifacts_do_not_overwrite(tmp_path,monkeypatch):
     with ThreadPoolExecutor(8) as pool:paths=list(pool.map(lambda i:tools.save_web('search',{'i':i}),range(20)))
     assert len(set(paths))==20
     assert sorted(json.loads(open(p).read())['i'] for p in paths)==list(range(20))
+
+
+def fetch_page(monkeypatch,body,content_type,status=200):
+    class Page(io.BytesIO):
+        def getheader(self,key,default=None):return content_type if key=='Content-Type' else default
+    page=Page(body);page.status=status
+    class Connection:
+        sock=SimpleNamespace(settimeout=lambda value:None)
+        def set_tunnel(self,*a):pass
+        def request(self,*a,**kw):pass
+        def getresponse(self):return page
+        def close(self):pass
+    monkeypatch.setattr(web_fetch,'public_address',lambda *a:'8.8.8.8')
+    monkeypatch.setattr(web_fetch,'proxy_connection',lambda *a:Connection())
+    return web_fetch.fetch('https://example.org/data')
+
+
+@pytest.mark.parametrize('content_type,body',[
+    ('application/json; charset=utf-8',b'{"query":{"search":[{"title":"Lynmouth"}]}}'),
+    ('text/x-wiki; charset=UTF-8',b"'''Lynmouth''' is a village <ref>x</ref>"),
+    ('text/csv',b'year,value\n2020,1.5\n'),
+    ('application/rss+xml',b'<rss><item><title>t</title></item></rss>'),
+    ('application/ld+json',b'{"@type":"Dataset"}')])
+def test_structured_text_formats_are_returned_verbatim(monkeypatch,content_type,body):
+    # Retained HDR failures were Wikipedia API JSON and action=raw wikitext.
+    value=fetch_page(monkeypatch,body,content_type)
+    assert value['content']==body.decode() and value['title']==''
+
+
+@pytest.mark.parametrize('content_type',['application/pdf','image/png','application/octet-stream',
+    'application/zip','','image/svg+xml'])
+def test_binary_or_untyped_responses_remain_unsupported(monkeypatch,content_type):
+    with pytest.raises(web_fetch.FetchFailure) as error:fetch_page(monkeypatch,b'%PDF-1.7',content_type)
+    assert error.value.reason=='unsupported_content_type' and error.value.http_status==200
+
+
+def test_declared_charset_is_decoded_and_bytes_codecs_are_ignored(monkeypatch):
+    assert fetch_page(monkeypatch,'café'.encode('latin-1'),'text/plain; charset=ISO-8859-1')['content']=='café'
+    assert fetch_page(monkeypatch,b'plain','text/plain; charset=zlib')['content']=='plain'
+
+
+def test_fetch_failure_reasons_do_not_mislabel_tls_protocol_or_dns_errors(monkeypatch):
+    import http.client,ssl
+    reason=web_fetch.failure_reason
+    assert reason(ssl.SSLCertVerificationError('hostname mismatch'))=='tls_certificate_error'
+    assert reason(ssl.SSLError('handshake'))=='tls_error'
+    assert reason(http.client.IncompleteRead(b''))=='truncated_body'
+    assert reason(http.client.LineTooLong('header line'))=='http_protocol_error'
+    assert reason(http.client.RemoteDisconnected('closed'))=='connection_error'
+    assert reason(OSError('Tunnel connection failed: 502 Bad Gateway'))=='proxy_connect_failed'
+    assert reason(web_fetch.FetchCancelled('closing'))=='cancelled'
+    assert reason(web_fetch.ProxyUnavailable('gone'))=='proxy_unavailable'
+    assert reason(TimeoutError('late'))=='timeout'
+    assert reason(UnicodeError('idna'))=='invalid_target'
+    def missing(*a,**kw):raise socket.gaierror('synthetic DNS failure')
+    monkeypatch.setattr(socket,'getaddrinfo',missing)
+    with pytest.raises(web_fetch.FetchFailure) as error:web_fetch.public_address('missing.example',443,1)
+    assert error.value.reason=='dns_resolution_failed'
+
+
+@pytest.mark.parametrize('failure,reason',[('incomplete','truncated_body'),('tls','tls_certificate_error')])
+def test_gateway_reports_protocol_and_tls_fetch_failures_as_known_free_failures(tmp_path,monkeypatch,failure,reason):
+    import http.client,ssl
+    def failed(url,**kw):
+        raise http.client.IncompleteRead(b'') if failure=='incomplete' else ssl.SSLCertVerificationError('mismatch')
+    monkeypatch.setattr(web_fetch,'fetch',failed)
+    with cg.CredentialGateway('synthetic',web_limit=1,ledger_path=tmp_path/'ledger') as gateway:
+        with pytest.raises(urllib.error.HTTPError) as error:post(gateway,'/v1/tools/fetch',{'url':'https://example.org'})
+        document=json.loads(error.value.read());error.value.close()
+    assert error.value.code==502 and document['fetch_failure_reason']==reason
+    assert document['web_budget']['remaining']==1 and gateway.summary()['web_reservations']==0
+    record=json.loads((tmp_path/'ledger').read_text().splitlines()[-1])
+    assert record['fetch_failure_reason']==reason and record['outcome']=='rejected' and record['web_success'] is False
+    assert 'example.org' not in (tmp_path/'ledger').read_text()
+
+
+def test_client_timeout_outlasts_host_fetch_deadline(monkeypatch):
+    captured={}
+    def run(argv,**kw):
+        captured.update(argv=argv,timeout=kw['timeout'])
+        return SimpleNamespace(returncode=0,stdout='{"web_budget":{}}\n200')
+    monkeypatch.setattr(tools.subprocess,'run',run)
+    tools.json_post('http://127.0.0.1:8765/v1/tools/fetch',{'url':'https://example.org'},'ephemeral')
+    limit=int(captured['argv'][captured['argv'].index('--max-time')+1])
+    assert limit==tools.CLIENT_TIMEOUT_SECONDS==web_policy.CLIENT_TIMEOUT_SECONDS
+    assert limit>web_policy.FETCH_TIMEOUT_SECONDS and captured['timeout']>limit
+    assert web_policy.configuration()['client_timeout_seconds']==limit
+
+
+def test_completed_web_result_is_printed_even_when_sharing_fails(tmp_path,monkeypatch,capsys):
+    blocked=tmp_path/'not-a-directory';blocked.write_text('')
+    monkeypatch.setattr(tools,'share_root',lambda:blocked/'web')
+    value=dict(web_budget=dict(remaining=3),results=[dict(title='T',url='https://example.org',summary='kept')])
+    tools.print_web('search',value)
+    rows=[json.loads(line) for line in capsys.readouterr().out.splitlines()]
+    assert rows[0]['full_result_file'] is None and rows[0]['full_result_file_error']
+    assert rows[1]['excerpt']=='kept'
+
+
+def test_shared_web_files_use_workspace_when_present_else_cwd(tmp_path,monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    workspace=tools.Path('/workspace')
+    expected=workspace/'web' if workspace.is_dir() and tools.os.access(workspace,tools.os.W_OK) else tmp_path/'web'
+    assert tools.share_root()==expected

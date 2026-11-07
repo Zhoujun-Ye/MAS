@@ -35,7 +35,8 @@ SSH keepalives detect dead connections. Forwarding is confined to
 0600, no public TCP proxy port. Bootstrap removes only a refused, stale owned
 socket; live listeners, foreign files and symlinks are rejected.
 
-`web-v3` in `cpu8-infra-protocol.json` freezes the transport and socket path.
+`web-v4` in `cpu8-infra-protocol.json` freezes the transport, socket path, accepted
+fetch content types and helper timeout.
 Web-enabled matrix/standalone execution checks TLS connectivity through this
 route before paid admission. Missing/insecure sockets fail closed. A lost tunnel
 record pauses new paid matrix dispatch while preserving other in-flight work.
@@ -52,8 +53,28 @@ or URLs are blocked. This is a conservative leakage guard, not a security claim
 about all third-party content or same-UID processes.
 
 GET has a total 30-second deadline, two-MiB body cap, HTML/script/style removal
-and 20,000-character text cap. Failed site access is an error, not an empty
-successful page. Search requests ten results and prints compact JSON lines;
+and 20,000-character text cap. `web-v4` accepts textual responses: `text/*`,
+`application/json`, `application/xml` and `+json`/`+xml` types, decoded with a
+declared text charset. HTML is stripped; JSON, XML, CSV, wikitext and plain text are
+returned verbatim. Binary formats (PDF, images, archives, untyped octet streams)
+remain unsupported. All four retained `hdr2-network` fetch failures were Wikipedia
+API JSON or `action=raw` wikitext rejected by the earlier HTML/plain-text-only rule.
+Failed site access is an error, not an empty successful page. The gateway answers
+every failed GET with a payload-free reason code, plus the original target status
+where one exists: `target_http_error`, `redirect_limit_or_missing_location`,
+`unsupported_content_type`, `unsupported_content_encoding`, `body_size_limit`,
+`truncated_body`, `empty_extracted_text`, `url_policy_rejected`, `non_public_address`,
+`dns_resolution_failed`, `invalid_target`, `tls_certificate_error`, `tls_error`,
+`proxy_unavailable`, `proxy_connect_failed`, `connection_error`, `http_protocol_error`,
+`timeout`, `cancelled`, `transport_error` or `internal_error`. Each releases the success
+reservation, except during gateway shutdown, when reservations are conservatively
+retained; URLs, bodies and exception text are never copied into receipts. The
+solver helper waits 45 seconds, longer than the host deadline, so the host reports
+timeouts and an on-time result is never charged but undelivered. Helper results
+are saved under `/workspace/web` whatever the caller's directory and are still
+printed if saving fails.
+
+Search requests ten results and prints compact JSON lines;
 full allowed results are shared under `/workspace/web/search-N.json`. Exclusive
 symlink-safe names avoid worker overwrites. Stdout stays below 24 KiB and snippets
 are at most 1500 characters, shorter where byte limits require it. Fetch results

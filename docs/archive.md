@@ -24,6 +24,11 @@ accounting, report and frozen source `20261107-threebench2-engineering-01`.
 This authorization does not permit automatic retries. See
 `studies/threebench2-engineering.md` for scope and engineering verification.
 
+Keep `hdr2-network-20261107-01`, frozen source `20261107-hdr2-network-01` and its
+export in `mas-data/receipts/hdr2-network-20261107-01`. It is the authorized four-
+solver same-task networking retest, not disposable offline output. No retries
+were authorized. See `studies/hdr2-network.md`.
+
 Retain the current trajectory diagnosis and current infra validation receipts.
 Keep latest successful native/baseline/credential proofs, compute and OOM checks,
 full manifests and recovery/admission tests. Superseded offline probe traces and
@@ -75,3 +80,10 @@ Keep the installed local `io.mas.web-tunnel` launch agent, its private runner an
 control directory, the server's private live proxy socket, and the current
 pipeline/probe receipts. These are runtime resources, not disposable caches.
 Post-cleanup server regression passed 725 tests in 32.22 seconds without skips.
+
+The subsequent authorized review closure removed the final retired CooperBench
+upstream checkout (1,323 files / 15,245,931 logical bytes) and both empty source
+parents, without backups or changes to retained paid evidence. The deletion
+receipt, current-source FULL/OBS synthetic proofs and refreshed `web-v4` full
+manifest are under `mas-data/receipts/infra-review-closure-20261107/` on the server.
+See `studies/infra-final-audit.md` for the 756-test regression and scope.

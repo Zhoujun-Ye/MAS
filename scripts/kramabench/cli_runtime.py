@@ -128,16 +128,14 @@ def run_attempt(task, backend, args, key, stop, active, lock):
             if not report["single_agent_audit"]["passed"]:
                 stop.set()
                 report["status"] = "single_agent_policy_unverified"
-        error_text = "\n".join(p.read_text(errors="replace")[-32000:] for p in
-                               (folder / "cli/stdout.log", folder / "cli/stderr.log") if p.exists()).lower()
         from harness.runtime_support.admission import fatal_provider_record
+        # Transcript text includes untrusted data/tool output; only the host
+        # ledger's upstream status is fatal evidence (as for DataClaw/HDR).
         fatal=fatal_provider_record(folder/'gateway-requests.jsonl')
-        if fatal or (result["status"] != "cli_exited" and any(marker in error_text for marker in
-                ("insufficient balance", "invalid api key", "authentication_error", "credit balance is too low"))):
+        if fatal:
             stop.set()
             report["fatal_provider_error"] = True
-            if fatal:
-                report['fatal_provider_evidence']=fatal
+            report['fatal_provider_evidence']=fatal
             with lock:
                 owned = list(active)
             for owned_id in owned:
@@ -270,6 +268,13 @@ def collect_attempt(folder, report, args):
     return report
 
 
+def input_inventory(args):
+    path=getattr(args,'asset_cache',None)
+    if path is None:return verify_inputs(args.upstream)
+    from common.file_digest import DigestCache
+    return verify_inputs(args.upstream,cache=DigestCache(path))
+
+
 def preflight(args):
     tasks, provenance = load_tasks(args.upstream)
     selected_ids = getattr(args, "selected_task_ids", ())
@@ -280,12 +285,13 @@ def preflight(args):
     scoring = scoring_contract(args.upstream)
     image = json.loads(subprocess.check_output(["docker", "image", "inspect", args.image]))[0]
     args.image = image["Id"]
-    inventory = verify_inputs(args.upstream)
+    inventory = input_inventory(args)
     plan = dict(created_at=now(), tasks=[asdict(t) for t in selected], attempts=len(backends) * len(selected),
                 backends=list(backends), concurrency=args.concurrency, strict_single=strict_single,
                 timeout_seconds=args.timeout, retries=0, model="deepseek-flash", effort=getattr(args, "effort", "max"),
                 provenance=provenance, scoring=scoring, image_id=args.image, network="none",
                 inputs_sha256=fingerprint(inventory), instructions=INSTRUCTIONS,
+                asset_hash_policy='stat-validated-pinned-blob-v1' if getattr(args,'asset_cache',None) else 'full-hash',
                 limit_instructions=limit_instructions(args.timeout),
                 backend_options={b: options(b) for b in backends},
                 backend_instructions={b: condition_instructions(args, b) for b in backends},

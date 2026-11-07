@@ -172,3 +172,35 @@ def test_krama_gateway_lifecycle_without_provider(tmp_path, monkeypatch, failure
     assert not active
     assert key not in json.dumps(result)
     assert result["status"] == ("cleanup_failed" if failure == "cleanup" else "launcher_error" if failure else "cli_exited")
+
+
+def test_krama_fatal_monitor_ignores_transcript_text_and_uses_host_ledger(tmp_path, monkeypatch):
+    import threading, time
+    from harness.runtime_support import runtime
+    folder = tmp_path / "task-1" / "claude-code-subagents"
+    (folder / "cli").mkdir(parents=True)
+    # Untrusted tool output may quote provider error wording; it must not stop the batch.
+    (folder / "cli/stdout.log").write_text('{"result":"API Error: 401 authentication_error insufficient balance invalid api key"}\n')
+    ledger = folder / "gateway-requests.jsonl"
+    ledger.write_text(json.dumps(dict(event="finished", upstream_attempted=True,
+                                      route="/anthropic/v1/messages", http_status=200)) + "\n")
+    stopped = []
+    monkeypatch.setattr(runtime.subprocess, "run", lambda argv, **kw: stopped.append(argv[-1]))
+    stop, done, lock = threading.Event(), threading.Event(), threading.Lock()
+    watcher = threading.Thread(target=runtime.monitor, args=(tmp_path, stop, {"owned-container"}, lock, done, 0.02))
+    watcher.start()
+    try:
+        time.sleep(0.3)
+        assert not stop.is_set() and not (tmp_path / "fatal-provider-error.json").exists()
+        with ledger.open("a") as stream:
+            stream.write(json.dumps(dict(event="finished", upstream_attempted=True,
+                                         route="/anthropic/v1/messages", http_status=402)) + "\n")
+        deadline = time.monotonic() + 5
+        while not stop.is_set() and time.monotonic() < deadline:
+            time.sleep(0.02)
+    finally:
+        done.set()
+        watcher.join(5)
+    assert stop.is_set() and stopped == ["owned-container"]
+    fatal = json.loads((tmp_path / "fatal-provider-error.json").read_text())
+    assert fatal["http_status"] == 402 and fatal["basis"] == "host_gateway_upstream_response"

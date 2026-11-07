@@ -79,7 +79,7 @@ print(json.dumps({'file_counts': dict(counts), 'binary_files_opened': opened,
 '''
 
 
-def verify_inputs(upstream):
+def verify_inputs(upstream,*,cache=None):
     tasks, provenance = load_tasks(upstream)
     raw = subprocess.check_output(['git', '-C', str(upstream), 'ls-tree', '-r', '-z', 'HEAD', 'data'])
     entries, files, domains = {}, {}, Counter()
@@ -103,6 +103,10 @@ def verify_inputs(upstream):
         if path.is_symlink():
             raise ValueError('Input symlink: ' + relative)
         size = path.stat().st_size
+        if cache is not None:
+            files[relative]={'bytes':size,'git_blob':oid,'sha256':cache.digest(path,git_blob=oid)}
+            domains[Path(relative).parts[1]]+=1
+            continue
         git_hash = hashlib.sha1(f'blob {size}\0'.encode())
         sha256 = hashlib.sha256()
         with path.open('rb') as stream:

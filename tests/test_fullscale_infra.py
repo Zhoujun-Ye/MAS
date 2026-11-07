@@ -96,7 +96,12 @@ def test_free_grading_ignores_balance_pause_and_overlaps_solving(tmp_path,monkey
             if self.second:second_started.set()
         def wait(self,**kw):
             if self.first:assert second_started.wait(5)
-            if self.second:assert first_graded.wait(5),'Grading waited for all solvers'
+            if self.second:
+                import time
+                assert first_graded.wait(5),'Grading waited for all solvers'
+                deadline=time.monotonic()+3
+                while not (tmp_path/'out/grading-progress.json').exists() and time.monotonic()<deadline:time.sleep(.01)
+                assert (tmp_path/'out/grading-progress.json').exists(),'Progress withheld until every solver finishes'
             return 0
     monkeypatch.setattr(matrix.subprocess,'Popen',Overlap)
     class Watch:

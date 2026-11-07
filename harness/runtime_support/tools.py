@@ -10,6 +10,9 @@ import sys
 import urllib.parse
 
 BUDGET_SCOPE = "whole run, shared by every agent and process"
+# Mounted alone in solver containers, so it cannot import web_policy. Must exceed
+# the host fetch deadline (web_policy.CLIENT_TIMEOUT_SECONDS; checked by tests).
+CLIENT_TIMEOUT_SECONDS = 45
 
 
 class WebBudgetExhausted(RuntimeError):
@@ -42,9 +45,9 @@ def json_post(url, payload, key):
     config = ("header = " + json.dumps("Authorization: Bearer " + key) + "\n"
               'header = "Content-Type: application/json"\n'
               "data = " + json.dumps(json.dumps(payload)) + "\n")
-    result = subprocess.run(["curl", "--silent", "--show-error", "--max-time", "30",
+    result = subprocess.run(["curl", "--silent", "--show-error", "--max-time", str(CLIENT_TIMEOUT_SECONDS),
                              "--max-filesize", "2097152", "--write-out", "\n%{http_code}", "--config", "-", url],
-                            input=config, text=True, capture_output=True, timeout=35)
+                            input=config, text=True, capture_output=True, timeout=CLIENT_TIMEOUT_SECONDS + 5)
     if result.returncode:
         raise RuntimeError("Web API transport failed (curl exit " + str(result.returncode) + "); not retried")
     body, separator, code = result.stdout.rpartition("\n")
@@ -65,6 +68,12 @@ def json_post(url, payload, key):
         budget=document.get('web_budget')
         remaining=budget.get('remaining') if isinstance(budget,dict) else None
         suffix='; remaining successful web calls: '+str(remaining) if isinstance(remaining,int) else ''
+        if kind=='host_fetch_failed':
+            reason=document.get('fetch_failure_reason')
+            if isinstance(reason,str) and reason.isascii() and reason.isidentifier() and len(reason)<60:
+                suffix+='; reason: '+reason
+            target=document.get('target_http_status')
+            if type(target) is int and 100<=target<=599:suffix+='; target HTTP '+str(target)
         raise RuntimeError("Web API rejected request (HTTP " + str(status) + "); not retried"+suffix)
     return json.loads(body)
 
@@ -91,8 +100,14 @@ def deepseek_web(action, value):
     return with_budget(result,result['web_budget'])
 
 
+def share_root():
+    """Shared web artifacts live in the solver workspace whatever the caller's cwd."""
+    workspace=Path('/workspace')
+    return workspace/'web' if workspace.is_dir() and os.access(workspace,os.W_OK) else Path.cwd()/'web'
+
+
 def save_web(action,value):
-    root=Path.cwd()/'web'
+    root=share_root()
     root.mkdir(exist_ok=True,mode=0o700)
     directory=os.open(root,os.O_RDONLY|os.O_DIRECTORY|os.O_NOFOLLOW)
     try:
@@ -108,8 +123,13 @@ def save_web(action,value):
 
 
 def print_web(action,value):
-    path=save_web(action,value)
-    print(json.dumps(dict(web_budget=value['web_budget'],full_result_file=path),ensure_ascii=False))
+    # The web call has already completed and may be charged: a local file
+    # problem must not discard the result before it reaches stdout.
+    header=dict(web_budget=value['web_budget'])
+    try:header['full_result_file']=save_web(action,value)
+    except (OSError,ValueError) as error:
+        header.update(full_result_file=None,full_result_file_error=type(error).__name__)
+    print(json.dumps(header,ensure_ascii=False))
     if action=='search':
         for item in value.get('results',[])[:10]:
             if not isinstance(item,dict):continue

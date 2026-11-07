@@ -1,3 +1,4 @@
+import io
 import json
 import subprocess
 import sys
@@ -146,3 +147,80 @@ def test_mcp_batch_and_malformed_request(store):
                              dict(jsonrpc='2.0', method='notifications/initialized'),
                              dict(jsonrpc='2.0', id=2, method='ping')])
     assert len(replies) == 2
+
+
+@pytest.mark.parametrize('mode,protocol,tool', [
+    ('observations', 'observations-v1', 'obs_list'),
+    ('full', 'decision-v4', 'decision_view'),
+])
+@pytest.mark.parametrize('audit_failure', [False, True])
+def test_mcp_unexpected_tool_failure_keeps_stdio_alive(tmp_path, monkeypatch, mode, protocol, tool, audit_failure):
+    from harness.evidence_mas import mcp
+    from harness.evidence_mas.decision import DecisionProtocol
+
+    store = Store(tmp_path / 'store', 'failure-test')
+    server = Server(store, 'lead', 'lead', mode=mode, protocol=protocol)
+    target, method = (Store, 'call') if tool == 'obs_list' else (DecisionProtocol, 'view')
+    original = getattr(target, method)
+    calls = []
+
+    def fail_once(self, *args, **kwargs):
+        calls.append(1)
+        if len(calls) == 1:
+            if audit_failure:
+                def fail_audit_once(self, *args, **kwargs):
+                    monkeypatch.setattr(Store, 'connect', connect)
+                    raise RuntimeError('private audit error')
+                monkeypatch.setattr(Store, 'connect', fail_audit_once)
+            raise RuntimeError('private fixture credential must not appear')
+        return original(self, *args, **kwargs)
+
+    if protocol == 'decision-v4':
+        DecisionProtocol(store).initialize('Offline fixture')
+    monkeypatch.setattr(target, method, fail_once)
+    connect = Store.connect
+    monkeypatch.setattr(mcp, 'Server', lambda *args, **kwargs: server)
+    requests = [dict(jsonrpc='2.0', id=1, method='initialize'),
+                dict(jsonrpc='2.0', method='notifications/initialized'),
+                dict(jsonrpc='2.0', id=2, method='tools/call', params=dict(name=tool)),
+                dict(jsonrpc='2.0', id=3, method='tools/call', params=dict(name=tool)),
+                dict(jsonrpc='2.0', id=4, method='ping')]
+    monkeypatch.setattr(sys, 'argv', ['mcp', '--root', str(store.root), '--run-id', 'failure-test'])
+    monkeypatch.setattr(sys, 'stdin', io.StringIO('not-json\n' + '\n'.join(map(json.dumps, requests)) + '\n'))
+    output = io.StringIO()
+    monkeypatch.setattr(sys, 'stdout', output)
+    mcp.main()
+    replies = [json.loads(line) for line in output.getvalue().splitlines()]
+    assert [r['id'] for r in replies] == [None, 1, 2, 3, 4]
+    assert replies[0]['error']['code'] == -32700
+    assert replies[2]['result']['isError'] is True
+    assert 'No automatic retry' in replies[2]['result']['content'][0]['text']
+    assert replies[3]['result']['isError'] is False and replies[4]['result'] == {}
+    assert len(calls) == 2
+    assert 'private' not in output.getvalue()
+    if not audit_failure:
+        with store.connect() as db:
+            errors = [json.loads(r[0]) for r in db.execute('SELECT body FROM events')
+                      if json.loads(r[0])['method'] == 'workspace.error']
+        assert len(errors) == 1 and 'private' not in json.dumps(errors)
+
+
+def test_mcp_internal_error_keeps_batch_and_request_ids(store, monkeypatch):
+    server = Server(store, 'lead', 'lead')
+    server.initialized = True
+    monkeypatch.setattr(server, 'available', lambda name: 1 / 0)
+    replies = server.handle([dict(jsonrpc='2.0', id='listing', method='tools/list'),
+                             dict(jsonrpc='2.0', id='alive', method='ping')])
+    assert replies[0] == dict(jsonrpc='2.0', id='listing', error=dict(code=-32603, message='Internal error'))
+    assert replies[1]['id'] == 'alive' and replies[1]['result'] == {}
+
+
+@pytest.mark.parametrize('exception', [KeyboardInterrupt, SystemExit])
+def test_mcp_does_not_swallow_process_shutdown(store, monkeypatch, exception):
+    server = Server(store, 'lead', 'lead')
+    server.initialized = True
+    def stop(*args, **kwargs):
+        raise exception()
+    monkeypatch.setattr(store, 'call', stop)
+    with pytest.raises(exception):
+        server.handle(dict(jsonrpc='2.0', id=1, method='tools/call', params=dict(name='obs_list')))

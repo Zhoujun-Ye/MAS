@@ -2,7 +2,7 @@
 
 import argparse
 import hashlib
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import ThreadPoolExecutor, wait, FIRST_COMPLETED
 import json
 import os
 from pathlib import Path
@@ -350,6 +350,7 @@ def solver_command(args, benchmark, task, backend, output, *, execute=False):
     if backend == "claude-code-subagents" and getattr(args, "organization_prompt", None):
         command += ["--organization-prompt", str(args.organization_prompt)]
     if benchmark == "kramabench":
+        if hasattr(args,'output'):command+=['--asset-cache',str(args.output/'asset-digests.sqlite')]
         command += ["--concurrency", "1", "--replay-timeout", "180", "--judge-limit", "0"]
         if getattr(args, 'cpus', 2) != 2:
             command += ['--cpus', str(args.cpus)]
@@ -881,15 +882,20 @@ def main(argv=None):
         # Separate bounded pools overlap independent grading with solver work.
         with ThreadPoolExecutor(max_workers=args.judge_concurrency) as graders, ThreadPoolExecutor(max_workers=args.concurrency) as solvers:
             solving={solvers.submit(checked,solve,job):job for job in jobs}
-            grading=[]
-            for future in as_completed(solving):
-                rows.append(future.result())
-                write_json(args.output / 'progress.json',dict(stage='solvers',rows=rows))
-                print(json.dumps(rows[-1]),flush=True)
-                grading.append(graders.submit(score,solving[future]))
-            for future in as_completed(grading):
-                grades.append(future.result())
-                write_json(args.output / "grading-progress.json", dict(rows=grades))
+            grading=set()
+            while solving or grading:
+                finished,_=wait(set(solving)|grading,return_when=FIRST_COMPLETED)
+                for future in finished:
+                    if future in solving:
+                        job=solving.pop(future)
+                        rows.append(future.result())
+                        write_json(args.output/'progress.json',dict(stage='solvers',rows=rows))
+                        print(json.dumps(rows[-1]),flush=True)
+                        grading.add(graders.submit(score,job))
+                    else:
+                        grading.remove(future)
+                        grades.append(future.result())
+                        write_json(args.output/'grading-progress.json',dict(rows=grades))
         after = runtime.safe_balance(key, args.output, "balance-after")
         write_json(args.output / "summary.json", dict(rows=rows, grades=grades, authorization=authorization,
             account_delta=runtime.observed_balance_deltas(before, after),

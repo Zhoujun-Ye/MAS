@@ -71,7 +71,7 @@ def test_https_connect_pins_ip_but_verifies_hostname(monkeypatch):
 
 def test_frozen_policy_requires_tunnel_without_environment_proxy_fallback():
     policy=web_policy.configuration()
-    assert policy['protocol']=='web-v3' and policy['fetch_backend']=='local-clash-unix'
+    assert policy['protocol']=='web-v4' and policy['fetch_backend']=='local-clash-unix'
     assert policy['fetch_proxy_socket']==str(web_policy.PROXY_SOCKET)
     assert policy['fetch_proxy_failure']=='fail closed; no direct fallback'
 

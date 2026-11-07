@@ -3,7 +3,6 @@
 import argparse
 import inspect
 import json
-import sqlite3
 import sys
 import uuid
 
@@ -150,16 +149,17 @@ class Server:
                     else:
                         value = self.store.call(METHODS[name][0], arguments, self.actor, self.role, operation)
                     result = dict(content=[dict(type='text', text=packed(value))], isError=False)
-                except (StoreError, OSError, ValueError, sqlite3.Error) as exc:
+                except Exception as exc:
                     try:
                         metadata = dict(tool=name, error_type=type(exc).__name__,
                                         error_code=getattr(exc,'code','tool_failure'))
                         with self.store.connect() as db:
                             db.execute('INSERT INTO events(body) VALUES(?)',
                                 (self.store.event('workspace.error', {}, metadata, self.actor, self.role, None),))
-                    except (StoreError, OSError, ValueError, sqlite3.Error):
+                    except Exception:
                         pass  # Keep the original failure visible even if its audit cannot be persisted.
-                    message = str(exc) if isinstance(exc, StoreError) else 'Storage or encoding failure'
+                    message = (str(exc) if isinstance(exc, StoreError) else
+                               'Tool failed; outcome may be incomplete. No automatic retry was performed.')
                     if isinstance(exc, StoreError) and name in DESCRIPTIONS:
                         message += '\nUsage: ' + DESCRIPTIONS[name]
                     result = dict(content=[dict(type='text', text=message)], isError=True)
@@ -168,6 +168,8 @@ class Server:
             return dict(jsonrpc='2.0', id=rid, result=result)
         except (StoreError, TypeError):
             return dict(jsonrpc='2.0', id=rid, error=dict(code=-32602, message='Invalid parameters'))
+        except Exception:
+            return dict(jsonrpc='2.0', id=rid, error=dict(code=-32603, message='Internal error'))
 
 
 def main():

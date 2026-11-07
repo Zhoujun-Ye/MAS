@@ -79,6 +79,8 @@ def freeze(args):
 
 def validate(args):
     plan = json.loads((args.output / "plan.json").read_text())
+    if plan.get('asset_hash_policy','full-hash')!=('stat-validated-pinned-blob-v1' if getattr(args,'asset_cache',None) else 'full-hash'):
+        raise ValueError('Frozen input hashing policy changed')
     if fingerprint(plan) != json.loads((args.output / "preflight-ok.json").read_text())["plan_sha256"]:
         raise ValueError("Plan receipt changed")
     if plan.get("effort", "max") != getattr(args, "effort", "max"):
@@ -105,7 +107,7 @@ def validate(args):
             or fingerprint(plan["backend_options"]) != fingerprint(
                 {b: runtime.options(b) for b in args.backends})
             or shared.source_manifest() != plan["source"]
-            or fingerprint(runtime.verify_inputs(args.upstream)) != plan["inputs_sha256"]
+            or fingerprint(runtime.input_inventory(args)) != plan["inputs_sha256"]
             or scoring_contract(args.upstream) != plan["scoring"]):
         raise ValueError("Frozen condition/source/data/scoring changed")
     for value in plan["cli_binaries"].values():
@@ -222,6 +224,7 @@ def main(argv=None):
     parser.add_argument("--replay-timeout", type=int, default=600)
     parser.add_argument("--judge-limit", type=int, choices=range(11), default=0)
     parser.add_argument("--from-plan", action="store_true")
+    parser.add_argument('--asset-cache',type=Path,help='Host-only verified input digest cache')
     parser.add_argument('--matrix-balance-managed', action='store_true',
                         help='Parent matrix owns balance admission; child snapshots are informational')
     parser.add_argument("--execute", action="store_true")
@@ -234,6 +237,10 @@ def main(argv=None):
     if not 1 <= args.concurrency <= 12 or args.timeout <= 0 or args.replay_timeout <= 0:
         parser.error("Expected 1-12 CLIs and positive timeouts")
     args.upstream, args.output = args.upstream.resolve(), args.output.resolve()
+    if args.asset_cache:
+        args.asset_cache=args.asset_cache.resolve()
+        if args.asset_cache.is_relative_to(args.upstream) or args.asset_cache.is_relative_to(args.output):
+            raise ValueError('Digest cache must remain outside inputs and attempt output')
     args.organization_override = organization_override(args.organization_prompt, args.backend)
     evidence.validate_condition(args)
     tasks, _ = load_tasks(args.upstream)

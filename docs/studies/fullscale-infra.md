@@ -29,6 +29,13 @@ Then pass that manifest and the same protocol settings to the existing matrix
 with `--all-tasks`, explicit benchmark/conditions and matching resource flags.
 Omitting `--execute` remains a nonexecuting plan. A manifest is not authorization.
 
+The current-source all-benchmark manifest is
+`/home/zhoujunye/mas-data/receipts/infra-review-closure-20261107/all-full-manifest.json`.
+It binds the current `web-v4` CPU8 profile and preserves upstream task order.
+Use the adjacent `proofs/` set for Structured/FULL planning; FULL and OBS were
+regenerated after the MCP exception-isolation repair. Older manifests/proofs
+remain historical provenance, not substitutes for current configuration checks.
+
 ## Crash Recovery And Scoring
 
 DataClaw/HDR use the same CPU/thread/module/probe/resource admission options as
@@ -128,7 +135,9 @@ policy, not a provider-enforced spending cap, nor attributable billing. Concurre
 account use, delayed accounting and in-flight calls can exceed an estimate.
 
 The host gateway ledger's actual upstream model HTTP 401/402/403 triggers global
-stopping, independent of native CLI error wording. Local synthetic rejections and
+stopping, independent of native CLI error wording. The Krama child monitor also
+reads only these ledger records: transcript text (tool output, data, model text)
+is never a fatal signal. Local synthetic rejections and
 upstream 5xx are not misclassified as fatal credential/balance errors. Monitor
 failures pause new paid dispatch without terminating other work, while fatal
 401/402/403 still stop in-flight paid processes. Child watchdogs use each benchmark's
@@ -158,15 +167,16 @@ sorting, environment provisioning or native worker scheduling is introduced.
 ## Verification
 
 Latest regression, tunnel and cleanup receipts live under
-`/home/zhoujunye/mas-data/receipts/local-web-pipeline-20261107/`.
+`/home/zhoujunye/mas-data/receipts/infra-review-closure-20261107/`.
 Superseded offline stages/test logs are disposable; paid runs and their frozen
 sources remain protected by `docs/archive.md`.
 
 - Actual manifest generation verified Krama 104, DataClaw 492 and HDR 380 tasks,
   with upstream order and fingerprints preserved.
 - A three-benchmark nonexecuting readiness plan validated 1,952 solver slots and
-  a conservative 1,836 maximum grading calls, solver concurrency 16 and judge
-  concurrency 4. Image/CLI/condition proofs passed. No solver output namespace
+  a conservative 1,836 maximum grading calls, solver concurrency 8 and judge
+  concurrency 2 with the current CPU8/thread4 profile and web-v4 manifest.
+  Image/CLI/condition proofs passed. No solver output namespace
   was created and no credentials were loaded. This is not a full benchmark run.
 - Linux fork tests abruptly exited the controller after solver claim and during
   scoring, then continued without `summary.json`. Unknown attempts were not rerun;

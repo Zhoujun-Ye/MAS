@@ -150,6 +150,9 @@ class CredentialGateway:
             def json_error(self, code, kind, message):
                 self.record.update(http_status=code, outcome="rejected", error_type=kind)
                 value=dict(type="error",error=dict(type=kind,message=message))
+                if kind=='host_fetch_failed':
+                    value.update(fetch_failure_reason=self.record.get('fetch_failure_reason'),
+                                 target_http_status=self.record.get('target_http_status'))
                 if self.record.get('web_reserved'):value['web_budget']=gateway.settle_web(self.record)
                 data = json.dumps(value).encode()
                 self.send_response(code)
@@ -316,12 +319,23 @@ class CredentialGateway:
                     cost_status='unknown',cost_source=web_policy.PRICE_SOURCE)
                 if self.record['web_backend']=='local-clash-unix':
                     self.record.update(estimated_cost_usd=0,cost_status='no paid fetch provider')
-                    try:value=web_fetch.fetch(payload['url'])
-                    except (ValueError,OSError,TimeoutError) as error:
+                    def opened(connection):
+                        with gateway.activity_lock:
+                            if gateway.closing.is_set():raise web_fetch.FetchCancelled('Gateway closing')
+                            gateway.active_responses.add(connection)
+                    def closed(connection):
+                        with gateway.activity_lock:gateway.active_responses.discard(connection)
+                    try:value=web_fetch.fetch(payload['url'],cancel=gateway.closing,on_open=opened,on_close=closed)
+                    except Exception as error:
+                        # A host GET has no paid side effect: any exception means no page
+                        # was delivered (including HTTP framing errors such as IncompleteRead).
                         self.record['fetch_error_type']=type(error).__name__
+                        reason=web_fetch.failure_reason(error)
+                        self.record['fetch_failure_reason']=reason
+                        if isinstance(error,web_fetch.FetchFailure):self.record['target_http_status']=error.http_status
                         if isinstance(error,web_fetch.ProxyUnavailable):self.record['web_proxy_unavailable']=True
                         self.record['web_success']=False
-                        self.json_error(502,'host_fetch_failed','Page could not be retrieved safely; no automatic retry')
+                        self.json_error(502,'host_fetch_failed','Fetch failed: '+reason+'; no automatic retry')
                         return
                     self.record['web_success']=True
                     self.record.update(http_status=200,outcome='response_complete')
@@ -476,6 +490,7 @@ class CredentialGateway:
     @staticmethod
     def close_response(response):
         upstream_socket = getattr(getattr(getattr(response, "fp", None), "raw", None), "_sock", None)
+        if upstream_socket is None:upstream_socket=getattr(response,'sock',None)
         if upstream_socket is not None:
             try:
                 upstream_socket.shutdown(socket.SHUT_RDWR)

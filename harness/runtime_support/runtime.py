@@ -282,22 +282,32 @@ def safe_balance(key, root, name):
                    http_status=getattr(error, "code", None)))
         return None
 
-def monitor(root, stop, active, lock, done):
-    markers = ("api error: 401", "api error: 402", "authentication_error", "insufficient balance", "invalid api key")
-    while not done.wait(2):
+def monitor(root, stop, active, lock, done, interval=2):
+    """Stop owned containers on host-ledger upstream 401/402/403 records only.
+
+    Native transcripts contain untrusted tool output and model text, so their
+    wording is never treated as provider-fatal evidence.
+    """
+    from harness.runtime_support.admission import fatal_provider_record
+    observed = {}
+    while not done.wait(interval):
         if stop.is_set():
             continue
-        for path in root.glob("*/*/cli/*.log"):
-            with path.open("rb") as stream:
-                stream.seek(max(0, path.stat().st_size - 12000))
-                text = stream.read().decode(errors="replace").lower()
-            matched = next((m for m in markers if m in text), None)
-            if matched:
+        for path in root.glob("*/*/gateway-requests.jsonl"):
+            try:
+                status = path.stat()
+            except FileNotFoundError:
+                continue
+            version = (status.st_mtime_ns, status.st_size)
+            if observed.get(path) == version:
+                continue
+            observed[path] = version
+            fatal = fatal_provider_record(path)
+            if fatal:
                 stop.set()
-                write_json(root / "fatal-provider-error.json", dict(source=str(path.relative_to(root)), marker=matched,
-                                                                    observed_at=now()))
+                write_json(root / "fatal-provider-error.json", dict(fatal, observed_at=now()))
                 with lock:
                     owned = list(active)
                 for identity in owned:
                     subprocess.run(["docker", "stop", "--time", "1", identity], capture_output=True)
-                break
+                return

@@ -33,3 +33,17 @@ def test_concurrent_readers_share_the_same_digest(tmp_path):
     cache=DigestCache(tmp_path/'hashes.sqlite')
     with ThreadPoolExecutor(4) as pool:values=list(pool.map(lambda _:cache.digest(p),range(8)))
     assert len(set(values))==1
+
+
+def test_pinned_blob_cache_binds_expected_git_oid_and_content(tmp_path,monkeypatch):
+    p=tmp_path/'input';p.write_bytes(b'aaaa');cache=DigestCache(tmp_path/'cache.sqlite')
+    oid=hashlib.sha1(b'blob 4\0aaaa').hexdigest()
+    time.sleep(2.05)
+    expected=cache.digest(p,git_blob=oid)
+    original=hashlib.sha256
+    monkeypatch.setattr(hashlib,'sha256',lambda:pytest.fail('Verified stable blob rehashed'))
+    assert cache.digest(p,git_blob=oid)==expected
+    monkeypatch.setattr(hashlib,'sha256',original)
+    with pytest.raises(ValueError,match='pinned'):cache.digest(p,git_blob='0'*40)
+    before=p.stat();p.write_bytes(b'bbbb');os.utime(p,ns=(before.st_atime_ns,before.st_mtime_ns))
+    with pytest.raises(ValueError,match='pinned'):cache.digest(p,git_blob=oid)
