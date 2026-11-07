@@ -10,6 +10,7 @@ def limit_instructions(timeout, web_limit=0):
     duration = f"{timeout} seconds" + (f" ({timeout // 60} minutes)" if timeout % 60 == 0 else "")
     text = f"Run limits: {duration} of wall-clock time in total"
     if web_limit:
-        text += (f", and at most {web_limit} web search/fetch requests in total, shared by every agent and process "
-                 "in this run (each web helper response reports how many remain)")
+        text += (f", and at most {web_limit} web search/fetch successful calls in total, shared by every agent and process "
+                 f"in this run (each web helper response reports how many remain). At most {web_limit*2} external web attempts; "
+                 "known failed calls release success reservations; uncertain completions retain them")
     return text + ". Do not try to work around tool limits or network restrictions.\n"

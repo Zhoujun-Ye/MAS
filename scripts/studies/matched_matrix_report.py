@@ -66,7 +66,8 @@ def collect(root):
                 score, grade_status, judge_cost = float(sql[0]['match']), 'sql_execution_match', 0
             elif judged:
                 score, grade_status = judged[0].get('score'), judged[0].get('status')
-                judge_cost = price((judged[0].get('raw_response') or {}).get('usage'))
+                judge_cost = (0 if judged[0].get('attempted_calls')==0 else
+                              price((judged[0].get('raw_response') or {}).get('usage')))
             elif grade.get('judge_calls') == 0:
                 judge_cost = 0
         accounting = report.get('accounting', {})
@@ -83,8 +84,20 @@ def collect(root):
         model = [r for r in finished if r.get('route') == '/anthropic/v1/messages'
                  and r.get('upstream_attempted') is True]
         dispatched = [r for r in ledger if r.get('event') == 'dispatched' and r.get('route') == '/anthropic/v1/messages']
-        web = [r for r in finished if r.get('route') in ('/v1/tools/search', '/v1/tools/fetch')]
-        web_cost = sum(isinstance(r.get('http_status'), int) and 200 <= r['http_status'] < 300 for r in web) * .00075
+        web = [r for r in ledger if r.get('event') in {'finished','shutdown'}
+               and r.get('route') in ('/v1/tools/search', '/v1/tools/fetch') and r.get('upstream_attempted') is True]
+        # Old receipts lack nonempty-result/billability evidence. Keep their
+        # successful-HTTP estimate explicitly separate from the new metadata.
+        web_estimates=[r.get('estimated_cost_usd') for r in web]
+        legacy_web=any('estimated_cost_usd' not in r for r in web)
+        web_cost=(sum(web_estimates) if all(v is not None for v in web_estimates) else None)
+        if legacy_web:
+            web_cost=sum(isinstance(r.get('http_status'),int) and 200<=r['http_status']<300 for r in web)*.00075
+        web_sent=[r for r in ledger if r.get('event')=='dispatched'
+                  and r.get('route') in ('/v1/tools/search','/v1/tools/fetch')]
+        if web_sent and ({r.get('request_id') for r in web_sent}!={r.get('request_id') for r in web}
+                         or len(web_sent)!=len(web)):
+            web_cost=None
         model_costs = [price(r.get('usage')) for r in model]
         # Local rejections are not provider responses; partial streams cannot establish charges.
         dispatched_ids = {r.get('request_id') for r in dispatched}
@@ -106,6 +119,7 @@ def collect(root):
             model_requests=len(dispatched), model_responses=len(model),
             request_efforts=dict(Counter(r.get('request_effort', 'unknown') for r in dispatched)),
             model_usd_offpeak=model_cost, web_usd_estimate=web_cost, judge_usd_offpeak=judge_cost,
+            web_cost_basis='legacy successful-HTTP estimate; billability unverified' if legacy_web else 'host per-request billability receipts; not an invoice',
             total_usd_offpeak=sum(costs) if all(v is not None for v in costs) else None,
             accounting=accounting.get('observed_totals'), by_role=accounting.get('by_role'),
             native_audit_passed=audit.get('passed'), subagent_starts=audit.get('subagent_starts'),

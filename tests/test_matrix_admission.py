@@ -99,6 +99,7 @@ def test_fatal_judge_stops_queued_grading(tmp_path, monkeypatch):
             return 0
     monkeypatch.setattr(matrix.subprocess, 'Popen', Process)
     graded = []
+    monkeypatch.setattr(matrix,'needs_judge',lambda *a:True)
     def grade(b, t, k, *a, **kw):
         graded.append(t.id)
         return dict(benchmark=b, task_id=t.id, backend=k, status='judge_error',

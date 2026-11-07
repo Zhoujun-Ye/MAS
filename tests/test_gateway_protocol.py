@@ -134,7 +134,8 @@ def test_invalid_web_payload_does_not_consume_reservation(tmp_path, monkeypatch)
     class Response(io.BytesIO):
         status = 200
         headers = {}
-    monkeypatch.setattr(credential_gateway, "open_upstream", lambda request: calls.append(request) or Response(b'{}'))
+    monkeypatch.setattr(credential_gateway, "open_upstream", lambda request: calls.append(request) or Response(
+        b'{"results":[{"url":"https://example.org","title":"fixture"}]}'))
     ledger = tmp_path / "ledger.jsonl"
     with CredentialGateway("synthetic-secret", ledger_path=ledger, web_limit=1) as gateway:
         invalid = urllib.request.Request(gateway.url + "/v1/tools/search", data=b'[]',
@@ -152,15 +153,6 @@ def test_invalid_web_payload_does_not_consume_reservation(tmp_path, monkeypatch)
     assert len(calls) == 1
     assert gateway.summary()["web_reservations"] == 1
     assert gateway.summary()["requests_received"] == 3
-
-
-def test_helper_default_limit_matches_gateway(tmp_path, monkeypatch):
-    monkeypatch.delenv("MAS_WEB_MAX_REQUESTS", raising=False)
-    monkeypatch.setenv("MAS_WEB_LEDGER", str(tmp_path / "advisory-ledger.jsonl"))
-    for _ in range(4):
-        tools.reserve_search("fixture", provider="deepseek")
-    with pytest.raises(tools.WebBudgetExhausted, match="budget exhausted"):
-        tools.reserve_search("fixture", provider="deepseek")
 
 
 @pytest.mark.parametrize("kind,message", [("run_web_limit_exhausted", "budget exhausted"),

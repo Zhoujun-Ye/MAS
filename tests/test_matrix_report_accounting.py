@@ -37,6 +37,17 @@ def test_local_rejection_is_not_a_paid_model_response(tmp_path):
     assert row['model_usd_offpeak'] == price(done['usage'])
 
 
+def test_web_cost_uses_receipt_estimates_and_unknown_completions(tmp_path):
+    sent,done=request_pair()
+    web=dict(request_id='web',route='/v1/tools/fetch',upstream_attempted=True,event='dispatched')
+    complete=dict(web,event='finished',web_backend='host-http',estimated_cost_usd=0,http_status=200)
+    assert report_for(tmp_path/'zero',[sent,done,web,complete])['web_usd_estimate']==0
+    complete.update(web_backend='deepseek',estimated_cost_usd=.00075)
+    assert report_for(tmp_path/'paid',[sent,done,web,complete])['web_usd_estimate']==.00075
+    complete['estimated_cost_usd']=None
+    assert report_for(tmp_path/'unknown',[sent,done,web,complete])['web_usd_estimate'] is None
+
+
 @pytest.mark.parametrize('change', ['partial', 'wrong-id', 'duplicate', 'missing', 'upstream-rejected'])
 def test_incomplete_or_unmatched_usage_remains_unknown(tmp_path, change):
     sent, done = request_pair()

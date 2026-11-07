@@ -13,6 +13,9 @@ from harness.runtime_support.proof import validate
 
 @pytest.fixture(params=["dataclawbench", "hybriddeepresearch"])
 def workflow(tmp_path, monkeypatch, request):
+    from harness.runtime_support import preflight
+    monkeypatch.setattr(preflight,'check',lambda *a,**kw:dict(paid_calls=0))
+    monkeypatch.setattr('harness.runtime_support.web_fetch.check_ready',lambda:dict(tls_verified=True,model_calls=0))
     benchmark = request.param
     monkeypatch.setattr(run, "verify_sources", lambda *args: None)
     monkeypatch.setattr(score, "verify_sources", lambda *args: None)
@@ -50,7 +53,6 @@ def workflow(tmp_path, monkeypatch, request):
             for index, kind in enumerate(("search_to_sql", "sql_to_search"))))
         (upstream / "evaluation").mkdir()
         (upstream / "evaluation/s2sql_eval.py").write_text("# fixture evaluator")
-        monkeypatch.setenv("TAVILY_API_KEY", "fake-never-sent")
     credentials = tmp_path / "credentials.env"
     credentials.write_text("DEEPSEEK_API_KEY=fake-never-sent")
     credentials.chmod(0o600)
@@ -110,6 +112,52 @@ def workflow(tmp_path, monkeypatch, request):
         argv += ["--task-id", task.id]
     return SimpleNamespace(upstream=upstream, output=output, argv=argv, calls=calls,
                            benchmark=benchmark, task_file=task_file)
+
+
+def test_real_preflight_freezes_resources_then_execution_reuses_plan(workflow,monkeypatch):
+    from harness.runtime_support import preflight
+    observed=[]
+    monkeypatch.setattr(preflight,'check',lambda *a,**kw:observed.append((a,kw)) or dict(paid_calls=0))
+    original=run.runtime.credential
+    monkeypatch.setattr(run.runtime,'credential',lambda *a:pytest.fail('Offline preflight read credentials'))
+    argv=workflow.argv+['--cpus','8','--compute-threads','4']
+    assert run.main(argv+['--preflight'],benchmark=workflow.benchmark)==0
+    assert len(observed)==2 and all(a[6:8]==(8,4) for a,k in observed)
+    assert not workflow.calls
+    monkeypatch.setattr(run.runtime,'credential',original)
+    assert run.main(argv+['--from-plan','--execute'],benchmark=workflow.benchmark)==0
+    assert len(workflow.calls)==2
+
+
+def test_changed_frozen_resources_reject_before_credentials(workflow,monkeypatch):
+    from harness.runtime_support import preflight
+    monkeypatch.setattr(preflight,'check',lambda *a,**kw:dict(paid_calls=0))
+    assert run.main(workflow.argv+['--preflight'],benchmark=workflow.benchmark)==0
+    monkeypatch.setattr(run.runtime,'credential',lambda *a:pytest.fail('Changed plan read credentials'))
+    with pytest.raises(ValueError,match='Frozen plan'):
+        run.main(workflow.argv+['--from-plan','--execute','--cpus','8'],benchmark=workflow.benchmark)
+
+
+def test_changed_cached_inputs_reject_before_credentials(workflow,monkeypatch):
+    import sqlite3
+    cache=workflow.output.parent/'asset-digests.sqlite'
+    argv=workflow.argv+['--asset-cache',str(cache)]
+    assert run.main(argv+['--preflight'],benchmark=workflow.benchmark)==0
+    data=Path(argv[argv.index('--data')+1])
+    if workflow.benchmark=='dataclawbench':(data/'x.csv').write_text('x\n2\n')
+    else:
+        with sqlite3.connect(data/'retail/retail_template.sqlite') as db:db.execute('CREATE TABLE changed (n INTEGER)')
+    monkeypatch.setattr(run.runtime,'credential',lambda *a:pytest.fail('Changed input read credentials'))
+    with pytest.raises(ValueError,match='Frozen plan'):
+        run.main(argv+['--from-plan','--execute'],benchmark=workflow.benchmark)
+
+
+def test_saved_attempt_cannot_be_dispatched_twice(workflow,monkeypatch):
+    assert run.main(workflow.argv+['--preflight'],benchmark=workflow.benchmark)==0
+    assert run.main(workflow.argv+['--from-plan','--execute'],benchmark=workflow.benchmark)==0
+    monkeypatch.setattr(run.runtime,'credential',lambda *a:pytest.fail('Repeated attempt read credentials'))
+    with pytest.raises(ValueError,match='already started'):
+        run.main(workflow.argv+['--from-plan','--execute'],benchmark=workflow.benchmark)
 
 
 @pytest.mark.parametrize('mode',('observations','full'))
@@ -182,6 +230,24 @@ def test_cleanup_failure_retained_and_stops_later_tasks(workflow, monkeypatch):
     rows = jsonl(workflow.output / "predictions.jsonl")
     assert [row["status"] for row in rows] == ["cleanup_failed", "not_started"]
     assert all(row["final_answer"] == "" for row in rows) and len(workflow.calls) == 1
+
+
+def test_empty_text_answers_get_zero_without_loading_judge_key(workflow,tmp_path,monkeypatch):
+    original=run.BACKENDS['claude-code-subagents'].run
+    def empty(self,*a,**kw):
+        result=original(self,*a,**kw)
+        (kw['workspace']/'submission.json').write_text('{"final_answer":""}')
+        return result
+    monkeypatch.setattr(run.BACKENDS['claude-code-subagents'],'run',empty)
+    assert run.main(workflow.argv+['--execute'],benchmark=workflow.benchmark)==1
+    assert jsonl(workflow.output/'predictions.jsonl')[0]['status']=='incomplete'
+    monkeypatch.setattr(run.runtime,'credential',lambda *a:pytest.fail('Empty answer loaded judge key'))
+    output=tmp_path/'empty-score'
+    assert score.main(['--run',str(workflow.output),'--upstream',str(workflow.upstream),
+        '--tasks',str(workflow.task_file),'--output',str(output)],benchmark=workflow.benchmark)==0
+    judged=jsonl(output/'judge-results.jsonl')
+    assert judged and all(r['score']==0 and r['attempted_calls']==0 and r['status']=='empty_prediction' for r in judged)
+    assert json.loads((output/'receipt.json').read_text())['judge_calls']==0
 
 
 def test_unverified_organization_keeps_hash_bound_answer_separate(workflow, tmp_path, monkeypatch):

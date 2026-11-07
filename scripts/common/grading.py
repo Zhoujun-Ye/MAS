@@ -7,6 +7,18 @@ from common.io import read_json
 from benchmarks.kramabench.semantic_judge import judge_once
 
 
+def needs_judge(benchmark, task, run, judge_enabled):
+    if not judge_enabled:
+        return False
+    if benchmark == 'kramabench':
+        rows = read_json(run / 'summary.json', {}).get('rows', [])
+        return bool(rows and rows[0].get('status') in {'cli_exited', 'native_condition_unverified'}
+                    and (rows[0].get('grade') or {}).get('status') == 'pending_judge')
+    path = run / 'predictions.jsonl'
+    return (path.exists() and (benchmark == 'dataclawbench' or task.category != 'search_to_sql')
+            and any(p['final_answer'].strip() for p in jsonl(path)))
+
+
 def grade_attempt(benchmark, task, backend, run, *, data_root, grades_root,
                   credentials, judge_enabled, key, command_run, log):
     target = grades_root / benchmark / task.id / backend
@@ -15,7 +27,10 @@ def grade_attempt(benchmark, task, backend, run, *, data_root, grades_root,
         summary = run / "summary.json"
         if not summary.exists():
             return {**result, "status": "missing_summary"}
-        record = read_json(summary)["rows"][0]
+        records = read_json(summary).get('rows', [])
+        if len(records) != 1:
+            return {**result, 'status': 'missing_summary'}
+        record = records[0]
         result.update(status=record.get("grade", {}).get("status"), grade=record.get("grade"),
                       pipeline_exit_code=record.get("pipeline_exit_code"),
                       pipeline_answer_matches_submission=record.get("pipeline_answer_matches_submission"))
@@ -51,6 +66,8 @@ def grade_attempt(benchmark, task, backend, run, *, data_root, grades_root,
         command += ["--execute-judges", "--judge-limit", str(calls), "--judge-model", "deepseek-flash",
                     "--credentials", str(credentials), "--judge-base-url", "https://api.deepseek.com"]
     code = command_run(command, log)
+    if code is None:
+        return {**result, 'status': 'not_started', 'returncode': None}
     receipt = read_json(target / "receipt.json", {})
     return {**result, "status": "completed" if code == 0 else "grading_failed", "returncode": code,
             "judge_calls": receipt.get("judge_calls"), "output": str(target),

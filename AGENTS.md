@@ -108,6 +108,11 @@ See `docs/cli-adapters.md` for pinned versions, references and limitations.
 - Installs use the Tsinghua PyPI mirror. Do not provision environments, CLIs,
   Docker or cloud resources implicitly. Preserve required current images/assets.
 - Deploy, launch jobs and clean server files only within user authorization.
+- Web GETs require the local-Mac Clash tunnel maintained by
+  `scripts/server/web_tunnel.py` and documented in `docs/studies/web-infra.md`.
+  Keep its server Unix socket private; no direct/provider-fetch fallback, public
+  proxy listener or solver-container networking. Search/model/judge APIs remain
+  server-direct. Preserve the installed local launch agent/runner and live socket.
 
 ## Runtime And Evidence
 

@@ -117,6 +117,27 @@ def balance_deltas(before, after):
         raise ValueError("Balance currencies changed during the measured interval")
     return {currency: str(amount - last[currency]) for currency, amount in first.items()}
 
+
+def observed_balance_deltas(before, after):
+    """Informational accounting must not prevent durable task finalization."""
+    try:
+        for receipt in (before,after):
+            if not receipt or receipt.get('response',{}).get('is_available') is not True:
+                return None
+            rows=receipt['response']['balance_infos']
+            if not isinstance(rows,list) or not rows:
+                return None
+            currencies=[row['currency'] for row in rows]
+            if any(not isinstance(c,str) or not c for c in currencies) or len(set(currencies))!=len(currencies):
+                return None
+            for row in rows:
+                value=Decimal(str(row['total_balance']))
+                if not value.is_finite() or value<0:
+                    return None
+        return balance_deltas(before,after)
+    except (KeyError,TypeError,ValueError,ArithmeticError,AttributeError):
+        return None
+
 def snapshot(work):
     files = {}
     for parent, dirs, names in os.walk(work, followlinks=False):
@@ -172,7 +193,7 @@ def container(work, profile, dataset, image, key=None, network="bridge", backend
         raise RuntimeError("Paid containers are disabled pending credential isolation: never inject provider keys into solver environments")
     if forwarded_env:
         raise RuntimeError("Forwarding host credentials into solver containers is disabled")
-    allowed_overrides = {"MAS_BENCHMARK_WEB", "MAS_WEB_LEDGER", "MAS_WEB_PROVIDER", "MAS_WEB_MAX_REQUESTS"}
+    allowed_overrides = {"MAS_BENCHMARK_WEB", "MAS_WEB_PROVIDER", "MAS_WEB_MAX_REQUESTS"}
     if set(environment_overrides or {}) - allowed_overrides:
         raise ValueError("Only benchmark web settings may override container environment")
     container_name = "mas-cli6-" + uuid.uuid4().hex[:12]

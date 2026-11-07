@@ -33,6 +33,34 @@ def test_only_upstream_5xx_terminations_are_eligible(tmp_path, status):
     assert (root/'summary.json').read_bytes() == before
 
 
+def test_recovery_follows_sealed_continuation_to_original_artifact(tmp_path):
+    root, jobs, _, summary = original(tmp_path)
+    continuation = tmp_path/'continued'
+    continuation.mkdir()
+    (root/'summary.json').write_text(json.dumps(dict(summary,interrupted=True)))
+    continued = dict(summary, authorization=dict(summary['authorization'],retained_from=str(root)))
+    (continuation/'summary.json').write_text(json.dumps(continued))
+    assert len(upstream_recovery(continuation,jobs,{},'manifest')) == 1
+    # Claims are siblings of their batch directory.
+    (tmp_path/'original.upstream-recovery-claim.json').write_text('{}')
+    with pytest.raises(ValueError,match='already recovered'):
+        upstream_recovery(continuation,jobs,{},'manifest')
+
+
+@pytest.mark.parametrize('status,eligible',[(503,True),(500,True),(429,False),(402,False),(None,False)])
+def test_judge_recovery_is_explicit_confirmed_5xx_once(tmp_path,status,eligible):
+    from scripts.studies.benchmark_matrix import judge_recovery_evidence
+    (tmp_path/'result.json').write_text(json.dumps(dict(status='judge_error',http_status=status)))
+    entry=dict(state='complete',body=dict(status='judge_error',judge_calls=1,grading_artifact=str(tmp_path)))
+    assert bool(judge_recovery_evidence(entry)) is eligible
+    entry['body'].update(original_judge_calls=1,judge_calls=0,reused_without_dispatch=True)
+    assert bool(judge_recovery_evidence(entry)) is eligible
+    entry['body']['judge_recovery']={'original_artifact':'first'}
+    assert judge_recovery_evidence(entry) is None
+    entry['body'].pop('judge_recovery');entry['state']='claimed'
+    assert judge_recovery_evidence(entry) is None
+
+
 @pytest.mark.parametrize('status,http,outcome', [('cli_exited',503,'upstream_rejected'),
     ('native_condition_unverified',503,'upstream_rejected'), ('cli_error',429,'upstream_rejected'),
     ('cli_error',503,'rejected'), ('cli_error',400,'upstream_rejected')])

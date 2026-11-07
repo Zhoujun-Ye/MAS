@@ -72,6 +72,9 @@ def test_continuation_retains_started_slots_without_replacements(tmp_path):
     (old/'summary.json').write_text(json.dumps(summary))
     journal=Journal(old/'journal.sqlite')
     row=rows[0];identity=(row['benchmark'],row['task_id'],row['backend'])
+    folder=Path(row['run'])/'task'/'claude-code-subagents'
+    folder.mkdir(parents=True)
+    (folder/'gateway-requests.jsonl').write_text(json.dumps(dict(event='dispatched',upstream_attempted=True)))
     journal.claim('solver',identity,'frozen',row)
     journal.finish('solver',identity,'frozen',row)
     kept=matrix.retained_attempts(old,tasks,{},'hash')

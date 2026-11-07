@@ -64,6 +64,177 @@ def test_balance_policy_and_polling_have_no_implicit_conversion():
     with pytest.raises(ValueError,match='reserve'):watch.check()
 
 
+def test_balance_transients_are_bounded_and_malformed_responses_do_not_crash_monitor():
+    watch=BalanceWatch(lambda: {'response': {'is_available':True,'balance_infos':[{}]}},
+                       'CNY','1',interval=0,initial=balance())
+    watch.check();watch.check()
+    with pytest.raises(ValueError,match='repeatedly'):watch.check()
+    watch.fetch=lambda:balance('0')
+    with pytest.raises(ValueError,match='reserve'):watch.check()
+
+
+@pytest.mark.parametrize('record,expected',[
+    (None,'not_started'), ('','not_started'),
+    ('{"event":"started","upstream_attempted":false}','not_started'),
+    ('{"event":"dispatched","upstream_attempted":true}','dispatch_unknown'),
+    ('{partial','dispatch_unknown')])
+def test_dispatch_classification_uses_write_ahead_evidence(tmp_path,record,expected):
+    if record is not None:(tmp_path/'gateway-requests.jsonl').write_text(record)
+    assert matrix.solver_dispatch_status(tmp_path)==expected
+
+
+def test_free_grading_ignores_balance_pause_and_overlaps_solving(tmp_path,monkeypatch):
+    import threading
+    args=setup_matrix(tmp_path,monkeypatch)
+    first_graded=threading.Event()
+    second_started=threading.Event()
+    class Overlap(FakeProcess):
+        def __init__(self,cmd,**kw):
+            self.second='--execute' in cmd and cmd[cmd.index('--task-id')+1]=='fixture-1'
+            self.first='--execute' in cmd and not self.second
+            super().__init__(cmd,**kw)
+            if self.second:second_started.set()
+        def wait(self,**kw):
+            if self.first:assert second_started.wait(5)
+            if self.second:assert first_graded.wait(5),'Grading waited for all solvers'
+            return 0
+    monkeypatch.setattr(matrix.subprocess,'Popen',Overlap)
+    class Watch:
+        def __init__(self,*a,**kw):pass
+        def check(self):
+            if first_graded.is_set():raise ValueError('reserve')
+    monkeypatch.setattr(matrix,'BalanceWatch',Watch)
+    def grade(b,t,k,*a,**kw):
+        first_graded.set()
+        return dict(benchmark=b,task_id=t.id,backend=k,status='graded',judge_calls=0)
+    monkeypatch.setattr(matrix,'grade_attempt',grade)
+    # Both solves launch before the first grade; the second completes only after it.
+    matrix.main(args(tmp_path/'out','--concurrency','2'))
+    summary=json.loads((tmp_path/'out/summary.json').read_text())
+    assert len(summary['grades'])==2
+    assert all(g['status']=='graded' for g in summary['grades'])
+
+
+def test_child_timeout_pauses_dispatch_without_global_termination(tmp_path,monkeypatch):
+    import subprocess
+    args=setup_matrix(tmp_path,monkeypatch)
+    terminated=[]
+    class Hung(FakeProcess):
+        def __init__(self,cmd,**kw):
+            self.hung='--execute' in cmd
+            super().__init__(cmd,**kw)
+        def wait(self,**kw):
+            if self.hung and not terminated:raise subprocess.TimeoutExpired('fixture',1)
+            return 0
+        def terminate(self):terminated.append('only hung child')
+    monkeypatch.setattr(matrix.subprocess,'Popen',Hung)
+    monkeypatch.setattr(matrix,'default_timeout',lambda b:-601)
+    monkeypatch.setattr(matrix,'grade_attempt',lambda b,t,k,*a,**kw:dict(benchmark=b,task_id=t.id,backend=k,status='graded',judge_calls=0))
+    assert matrix.main(args(tmp_path/'out'))==1
+    assert terminated==['only hung child']
+    assert (tmp_path/'out/balance-paused.json').exists()
+    assert not (tmp_path/'out/fatal-provider-error.json').exists()
+
+
+def test_monitor_exception_preserves_inflight_child(tmp_path,monkeypatch):
+    import time
+    args=setup_matrix(tmp_path,monkeypatch)
+    terminated=[]
+    class Running(FakeProcess):
+        def __init__(self,cmd,**kw):
+            self.paid='--execute' in cmd
+            super().__init__(cmd,**kw)
+            if self.paid:
+                out=Path(cmd[cmd.index('--output')+1]);task=cmd[cmd.index('--task-id')+1]
+                (out/task/'claude-code-subagents/gateway-requests.jsonl').write_text('[]')
+        def wait(self,**kw):
+            if self.paid:time.sleep(1.2)
+            return 0
+        def terminate(self):terminated.append(True)
+    monkeypatch.setattr(matrix.subprocess,'Popen',Running)
+    monkeypatch.setattr(matrix,'grade_attempt',lambda b,t,k,*a,**kw:dict(benchmark=b,task_id=t.id,backend=k,status='graded',judge_calls=0))
+    assert matrix.main(args(tmp_path/'out'))==1
+    assert not terminated
+    assert (tmp_path/'out/monitor-error.json').exists()
+    assert (tmp_path/'out/balance-paused.json').exists()
+
+
+def test_deterministic_grading_claim_is_safe_to_resume(tmp_path,monkeypatch):
+    args=setup_matrix(tmp_path,monkeypatch)
+    monkeypatch.setattr(matrix.subprocess,'Popen',FakeProcess)
+    def skipped(b,t,k,*a,**kw):
+        return dict(benchmark=b,task_id=t.id,backend=k,status='not_started',judge_calls=0)
+    monkeypatch.setattr(matrix,'grade_attempt',skipped)
+    old=tmp_path/'old'
+    assert matrix.main(args(old))==1
+    summary=json.loads((old/'summary.json').read_text());summary['interrupted']=True
+    (old/'summary.json').write_text(json.dumps(summary))
+    called=[]
+    def grade(b,t,k,*a,**kw):
+        called.append(t.id)
+        return dict(benchmark=b,task_id=t.id,backend=k,status='graded',judge_calls=0)
+    monkeypatch.setattr(matrix,'grade_attempt',grade)
+    monkeypatch.setattr(matrix.subprocess,'Popen',lambda *a,**kw:pytest.fail('Solver replay'))
+    assert matrix.main(args(tmp_path/'new','--retain-started-from',str(old)))==0
+    assert sorted(called)==['fixture-0','fixture-1']
+
+
+def test_explicit_judge_recovery_of_sealed_batch_never_replays_solves_or_judges_twice(tmp_path,monkeypatch):
+    args=setup_matrix(tmp_path,monkeypatch)
+    monkeypatch.setattr(matrix.subprocess,'Popen',FakeProcess)
+    monkeypatch.setattr(matrix,'needs_judge',lambda *a:True)
+    calls=[]
+    def failed(b,t,k,*a,**kw):
+        calls.append(t.id)
+        artifact=kw['grades_root']/b/t.id/k
+        artifact.mkdir(parents=True)
+        (artifact/'result.json').write_text(json.dumps(dict(status='judge_error',http_status=503)))
+        return dict(benchmark=b,task_id=t.id,backend=k,status='judge_error',judge_calls=1)
+    monkeypatch.setattr(matrix,'grade_attempt',failed)
+    old=tmp_path/'old';new=tmp_path/'new'
+    assert matrix.main(args(old,'--authorized-judges','2'))==1
+    monkeypatch.setattr(matrix.subprocess,'Popen',lambda *a,**kw:pytest.fail('Solver replay'))
+    assert matrix.main(args(new,'--retain-started-from',str(old),'--authorized-attempts','0',
+                           '--authorized-judges','2','--recover-judge-5xx'))==1
+    assert len(calls)==4
+    assert matrix.main(args(tmp_path/'third','--retain-started-from',str(new),
+                           '--authorized-attempts','0','--authorized-judges','0','--recover-judge-5xx'))==1
+    assert len(calls)==4
+
+
+def test_judge_recovery_plan_lists_exact_subset_and_bounds_authorization(tmp_path,monkeypatch,capsys):
+    args=setup_matrix(tmp_path,monkeypatch)
+    monkeypatch.setattr(matrix.subprocess,'Popen',FakeProcess)
+    monkeypatch.setattr(matrix,'needs_judge',lambda *a:True)
+    calls=[]
+    def failed(b,t,k,*a,**kw):
+        calls.append(t.id)
+        artifact=kw['grades_root']/b/t.id/k;artifact.mkdir(parents=True)
+        code=503 if t.id=='fixture-0' else 429
+        (artifact/'result.json').write_text(json.dumps(dict(status='judge_error',http_status=code)))
+        return dict(benchmark=b,task_id=t.id,backend=k,status='judge_error',judge_calls=1)
+    monkeypatch.setattr(matrix,'grade_attempt',failed)
+    old=tmp_path/'old'
+    assert matrix.main(args(old,'--authorized-judges','2'))==1
+    capsys.readouterr()
+    monkeypatch.setattr(matrix.subprocess,'Popen',lambda *a,**kw:pytest.fail('Solver replay'))
+    monkeypatch.setattr(matrix.runtime,'credential',lambda *a:pytest.fail('Plan read key'))
+    plan_args=args(tmp_path/'new','--retain-started-from',str(old),'--recover-judge-5xx')
+    plan_args.remove('--execute')
+    assert matrix.main(plan_args)==0
+    plan=json.loads(capsys.readouterr().out)
+    assert plan['new_solver_attempts']==0 and plan['maximum_judge_calls']==1
+    assert [r['task_id'] for r in plan['judge_recovery']]==['fixture-0']
+    assert not (tmp_path/'new').exists()
+    with pytest.raises(ValueError,match='judge count'):
+        matrix.main(args(tmp_path/'new','--retain-started-from',str(old),'--recover-judge-5xx',
+                         '--authorized-attempts','0','--authorized-judges','2'))
+    monkeypatch.setattr(matrix.runtime,'credential',lambda *a:'synthetic')
+    assert matrix.main(args(tmp_path/'new','--retain-started-from',str(old),'--recover-judge-5xx',
+                            '--authorized-attempts','0','--authorized-judges','1'))==1
+    assert calls==['fixture-0','fixture-1','fixture-0']
+
+
 def test_host_http_fatal_is_independent_of_provider_error_text(tmp_path):
     p=tmp_path/'ledger.jsonl'
     row=dict(event='finished',route='/anthropic/v1/messages',upstream_attempted=True,http_status=402)
@@ -129,8 +300,126 @@ class FakeProcess:
     def wait(self,**kw):return 0
 
 
+@pytest.mark.parametrize('status',[None,'launcher_error','interrupted','cli_error'])
+def test_report_before_dispatch_remains_resumable_without_replaying_other_solver(tmp_path,monkeypatch,status):
+    args=setup_matrix(tmp_path,monkeypatch)
+    class BeforeDispatch(FakeProcess):
+        def __init__(self,cmd,**kw):
+            super().__init__(cmd,**kw)
+            if '--execute' in cmd and cmd[cmd.index('--task-id')+1]=='fixture-0':
+                folder=Path(cmd[cmd.index('--output')+1])/'fixture-0/claude-code-subagents'
+                if status is None:(folder/'report.json').unlink()
+                else:(folder/'report.json').write_text(json.dumps(dict(status=status)))
+                (folder/'gateway-requests.jsonl').write_text('{"event":"finished","upstream_attempted":false}')
+    monkeypatch.setattr(matrix.subprocess,'Popen',BeforeDispatch)
+    monkeypatch.setattr(matrix,'grade_attempt',lambda b,t,k,*a,**kw:dict(benchmark=b,task_id=t.id,backend=k,status='graded',judge_calls=0))
+    old=tmp_path/'old'
+    assert matrix.main(args(old))==1
+    summary=json.loads((old/'summary.json').read_text())
+    assert summary['interrupted']
+    assert next(r for r in summary['rows'] if r['task_id']=='fixture-0')['status']=='not_started'
+    launched=[]
+    class Recovered(FakeProcess):
+        def __init__(self,cmd,**kw):
+            if '--execute' in cmd:launched.append(cmd[cmd.index('--task-id')+1])
+            super().__init__(cmd,**kw)
+    monkeypatch.setattr(matrix.subprocess,'Popen',Recovered)
+    assert matrix.main(args(tmp_path/'new','--retain-started-from',str(old)))==0
+    assert launched==['fixture-0']
+
+
+@pytest.mark.parametrize('status',['launcher_error','interrupted','cli_error'])
+@pytest.mark.parametrize('state',['claimed','complete'])
+def test_resume_reconciles_failed_report_with_host_dispatch_evidence(tmp_path,monkeypatch,status,state):
+    setup_matrix(tmp_path,monkeypatch)
+    root=tmp_path/'old';root.mkdir()
+    (root/'authorization.json').write_text(json.dumps(dict(protocol_settings={},task_manifest_sha256=None,
+        source_manifest={'fixture.py':'same'})))
+    job=('kramabench',SimpleNamespace(id='fixture-0'),'full',tmp_path/'new')
+    run=root/'solvers/kramabench/fixture-0/full'
+    folder=run/'fixture-0/claude-code-subagents';folder.mkdir(parents=True)
+    (folder/'report.json').write_text(json.dumps(dict(status=status)))
+    journal=Journal(root/'journal.sqlite');identity=('kramabench','fixture-0','full')
+    body=dict(benchmark='kramabench',task_id='fixture-0',backend='full',run=str(run),status=status)
+    journal.claim('solver',identity,'frozen',body)
+    if state=='complete':journal.finish('solver',identity,'frozen',body)
+    assert matrix.retained_attempts(root,[job],{},None)=={}
+    (folder/'gateway-requests.jsonl').write_text('{"event":"dispatched","upstream_attempted":true}')
+    assert matrix.retained_attempts(root,[job],{},None)[identity]['status']==status
+
+
+@pytest.mark.parametrize('before_ok,after_ok',[(False,True),(True,False),(False,False)])
+def test_matrix_managed_krama_balance_gap_does_not_lose_evaluation(tmp_path,monkeypatch,before_ok,after_ok):
+    from scripts.kramabench import run
+    snapshots=iter([balance() if before_ok else None,balance() if after_ok else None])
+    monkeypatch.setattr(run,'safe_balance',lambda *a:next(snapshots))
+    monkeypatch.setattr(run.shared,'credential',lambda *a:'synthetic')
+    monkeypatch.setattr(run,'monitor',lambda output,stop,active,lock,done:done.wait())
+    monkeypatch.setattr(run.signal,'signal',lambda *a:None)
+    monkeypatch.setattr(run,'admission',lambda *a:dict(passed=True))
+    report=dict(task_id='fixture',backend='claude-code-subagents',status='cli_exited')
+    monkeypatch.setattr(run.runtime,'run_attempt',lambda *a:report)
+    collected=[]
+    def collect(*a):
+        collected.append(True)
+        return dict(report,grade=dict(status='graded',score=1))
+    monkeypatch.setattr(run.runtime,'collect_attempt',collect)
+    args=SimpleNamespace(output=tmp_path,credentials=tmp_path/'unused',matrix_balance_managed=True,
+                         backends=['claude-code-subagents'],concurrency=1,judge_limit=0)
+    run.execute(args,[SimpleNamespace(id='fixture')],dict(admission_task='fixture'))
+    assert collected
+    assert (tmp_path/'solver-results.json').exists()
+    assert json.loads((tmp_path/'summary.json').read_text())['rows'][0]['grade']['score']==1
+    assert json.loads((tmp_path/'solver-billing.json').read_text())['balance_delta_by_currency'] is None
+
+
+@pytest.mark.parametrize('paid',[False,True])
+def test_grader_exception_does_not_kill_solving_and_preserves_paid_uncertainty(tmp_path,monkeypatch,paid):
+    args=setup_matrix(tmp_path,monkeypatch)
+    monkeypatch.setattr(matrix.subprocess,'Popen',FakeProcess)
+    monkeypatch.setattr(matrix,'needs_judge',lambda *a:paid)
+    calls=[]
+    def broken(b,t,k,*a,**kw):
+        calls.append(t.id)
+        raise RuntimeError('synthetic private error body')
+    monkeypatch.setattr(matrix,'grade_attempt',broken)
+    old=tmp_path/'old'
+    assert matrix.main(args(old,'--authorized-judges','2'))==1
+    summary=json.loads((old/'summary.json').read_text())
+    assert all(r['status']=='cli_exited' for r in summary['rows'])
+    assert len(calls)==2
+    assert 'synthetic private error body' not in (old/'summary.json').read_text()
+    def fixed(b,t,k,*a,**kw):
+        calls.append(t.id)
+        return dict(benchmark=b,task_id=t.id,backend=k,status='graded',judge_calls=0)
+    monkeypatch.setattr(matrix,'grade_attempt',fixed)
+    monkeypatch.setattr(matrix.subprocess,'Popen',lambda *a,**kw:pytest.fail('Solver replay'))
+    code=matrix.main(args(tmp_path/'new','--retain-started-from',str(old),'--authorized-judges','2'))
+    assert code==(1 if paid else 0)
+    assert len(calls)==(2 if paid else 4)
+
+
+def test_operator_interrupt_stops_even_free_grading(tmp_path,monkeypatch):
+    import signal
+    args=setup_matrix(tmp_path,monkeypatch);handlers={}
+    monkeypatch.setattr(matrix.signal,'signal',lambda number,handler:handlers.setdefault(number,handler))
+    class Interrupted(FakeProcess):
+        def __init__(self,cmd,**kw):
+            self.paid='--execute' in cmd
+            super().__init__(cmd,**kw)
+        def wait(self,**kw):
+            if self.paid:handlers[signal.SIGINT](signal.SIGINT,None)
+            return 0
+        def terminate(self):pass
+    monkeypatch.setattr(matrix.subprocess,'Popen',Interrupted)
+    monkeypatch.setattr(matrix,'grade_attempt',lambda *a,**kw:pytest.fail('Operator stopped grading'))
+    assert matrix.main(args(tmp_path/'out'))==1
+    summary=json.loads((tmp_path/'out/summary.json').read_text())
+    assert summary['interrupted'] and all(g['status']=='not_started' for g in summary['grades'])
+
+
 @pytest.mark.skipif('fork' not in multiprocessing.get_all_start_methods(),reason='Server Linux fork test')
-def test_hard_crash_without_summary_never_reruns_unknown_solver(tmp_path,monkeypatch):
+def test_hard_crash_before_dispatch_can_resume_solver(tmp_path,monkeypatch):
     args=setup_matrix(tmp_path,monkeypatch);old=tmp_path/'old';new=tmp_path/'new'
     class Crash:
         def __init__(self,cmd,**kw):
@@ -147,16 +436,17 @@ def test_hard_crash_without_summary_never_reruns_unknown_solver(tmp_path,monkeyp
             super().__init__(cmd,**kw)
     monkeypatch.setattr(matrix.subprocess,'Popen',Record)
     monkeypatch.setattr(matrix,'grade_attempt',lambda b,t,k,*a,**kw:dict(benchmark=b,task_id=t.id,backend=k,status='graded',judge_calls=0))
-    assert matrix.main(args(new,'--retain-started-from',str(old)))==1
-    assert launched==['fixture-1']
+    assert matrix.main(args(new,'--retain-started-from',str(old)))==0
+    assert launched==['fixture-0','fixture-1']
     rows=json.loads((new/'summary.json').read_text())['rows']
-    assert next(r for r in rows if r['task_id']=='fixture-0')['status']=='dispatch_unknown'
+    assert next(r for r in rows if r['task_id']=='fixture-0')['status']=='cli_exited'
 
 
 @pytest.mark.skipif('fork' not in multiprocessing.get_all_start_methods(),reason='Server Linux fork test')
 def test_crash_during_grading_reuses_complete_and_preserves_unknown(tmp_path,monkeypatch):
     args=setup_matrix(tmp_path,monkeypatch);old=tmp_path/'old';new=tmp_path/'new'
     monkeypatch.setattr(matrix.subprocess,'Popen',FakeProcess)
+    monkeypatch.setattr(matrix,'needs_judge',lambda *a:True)
     def grade(b,t,k,*a,**kw):
         if t.id=='fixture-1':os._exit(139)
         return dict(benchmark=b,task_id=t.id,backend=k,status='graded',judge_calls=1)
@@ -180,6 +470,9 @@ def test_resume_chain_inherits_started_claims_even_before_copying_rows(tmp_path,
     j=Journal(old/'journal.sqlite');body=dict(benchmark='kramabench',task_id=task.id,backend='full',
         status='dispatch_unknown',run=str(old/'solvers/kramabench'/task.id/'full'))
     j.claim('solver',('kramabench',task.id,'full'),'frozen',body)
+    folder=Path(body['run'])/task.id/'claude-code-subagents'
+    folder.mkdir(parents=True)
+    (folder/'gateway-requests.jsonl').write_text(json.dumps(dict(event='dispatched',upstream_attempted=True)))
     (middle/'authorization.json').write_text(json.dumps(dict(auth,retained_from=str(old))))
     Journal(middle/'journal.sqlite')
     jobs=[('kramabench',task,'full',tmp_path/'new/solvers'/task.id/'full')]

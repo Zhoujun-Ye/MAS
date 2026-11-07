@@ -64,6 +64,8 @@ def judge_rows(rows, *, benchmark, upstream, model, output, client):
                 # Do not print provider exception bodies, which may contain keys.
                 result.update(status="judge_error", error_type=type(error).__name__)
                 status = getattr(error, 'status_code', None)
+                if type(status) is int:
+                    result['http_status'] = status
                 if status in {401, 402, 403}:
                     result.update(http_status=status, fatal_provider_error=True)
                 stopped = True
@@ -144,7 +146,7 @@ def main(argv=None, *, benchmark=None):
                    "--output", str(args.output / "s2sql-results.jsonl")]
         with (args.output / "sql-stdout.log").open("x") as stdout, (args.output / "sql-stderr.log").open("x") as stderr:
             subprocess.run(command, check=True, stdout=stdout, stderr=stderr, timeout=3600)
-    if args.execute_judges:
+    if args.execute_judges and any(row['response'].strip() for row in judge_inputs):
         rows = judge_inputs
         from openai import OpenAI
         from harness.runtime_support.runtime import (credential)
@@ -167,6 +169,21 @@ def main(argv=None, *, benchmark=None):
         write_json(args.output / "receipt.json", receipt)
         if receipt["judge_status"] == "incomplete":
             return 1
+    elif judge_inputs:
+        judged=[]
+        for row in judge_inputs:
+            identity=row.get('instance_id',row.get('task_id'))
+            empty=not row['response'].strip()
+            result=dict(instance_id=identity,score=0 if empty else None,
+                        status='empty_prediction' if empty else 'pending_judge',attempted_calls=0,
+                        actual_cost_usd=0)
+            judged.append(result)
+            write_json(args.output/(identity+'.json'),result)
+        write_jsonl(args.output/'judge-results.jsonl',judged)
+        receipt.update(judge_calls=0,
+            judge_status='complete' if all(row['score']==0 for row in judged) else 'not_requested',
+            grading_policy='deterministic empty-answer zero; nonempty answers require authorized judge')
+        write_json(args.output/'receipt.json',receipt)
     if any('decision_gate' in row for row in predicted.values()):
         from benchmarks._external import jsonl
         values = {}

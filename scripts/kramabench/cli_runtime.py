@@ -235,6 +235,7 @@ def collect_attempt(folder, report, args):
         replay = folder / "replay-workspace"
         shutil.copytree(work, replay, symlinks=True, ignore=shutil.ignore_patterns(".git"))
         name = "mas-cli6-replay-" + uuid.uuid4().hex[:10]
+        write_json(folder/'replay/container-ownership.json',dict(container_name=name,status='creating'))
         command = ["docker", "run", "--rm", "--pull", "never", "--name", name, "--network", "none",
                    "--cpus", "2", "--memory", "8g", "--pids-limit", "256", "--cap-drop", "ALL",
                    "--security-opt", "no-new-privileges", "--user", f"{os.getuid()}:{os.getgid()}",

@@ -35,7 +35,8 @@ No installation or environment change is implicit in these instructions.
 
 Keep provider keys host-side in mode-0600 `.env`. Solver containers use
 network=none and the per-run Unix credential gateway. Current web-enabled tasks
-use DeepSeek search/fetch with a shared request cap. Never mount real keys,
+use DeepSeek search and bounded credential-free host fetch, through the gateway
+with a shared success/attempt cap (see `studies/web-infra.md`). Never mount real keys,
 reference answers, gold SQL or decrypted evaluator inputs into solver containers.
 
 Use source-only scoped sync, never `--delete`. Check process ownership first;

@@ -39,16 +39,29 @@ def admit_balance(receipt, currency, estimate, factor, reserve):
 
 
 class BalanceWatch:
-    def __init__(self, fetch, currency, reserve, interval=30):
+    def __init__(self, fetch, currency, reserve, interval=30, initial=None, max_failures=3):
         self.fetch,self.currency,self.reserve = fetch,currency,amount(reserve)
         self.interval,self.checked,self.lock = interval,0,threading.Lock()
+        self.verified = initial is not None
+        if self.verified:
+            balance_available(initial,currency)
+        self.failures,self.max_failures = 0,max_failures
 
     def check(self):
         with self.lock:
             if time.monotonic()-self.checked < self.interval:
                 return
-            receipt = self.fetch()
-            if balance_available(receipt,self.currency) <= self.reserve:
+            try:
+                available = balance_available(self.fetch(),self.currency)
+            except Exception:
+                self.failures += 1
+                self.checked = time.monotonic()
+                if not self.verified or self.failures >= self.max_failures:
+                    raise ValueError('Balance lookup repeatedly unavailable; pause new dispatch') from None
+                return
+            self.failures = 0
+            self.verified = True
+            if available <= self.reserve:
                 raise ValueError('Balance reserve reached; stop new dispatch, preserve in-flight work')
             self.checked = time.monotonic()
 
@@ -65,8 +78,20 @@ def fatal_provider_record(path):
             row=json.loads(line)
         except ValueError:
             continue  # A concurrently appended final line can be incomplete.
-        if (row.get('event')=='finished' and row.get('upstream_attempted') is True
-                and row.get('route')=='/anthropic/v1/messages' and row.get('http_status') in {401,402,403}):
+        model_fatal=row.get('route')=='/anthropic/v1/messages' and row.get('http_status') in {401,402,403}
+        web_fatal=(row.get('web_backend')=='deepseek' and row.get('route') in {'/v1/tools/search','/v1/tools/fetch'}
+                   and row.get('http_status') in {401,402})
+        if row.get('event')=='finished' and row.get('upstream_attempted') is True and (model_fatal or web_fatal):
             return dict(http_status=row['http_status'],request_id=row.get('request_id'),
                         source=str(path),basis='host_gateway_upstream_response')
     return None
+
+
+def unavailable_web_proxy(path):
+    if not path.exists():return False
+    for line in path.read_text().splitlines():
+        try:row=json.loads(line)
+        except ValueError:continue
+        if isinstance(row,dict) and row.get('event')=='finished' and row.get('web_proxy_unavailable') is True:
+            return True
+    return False

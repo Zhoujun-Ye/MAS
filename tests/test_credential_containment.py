@@ -41,7 +41,7 @@ def test_gateway_denies_unscoped_requests():
     with CredentialGateway("synthetic-secret", bind="127.0.0.1", web_limit=0) as gateway:
         for path, token, expected in [("/anthropic/v1/messages", "wrong", 403), ("/user/balance", gateway.token, 404),
                                        ("/v1/tools/search", gateway.token, 429)]:
-            request = urllib.request.Request(gateway.url + path, data=b'{}',
+            request = urllib.request.Request(gateway.url + path, data=b'{"query":"fixture"}' if path=='/v1/tools/search' else b'{}',
                 headers={"Authorization": "Bearer " + token})
             with pytest.raises(urllib.error.HTTPError) as caught:
                 urllib.request.urlopen(request, timeout=2)

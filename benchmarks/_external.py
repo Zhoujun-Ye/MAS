@@ -101,7 +101,7 @@ def predictions(path, tasks):
     return {row["instance_id"]: row for row in rows}
 
 
-def asset_manifest(root):
+def asset_manifest(root, *, hash_file=digest):
     root = Path(root).resolve(strict=True)
     files = {}
     for path in sorted(root.rglob("*")):
@@ -111,7 +111,7 @@ def asset_manifest(root):
             with path.open("rb") as stream:
                 if stream.read(80).startswith(b"version https://git-lfs.github.com/spec/"):
                     raise ValueError("Git LFS pointer is not a hydrated input asset: " + str(path))
-            files[str(path.relative_to(root))] = digest(path)
+            files[str(path.relative_to(root))] = hash_file(path)
     if not files:
         raise ValueError("Input asset directory is empty")
     return files

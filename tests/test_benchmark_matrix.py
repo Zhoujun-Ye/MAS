@@ -82,7 +82,7 @@ def test_all_solver_commands_share_scope_and_benchmark_timeout(tmp_path, execute
                 assert command[command.index("--authorized-attempts") + 1] == "1"
             if benchmark == "hybriddeepresearch":
                 assert command[command.index("--web-search") + 1] == "deepseek"
-                assert command[command.index("--max-web-requests") + 1] == "4"
+                assert command[command.index("--max-web-requests") + 1] == "20"
 
 
 @pytest.mark.parametrize("attempts,judges", [(11, 10), (13, 10), (12, 11), (12, -1)])
@@ -146,4 +146,4 @@ def test_dataclaw_web_selection_gets_explicit_web_budget(tmp_path):
     command = matrix.solver_command(args, "dataclawbench", SimpleNamespace(id="web", web=True),
                                     matrix.BACKENDS[0], tmp_path / "output")
     assert command[command.index("--web-search") + 1] == "deepseek"
-    assert command[command.index("--max-web-requests") + 1] == "4"
+    assert command[command.index("--max-web-requests") + 1] == "20"

@@ -125,7 +125,8 @@ def execute(args, tasks, plan):
             authorized_judge_calls=args.judge_limit, retries=0, monetary_cap=None), stream)
     key = shared.credential(args.credentials)
     before = safe_balance(key, args.output, "balance-before-solvers")
-    if before is None or not before.get("response", {}).get("is_available"):
+    if (not getattr(args,'matrix_balance_managed',False)
+            and (before is None or not before.get("response", {}).get("is_available"))):
         raise RuntimeError("Balance preflight unavailable; no calls dispatched")
     stop, done, lock, active, reports = threading.Event(), threading.Event(), threading.Lock(), set(), []
     watcher = threading.Thread(target=monitor, args=(args.output, stop, active, lock, done), daemon=True)
@@ -163,7 +164,7 @@ def execute(args, tasks, plan):
         done.set()
         watcher.join(timeout=5)
         after = safe_balance(key, args.output, "balance-after-solvers")
-        billing = dict(balance_delta_by_currency=shared.balance_deltas(before, after) if after else None,
+        billing = dict(balance_delta_by_currency=shared.observed_balance_deltas(before, after),
                        scope="Account-wide solver interval, possibly including other account use")
         write_json(args.output / "solver-billing.json", billing)
         write_json(args.output / "solver-results.json", dict(rows=reports, plan_sha256=fingerprint(plan)))
@@ -188,7 +189,7 @@ def execute(args, tasks, plan):
                 break
     judge_after = safe_balance(key, args.output, "balance-after-judges") if judge_before else None
     judge_bill = dict(attempted_calls=len(judgments), balance_delta_by_currency=(
-        shared.balance_deltas(judge_before, judge_after) if judge_before and judge_after else None))
+        shared.observed_balance_deltas(judge_before, judge_after)))
     write_json(args.output / "judge-billing.json", judge_bill)
     write_json(args.output / "summary.json", dict(plan=plan, rows=rows, billing=billing,
         judge_billing=judge_bill, paid_judge_calls=len(judgments), finished_at=shared.now()))
@@ -221,6 +222,8 @@ def main(argv=None):
     parser.add_argument("--replay-timeout", type=int, default=600)
     parser.add_argument("--judge-limit", type=int, choices=range(11), default=0)
     parser.add_argument("--from-plan", action="store_true")
+    parser.add_argument('--matrix-balance-managed', action='store_true',
+                        help='Parent matrix owns balance admission; child snapshots are informational')
     parser.add_argument("--execute", action="store_true")
     parser.add_argument("--effort", choices=("high", "max"), default="max")
     parser.add_argument('--evidence-mode',choices=evidence.MODES)

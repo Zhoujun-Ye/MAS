@@ -40,7 +40,7 @@ text, frozen question IDs and evaluator are unchanged.
 
 ## Compute and Admission
 
-The Krama runner and matrix expose `--compute-threads`, bounded by container CPU
+All three benchmark runners and the matrix expose `--compute-threads`, bounded by container CPU
 quota, frozen alongside source/settings and checked when executing a saved plan.
 It controls per-process OpenBLAS/OMP/MKL/NumExpr/Accelerate limits. Library defaults
 remain unchanged for existing callers; future CPU8 comparisons should explicitly
@@ -90,6 +90,8 @@ No command is shortened, replaced or retried; Structured prompting is unchanged.
 Transparent cross-process input caching is deliberately not enabled: workbook
 selection, converters, dtypes, indexes and parser options are part of computation
 semantics. Observation parsing caches are not dataset loading caches. There is no
+implicit dataframe cache; the host-only stat-validated SHA256 inventory cache for
+DataClaw/HDR admission is documented in [fullscale-infra.md](fullscale-infra.md). There is no
 claim that repeated pandas/geospatial reads are fixed. Independent worker premise
 formation, environment package/model provisioning and new paid runs remain outside
 this engineering change. Fresh native proofs are needed for the changed source;

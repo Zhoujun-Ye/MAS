@@ -89,10 +89,11 @@ Single requires delegation denials; Subagents requires observed worker starts
 and no Team events. A supplied backend label must match; old proofs without a
 label are checked through their backend-specific audit. Solver key comes from the existing mode-0600
 credential file. Live web runs use `--web-search deepseek` through the host
-credential gateway. The legacy `tavily` choice remains available for planning
-and offline fixtures only; paid execution is explicitly rejected because its
-credential isolation is not implemented. Search-provider costs are not included in native
-model token accounting. `--max-web-requests` bounds paid helper requests and
+credential gateway. Web GETs require the local-Clash SSH socket described in
+`studies/web-infra.md`; there is no direct/provider-fetch or Tavily fallback.
+Search-provider costs are recorded separately from native model token accounting.
+`--max-web-requests` bounds successful shared helper calls, with twice as many
+logical attempts at most, and
 `--max-budget-usd` forwards the native CLI limit; it is not an invoice guarantee.
 
 Each attempt has a fresh workspace/profile/container. Native policies and

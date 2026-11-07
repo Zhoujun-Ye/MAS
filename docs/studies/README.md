@@ -9,6 +9,7 @@ task limits, not Structured lead organization. Tests pin the exact baseline.
 
 - [Active evidence and infra repair](evidence-infra.md)
 - [Full manifests, crash recovery and resource admission](fullscale-infra.md)
+- [Web transport, shared successful-call budget and empty-answer scoring](web-infra.md)
 - [Typed intermediate and decision contracts](intermediate-full.md)
 - [Retained CPU8 FULL/Structured comparison](krama-cpu8-paired.md)
 - [CPU8 trajectory diagnosis](cpu8-trajectory-analysis.md)

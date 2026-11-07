@@ -17,6 +17,8 @@ import urllib.parse
 import urllib.request
 import uuid
 
+from harness.runtime_support import web_fetch, web_policy
+
 
 ROUTES = {"/anthropic/v1/messages", "/anthropic/v1/messages/count_tokens",
           "/v1/tools/search", "/v1/tools/fetch"}
@@ -110,6 +112,8 @@ class CredentialGateway:
         self.key, self.token = key, secrets.token_urlsafe(32)
         self.budget = budget
         self.web_limit, self.web_calls = web_limit, 0
+        self.web_attempts=0
+        self.web_attempt_limit=web_limit*2
         self.lock = threading.Lock()
         self.ledger_lock = threading.Lock()
         self.request_records = {}
@@ -145,7 +149,9 @@ class CredentialGateway:
 
             def json_error(self, code, kind, message):
                 self.record.update(http_status=code, outcome="rejected", error_type=kind)
-                data = json.dumps(dict(type="error", error=dict(type=kind, message=message))).encode()
+                value=dict(type="error",error=dict(type=kind,message=message))
+                if self.record.get('web_reserved'):value['web_budget']=gateway.settle_web(self.record)
+                data = json.dumps(value).encode()
                 self.send_response(code)
                 self.send_header("Content-Type", "application/json")
                 self.send_header("Content-Length", str(len(data)))
@@ -192,6 +198,14 @@ class CredentialGateway:
                             raise ValueError()
                         if not parsed.path.startswith("/v1/tools/") and payload.get("model") not in {"deepseek-flash", "deepseek-flash[1m]"}:
                             raise ValueError()
+                        if parsed.path=='/v1/tools/search':
+                            query=payload.get('query')
+                            if not isinstance(query,str) or not query.strip() or len(query)>128:raise ValueError()
+                            if any(name in query.casefold() for name in ('dataclaw','hybriddeepresearch','kramabench')):raise ValueError()
+                            payload=dict(query=query,count=web_policy.SEARCH_RESULTS,need_content=True)
+                            body=json.dumps(payload).encode()
+                        if parsed.path=='/v1/tools/fetch' and not web_policy.allowed_url(payload.get('url','')):
+                            raise ValueError()
                     except (ValueError, TypeError):
                         self.json_error(400, "invalid_request_error", "Invalid payload or unauthorized model")
                         return
@@ -214,10 +228,11 @@ class CredentialGateway:
                             return
                         if parsed.path.startswith("/v1/tools/"):
                             with gateway.lock:
-                                if gateway.web_calls >= gateway.web_limit:
+                                if gateway.web_calls >= gateway.web_limit or gateway.web_attempts>=gateway.web_attempt_limit:
                                     self.json_error(429, "run_web_limit_exhausted", "Run web request limit exhausted; no provider request sent; do not retry")
                                     return
                                 gateway.web_calls += 1
+                                gateway.web_attempts += 1
                                 self.record.update(web_reserved=True, web_reservation=gateway.web_calls)
                         if gateway.budget is not None:
                             try:
@@ -226,7 +241,15 @@ class CredentialGateway:
                                 self.json_error(402, "run_budget_rejected", "Budget admission rejected; no provider request sent; do not retry")
                                 return
                         self.record.update(upstream_attempted=True, dispatched_at=now())
+                        if parsed.path.startswith('/v1/tools/'):
+                            fetching=parsed.path.endswith('/fetch')
+                            self.record.update(web_backend='local-clash-unix' if fetching else 'deepseek',
+                                estimated_cost_usd=0 if fetching else None,
+                                cost_status='no paid fetch provider' if fetching else 'unknown')
                         gateway.receipt(dict(self.record, event="dispatched"))
+                    if parsed.path.startswith('/v1/tools/'):
+                        self.web_response(parsed.path,payload,request)
+                        return
                     try:
                         response = open_upstream(request)
                     except urllib.error.HTTPError as error:
@@ -284,7 +307,68 @@ class CredentialGateway:
                     self.record["finished_at"] = now()
                     if gateway.budget is not None:
                         gateway.budget.settle(self.record)
+                    gateway.settle_web(self.record)
                     gateway.receipt(dict(self.record, event="finished"))
+
+            def web_response(self,route,payload,request):
+                self.record['web_backend']='local-clash-unix' if route.endswith('/fetch') else 'deepseek'
+                self.record.update(web_success=None,estimated_cost_usd=None,
+                    cost_status='unknown',cost_source=web_policy.PRICE_SOURCE)
+                if self.record['web_backend']=='local-clash-unix':
+                    self.record.update(estimated_cost_usd=0,cost_status='no paid fetch provider')
+                    try:value=web_fetch.fetch(payload['url'])
+                    except (ValueError,OSError,TimeoutError) as error:
+                        self.record['fetch_error_type']=type(error).__name__
+                        if isinstance(error,web_fetch.ProxyUnavailable):self.record['web_proxy_unavailable']=True
+                        self.record['web_success']=False
+                        self.json_error(502,'host_fetch_failed','Page could not be retrieved safely; no automatic retry')
+                        return
+                    self.record['web_success']=True
+                    self.record.update(http_status=200,outcome='response_complete')
+                else:
+                    response=None
+                    try:
+                        response=open_upstream(request)
+                        with gateway.activity_lock:
+                            gateway.active_responses.add(response)
+                        if gateway.closing.is_set():
+                            gateway.close_response(response)
+                            raise OSError('Gateway closing')
+                        with response:
+                            self.record['http_status']=response.status
+                            if response.status!=200:raise ValueError('Unexpected web status')
+                            raw=response.read(2*1024*1024+1)
+                            if len(raw)>2*1024*1024:raise ValueError('Oversized web response')
+                            value=json.loads(raw)
+                            if not isinstance(value,dict):raise ValueError('Invalid web response')
+                            if not isinstance(value.get('results'),list):raise ValueError('Invalid search response')
+                            success=bool(value['results'])
+                            self.record.update(web_success=success,outcome='response_complete',
+                                estimated_cost_usd=web_policy.WEB_PRICE_USD if success else 0,
+                                cost_status='documented per-success estimate; not an invoice')
+                    except urllib.error.HTTPError as error:
+                        self.record.update(web_success=False,estimated_cost_usd=0,cost_status='documented nonbillable HTTP failure')
+                        self.upstream_error(error)
+                        return
+                    except Exception:
+                        self.json_error(502,'web_transport_error','Web response unavailable or incomplete; charge unknown; not retried')
+                        self.record['outcome']='transport_error'
+                        return
+                    finally:
+                        if response is not None:
+                            with gateway.activity_lock:gateway.active_responses.discard(response)
+                budget=gateway.settle_web(self.record)
+                if route.endswith('/search'):
+                    value=dict(value,results=[item for item in value['results'] if isinstance(item,dict)
+                        and web_policy.allowed_url(item.get('url',''))])
+                value={**value,'web_budget':budget}
+                data=json.dumps(gateway.sanitize(value),ensure_ascii=True).encode()
+                self.send_response(200)
+                self.send_header('Content-Type','application/json')
+                self.send_header('Content-Length',str(len(data)))
+                self.send_header('Connection','close')
+                self.end_headers()
+                self.wfile.write(data)
 
             def safe_headers(self, headers):
                 for name, value in (headers or {}).items():
@@ -308,8 +392,11 @@ class CredentialGateway:
                         body = dict(error=dict(type="upstream_error", message=raw.decode("utf-8", errors="replace")))
                     metadata = UsageObserver(False)
                     metadata.observe(body)
+                    if not isinstance(body,dict):body=dict(error=dict(type='upstream_error',message='Non-object error response'))
                     if metadata.usage:
                         self.record.update(usage=metadata.usage, usage_status="observed")
+                    if self.record.get('web_reserved'):
+                        body['web_budget']=gateway.settle_web(self.record)
                     data = json.dumps(gateway.sanitize(body), ensure_ascii=True).encode()
                     self.record.update(http_status=error.code, outcome="upstream_rejected", error_body_truncated=truncated)
                     self.send_response(error.code)
@@ -414,9 +501,22 @@ class CredentialGateway:
             unknown_completions=sum(r["upstream_attempted"] and r["outcome"] not in {"response_complete", "upstream_rejected"} for r in rows),
             usage_observed=sum(r.get("usage_status") == "observed" for r in rows),
             web_reservations=self.web_calls, web_limit=self.web_limit,
+            web_attempts=self.web_attempts,web_attempt_limit=self.web_attempt_limit,
             model_origin="unverified; native CLI, child and direct tool requests are not distinguished",
             charge_status="unknown; usage and request receipts are not provider invoices",
-            reservation_semantics="Every dispatched web attempt consumes one reservation, including failed or interrupted attempts")
+            reservation_semantics="Successful calls and uncertain completions consume reservations; known failures release them; total attempts bounded")
+
+    def settle_web(self,record):
+        with self.lock:
+            if record.get('web_reserved') and not record.get('web_settled') and not self.closing.is_set():
+                known_failure=record.get('web_success') is False or not record.get('upstream_attempted')
+                if known_failure:
+                    self.web_calls-=1
+                    record['web_refunded']=True
+                record['web_settled']=True
+            return dict(used=self.web_calls,limit=self.web_limit,remaining=max(0,self.web_limit-self.web_calls),
+                attempts=self.web_attempts,attempt_limit=self.web_attempt_limit,
+                scope='whole run, shared by every agent and process')
 
     @property
     def url(self):

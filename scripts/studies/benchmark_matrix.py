@@ -19,14 +19,16 @@ from benchmarks.dataclawbench.tasks import load_tasks as dc_tasks
 from benchmarks.hybriddeepresearch.tasks import load_tasks as hdr_tasks
 from benchmarks.kramabench.tasks import load_tasks as krama_tasks
 from harness.runtime_support import runtime
-from scripts.common.grading import grade_attempt
+from scripts.common.grading import grade_attempt, needs_judge
+from scripts.studies import finalization
+from harness.runtime_support import web_policy
 from harness.runtime_support.proof import validate_runtime, validate_effort
 from benchmarks._external import digest
 from benchmarks.policy import TIMEOUT_SECONDS_BY_BENCHMARK, default_timeout, timeout_policy
 from scripts.common import evidence
 from common.io import fingerprint
 from common.journal import Journal, exclusive
-from harness.runtime_support.admission import admit_balance, amount, BalanceWatch, fatal_provider_record
+from harness.runtime_support.admission import admit_balance, amount, BalanceWatch, fatal_provider_record, unavailable_web_proxy
 
 BACKENDS = ("claude-code-single-agent", "claude-code-subagents",)
 BENCHMARKS = ("dataclawbench", "hybriddeepresearch", "kramabench")
@@ -111,7 +113,58 @@ def runtime_backend(condition):
     return 'claude-code-subagents' if condition in evidence.MODES else condition
 
 
-def retained_attempts(path, jobs, settings, manifest_sha, _seen=None):
+def solver_dispatch_status(folder):
+    """Only host gateway write-ahead records establish possible upstream dispatch."""
+    ledger = folder / 'gateway-requests.jsonl'
+    if not ledger.exists():
+        return 'not_started'
+    try:
+        records = [json.loads(line) for line in ledger.read_text().splitlines()]
+        if any(not isinstance(row, dict) for row in records):
+            return 'dispatch_unknown'
+        return 'dispatch_unknown' if any(row.get('upstream_attempted') is True for row in records) else 'not_started'
+    except (OSError, ValueError):
+        return 'dispatch_unknown'
+
+
+def cleanup_owned_containers(path):
+    for receipt in path.glob('**/container-ownership.json'):
+        owned=json.loads(receipt.read_text())
+        name=owned.get('container_name','')
+        if name.startswith('mas-cli6-'):
+            subprocess.run(['docker','rm','-f',name],capture_output=True,timeout=20)
+
+
+def reconcile_solver_status(status, folder):
+    if status not in {'cli_exited','native_condition_unverified','not_started'}:
+        if solver_dispatch_status(folder)=='not_started':
+            return 'not_started'
+    return status
+
+
+def grade_binding(benchmark, task, backend, run, source):
+    actual=runtime_backend(backend)
+    submission=run/task.id/actual/'submission.json' if benchmark=='kramabench' else run/'predictions.jsonl'
+    return fingerprint(dict(submission=digest(submission) if submission.exists() else None,
+        source=source,task=task_fingerprint(benchmark,task),backend=backend,
+        summary=digest(run/'summary.json') if (run/'summary.json').exists() else None))
+
+
+def batch_chain(path):
+    seen = set()
+    while path:
+        path = Path(path).resolve()
+        if path in seen:
+            raise ValueError('Resume provenance cycle')
+        seen.add(path)
+        auth_path = path / 'authorization.json'
+        auth = (json.loads(auth_path.read_text()) if auth_path.exists()
+                else json.loads((path / 'summary.json').read_text())['authorization'])
+        yield path, auth
+        path = auth.get('retained_from')
+
+
+def retained_attempts(path, jobs, settings, manifest_sha, _seen=None, *, allow_grading_recovery=False):
     if path is None:
         return {}
     seen=set() if _seen is None else set(_seen)
@@ -122,7 +175,8 @@ def retained_attempts(path, jobs, settings, manifest_sha, _seen=None):
     previous=json.loads(summary_path.read_text()) if summary_path.exists() else dict(
         authorization=json.loads((path/'authorization.json').read_text()),interrupted=True)
     authorization=previous['authorization']
-    if not previous.get('interrupted') or authorization['protocol_settings']!=settings or authorization['task_manifest_sha256']!=manifest_sha:
+    if ((not previous.get('interrupted') and not allow_grading_recovery)
+            or authorization['protocol_settings']!=settings or authorization['task_manifest_sha256']!=manifest_sha):
         raise ValueError('Only a sealed interrupted batch with identical task/settings scope may continue')
     key=lambda r:(r['benchmark'],r['task_id'],r['backend'])
     expected={(b,t.id,k) for b,t,k,_ in jobs}
@@ -132,7 +186,8 @@ def retained_attempts(path, jobs, settings, manifest_sha, _seen=None):
             if authorization.get('source_manifest') != runtime.source_manifest():
                 raise ValueError('Resume source changed; retain the frozen source stage')
             journal=Journal(path/'journal.sqlite')
-            inherited=retained_attempts(Path(authorization['retained_from']),jobs,settings,manifest_sha,seen) if authorization.get('retained_from') else {}
+            inherited=retained_attempts(Path(authorization['retained_from']),jobs,settings,manifest_sha,seen,
+                allow_grading_recovery=allow_grading_recovery) if authorization.get('retained_from') else {}
             rows=[]
             for b,t,k,out in jobs:
                 entry=journal.get('solver',(b,t.id,k))
@@ -145,7 +200,8 @@ def retained_attempts(path, jobs, settings, manifest_sha, _seen=None):
                 if entry['state']!='complete':
                     report=Path(row['run'])/t.id/runtime_backend(k)/'report.json'
                     record=json.loads(report.read_text()) if report.exists() else {}
-                    row['status']=record.get('status') if record.get('status') not in {None,'running'} else 'dispatch_unknown'
+                    row['status']=record.get('status') if record.get('status') not in {None,'running'} else solver_dispatch_status(report.parent)
+                row['status']=reconcile_solver_status(row['status'],Path(row['run'])/t.id/runtime_backend(k))
                 rows.append(row)
     else:
         raise ValueError('Continuation requires a durable journal; old evidence remains read-only')
@@ -175,9 +231,11 @@ def assert_quiescent(path):
     for proc in Path('/proc').glob('[0-9]*/cmdline'):
         try:
             argv=proc.read_bytes().decode().split('\0')
-            if '--output' in argv:
-                output=Path(argv[argv.index('--output')+1]).resolve()
-                if output.is_relative_to((path/'solvers').resolve()):
+            for flag in ('--output','--run'):
+                if flag not in argv:
+                    continue
+                output=Path(argv[argv.index(flag)+1]).resolve()
+                if output.is_relative_to(path.resolve()):
                     raise ValueError('A prior solver/grader process is still live')
         except (OSError,UnicodeError,IndexError):
             continue
@@ -201,9 +259,31 @@ def prior_grade(path, identity):
         seen.add(path.resolve())
         if (path/'journal.sqlite').exists():
             entry=Journal(path/'journal.sqlite').get('grade',identity)
-            if entry:return entry
+            if entry and entry['body'].get('status') != 'not_started':return entry
         path=json.loads((path/'authorization.json').read_text()).get('retained_from')
     return None
+
+
+def judge_recovery_evidence(entry):
+    body=entry['body']
+    if (entry['state']!='complete' or body.get('judge_recovery')
+            or body.get('status') not in {'grading_failed','judge_error'}
+            or body.get('original_judge_calls',body.get('judge_calls'))!=1):
+        return None
+    target=Path(body['grading_artifact'])
+    path=target/'result.json'
+    if path.exists():
+        records=[json.loads(path.read_text())]
+    else:
+        path=target/'judge-results.jsonl'
+        if not path.exists():return None
+        records=[json.loads(line) for line in path.read_text().splitlines()]
+    if len(records)!=1:return None
+    record=records[0]
+    status=record.get('http_status')
+    if record.get('status')!='judge_error' or type(status) is not int or not 500<=status<600:
+        return None
+    return dict(original_artifact=str(target),receipt_sha256=digest(path),http_status=status)
 
 
 def upstream_recovery(path, jobs, settings, manifest_sha):
@@ -226,11 +306,18 @@ def upstream_recovery(path, jobs, settings, manifest_sha):
     if any(row['status'] in {'running', 'not_started'} for row in rows):
         raise ValueError('Original batch has unfinished attempts')
     eligible = {}
+    chain = list(batch_chain(path))
+    for parent, parent_auth in chain:
+        if (parent_auth.get('protocol_settings') != settings
+                or parent_auth.get('task_manifest_sha256') != manifest_sha
+                or parent_auth.get('upstream_recovery_from')
+                or Path(str(parent)+'.upstream-recovery-claim.json').exists()):
+            raise ValueError('Changed or already recovered ancestor scope')
     for row in rows:
         if row['status'] != 'cli_error':
             continue
         output = Path(row['run']).resolve()
-        if not output.is_relative_to((path / 'solvers').resolve()):
+        if not any(output.is_relative_to(parent / 'solvers') for parent, _ in chain):
             raise ValueError('Original attempt lies outside its batch')
         actual = runtime_backend(row['backend'])
         folder = output / row['task_id'] / actual
@@ -276,13 +363,22 @@ def solver_command(args, benchmark, task, backend, output, *, execute=False):
             command += ['--capability-probe', probe['path']]
         if execute:
             command.append("--from-plan")
+            command.append('--matrix-balance-managed')
     else:
+        command += ['--asset-cache',str(args.output/'asset-digests.sqlite')] if hasattr(args,'output') else []
+        command += ['--from-plan'] if execute else ['--preflight']
+        if getattr(args,'cpus',2)!=2:command += ['--cpus',str(args.cpus)]
+        if getattr(args,'compute_threads',1)!=1:command += ['--compute-threads',str(args.compute_threads)]
+        for module in runtime.capability_modules(getattr(args,'require_module',[])):
+            command += ['--require-module',module]
+        for probe in runtime.capability_probes(getattr(args,'capability_probe',[])):
+            command += ['--capability-probe',probe['path']]
         if getattr(args,'record_resources',False):
             command += ['--record-resources']
         data = args.root / ("dataclawbench/upstream/assets/database" if benchmark == "dataclawbench" else "hybriddeepresearch/data")
         command += ["--data", str(data), "--authorized-attempts", "1"]
         if getattr(task, "web", benchmark == "hybriddeepresearch"):
-            command += ["--web-search", "deepseek", "--max-web-requests", "4"]
+            command += ["--web-search", "deepseek", "--max-web-requests", str(getattr(args,'max_web_requests',web_policy.DEFAULT_WEB_LIMIT))]
         if benchmark == "hybriddeepresearch":
             command += ["--tasks", str(args.root / "hybriddeepresearch/release/hybrid_ds_release/hybrid_ds_release.jsonl"),
                         ]
@@ -295,6 +391,7 @@ def protocol_settings(args):
     backends = getattr(args, "backends", BACKENDS)
     override = organization_override(getattr(args, "organization_prompt", None), "claude-code-subagents")
     settings = dict(effort=args.effort,
+                web_policy=web_policy.configuration(getattr(args,'max_web_requests',web_policy.DEFAULT_WEB_LIMIT)),
                 organization_sha256={k: hashlib.sha256(
                     (override["text"] if override and k == "claude-code-subagents"
                      else evidence.lead_prompt(k)
@@ -334,7 +431,11 @@ def runtime_preflight(args):
         validate_effort(proof, args.effort)
         proofs[condition] = dict(path=str(path), sha256=hashlib.sha256(raw).hexdigest(),
                                  requested_effort=args.effort, request_effort_verified=True)
-    return dict(image_id=image, binary_sha256=binary, proofs=proofs, paid_calls=0,
+    proxy=None
+    if getattr(args,'web_required',False):
+        from harness.runtime_support.web_fetch import check_ready
+        proxy=check_ready()
+    return dict(image_id=image, binary_sha256=binary, proofs=proofs, paid_calls=0,web_readiness=proxy,
                 capacity=dict(host_cpus=os.cpu_count(),available_memory_bytes=available,
                               memory_per_solver_bytes=8*1024**3),
                 scope='Image/binary/effort/tool proofs only; task/container preflights still required')
@@ -352,6 +453,7 @@ def main(argv=None):
     parser.add_argument("--concurrency", type=int, default=8, choices=range(1, 257))
     parser.add_argument('--cpus', type=int, choices=range(1, 129), default=2)
     parser.add_argument('--record-resources', action='store_true')
+    parser.add_argument('--max-web-requests',type=int,choices=range(1,101),default=web_policy.DEFAULT_WEB_LIMIT)
     parser.add_argument('--compute-threads', type=int, choices=range(1, 129), default=1)
     parser.add_argument('--require-module', action='append', default=[])
     parser.add_argument('--capability-probe', action='append', default=[])
@@ -365,6 +467,8 @@ def main(argv=None):
     parser.add_argument('--retain-started-from',type=Path,help='Never rerun started attempts; dispatch only previously not_started slots')
     parser.add_argument('--recover-upstream-from', type=Path,
                         help='Explicitly authorized one-time recovery of terminal upstream-5xx failures')
+    parser.add_argument('--recover-judge-5xx',action='store_true',
+                        help='With continuation and explicit judge authorization, replace confirmed judge 5xx once')
     parser.add_argument("--tasks-per-benchmark", type=int, default=2)
     parser.add_argument('--all-tasks',action='store_true',help='Use every task in a frozen full manifest')
     parser.add_argument('--estimated-cost',help='Explicit estimated remaining total solver+grading cost; required for execution')
@@ -382,11 +486,11 @@ def main(argv=None):
     parser.add_argument('--check-runtime', action='store_true',
                         help='Verify image, CLI and all condition proofs during planning; never dispatch paid calls')
     args = parser.parse_args(argv)
+    if args.recover_judge_5xx and not args.retain_started_from:
+        raise ValueError('Judge recovery requires continuation and explicit judge authorization at execution')
     if args.tasks_per_benchmark<1:
         raise ValueError('Task count must be positive')
     args.require_module = runtime.capability_modules(args.require_module)
-    if (args.require_module or args.capability_probe) and args.benchmarks != ['kramabench']:
-        raise ValueError('Capability requirements currently require KramaBench-only scope')
     if len(set(args.benchmarks)) != len(args.benchmarks):
         raise ValueError('Select unique benchmarks')
     if args.recover_upstream_from and (args.retain_started_from or not args.task_manifest):
@@ -395,8 +499,6 @@ def main(argv=None):
         args.recover_upstream_from = args.recover_upstream_from.resolve()
     if args.compute_threads > args.cpus:
         raise ValueError('Compute threads cannot exceed the container CPU quota')
-    if (args.cpus != 2 or args.compute_threads != 1) and args.benchmarks != ['kramabench']:
-        raise ValueError('Explicit CPU resource studies currently require KramaBench-only scope')
     if args.conditions:
         if args.evidence_modes or args.organization_prompt or args.backends != BACKENDS:
             raise ValueError('Explicit conditions cannot be combined with backend or prompt overrides')
@@ -433,17 +535,35 @@ def main(argv=None):
     selected = (manifest_selections(args.root, manifest, args.task_offset, None if args.all_tasks else args.tasks_per_benchmark)
                 if manifest else selections(args.root, args.tasks_per_benchmark, args.sample_seed))
     selected = [(bench, task) for bench, task in selected if bench in args.benchmarks]
+    args.web_required=any(getattr(t,'web',b=='hybriddeepresearch') for b,t in selected)
     jobs = [(bench, task, backend, args.output / "solvers" / bench / task.id / backend)
             for bench, task in selected for backend in args.backends]
     recovery = upstream_recovery(args.recover_upstream_from, jobs, observed_settings,
                                  digest(args.task_manifest) if args.task_manifest else None)
     if args.recover_upstream_from:
         jobs = [(b, t, k, out) for b, t, k, out in jobs if (b, t.id, k) in recovery]
-    retained=retained_attempts(args.retain_started_from,jobs,observed_settings,digest(args.task_manifest) if args.task_manifest else None)
+    retained=retained_attempts(args.retain_started_from,jobs,observed_settings,digest(args.task_manifest) if args.task_manifest else None,
+                               allow_grading_recovery=args.recover_judge_5xx)
+    if args.recover_judge_5xx and len(retained)!=len(jobs):
+        raise ValueError('Judge-only recovery cannot dispatch new solvers')
     jobs=[(b,t,k,Path(retained[(b,t.id,k)]['run']) if (b,t.id,k) in retained else out) for b,t,k,out in jobs]
+    frozen_source=runtime.source_manifest()
+    judge_recoveries={}
+    if args.recover_judge_5xx:
+        for b,t,k,out in jobs:
+            entry=prior_grade(args.retain_started_from,(b,t.id,k))
+            candidate=judge_recovery_evidence(entry) if entry else None
+            if candidate:
+                if entry['binding']!=grade_binding(b,t,k,out,frozen_source):
+                    raise ValueError('Retained grade artifact or evaluator binding changed')
+                judge_recoveries[(b,t.id,k)]=dict(benchmark=b,task_id=t.id,backend=k,**candidate)
     maximum_judges = sum(1 for b, t, _, _ in jobs
                          if b != "hybriddeepresearch" or t.category != "search_to_sql")
+    if args.recover_judge_5xx:
+        maximum_judges=len(judge_recoveries)
     authorization = dict(attempts=len(jobs), maximum_judge_calls=maximum_judges, retries=0, effort=args.effort,
+        recover_judge_5xx=args.recover_judge_5xx,
+        judge_recovery=list(judge_recoveries.values()),
         benchmarks=list(args.benchmarks),
         upstream_recovery_from=str(args.recover_upstream_from) if args.recover_upstream_from else None,
         upstream_recovery=list(recovery.values()),
@@ -453,7 +573,7 @@ def main(argv=None):
         selection_policy="authorized-upstream-5xx-recovery" if args.recover_upstream_from else "frozen-validation-manifest" if manifest else "seeded-public-strata-round-robin",
         task_offset=args.task_offset,
         order_policy='manifest-order-unchanged' if manifest else 'seeded-public-strata-round-robin',
-        source_manifest=runtime.source_manifest(),
+        source_manifest=frozen_source,
         memory_per_attempt='8g',
         budget_policy=dict(estimated_cost=args.estimated_cost,currency=args.budget_currency,
                            safety_factor=args.budget_safety_factor,reserve=args.balance_reserve),
@@ -468,8 +588,10 @@ def main(argv=None):
         monetary_cap=None, selections=[dict(benchmark=b, task_id=t.id, backend=k) for b, t, k, _ in jobs])
     if args.execute:
         expected_attempts = len(jobs) if args.recover_upstream_from or args.all_tasks else len(args.benchmarks) * len(args.backends) * args.tasks_per_benchmark
-        if not jobs or len(jobs) != expected_attempts or args.authorized_attempts != len(jobs) or args.authorized_judges not in (0, maximum_judges):
-            raise ValueError(f"Require exactly {len(jobs)} authorized solvers and zero or at most {maximum_judges} authorized judges")
+        required_solvers=0 if args.recover_judge_5xx else len(jobs)
+        judge_counts=(maximum_judges,) if args.recover_judge_5xx else (0,maximum_judges)
+        if not jobs or len(jobs) != expected_attempts or args.authorized_attempts != required_solvers or args.authorized_judges not in judge_counts:
+            raise ValueError(f"Require exactly {required_solvers} authorized solvers and judge count in {judge_counts}")
         if manifest:
             expected = explicit_protocol if args.protocol_settings else manifest['baseline_settings']
             if expected != observed_settings or (args.organization_prompt and not args.protocol_settings):
@@ -502,6 +624,7 @@ def main(argv=None):
     args.image = readiness['image_id']
     active, lock, stop = set(), threading.RLock(), threading.Event()
     paused=threading.Event()
+    operator_stop=threading.Event()
     monitor_done=threading.Event()
     budget_watch=None
 
@@ -513,7 +636,8 @@ def main(argv=None):
 
     def command_run(command, log):
         paid='--execute' in command or '--execute-judges' in command
-        if stop.is_set() or (paid and paused.is_set()):
+        free_grade=not paid and any(value.endswith('.score') for value in command)
+        if operator_stop.is_set() or (stop.is_set() and not free_grade) or (paid and paused.is_set()):
             return None
         if paid and budget_watch is not None:
             try:
@@ -526,19 +650,23 @@ def main(argv=None):
             # Never inherit credential-like host variables into CLI subprocesses.
             env = {name: os.environ[name] for name in ("PATH", "HOME", "LANG") if name in os.environ}
             with lock:
-                if stop.is_set():
+                if operator_stop.is_set() or (stop.is_set() and not free_grade) or (paid and paused.is_set()):
                     return None
                 process = subprocess.Popen(command, stdout=stdout, stderr=stderr, env=env)
                 active.add(process)
             try:
-                deadline = time.monotonic() + max(TIMEOUT_SECONDS_BY_BENCHMARK.values()) + 600
+                timed_out=False
+                timeout = (float(command[command.index('--timeout')+1]) if '--timeout' in command else 3600)
+                deadline = time.monotonic() + timeout + 600
                 while True:
                     try:
                         return process.wait(timeout=1)
                     except subprocess.TimeoutExpired:
-                        if not stop.is_set() and time.monotonic() < deadline:
+                        if not operator_stop.is_set() and (not stop.is_set() or free_grade) and time.monotonic() < deadline:
                             continue
-                        stop.set()
+                        if not stop.is_set():
+                            timed_out=True
+                            pause_budget('Child deadline exceeded; pause new dispatch, preserve other in-flight work')
                         process.terminate()
                         try:
                             return process.wait(timeout=20)
@@ -548,8 +676,12 @@ def main(argv=None):
             finally:
                 with lock:
                     active.discard(process)
+                if timed_out and '--output' in command:
+                    cleanup_owned_containers(Path(command[command.index('--output')+1]))
 
     def interrupt(signum, frame):
+        if signum is not None:
+            operator_stop.set()
         stop.set()
         with lock:
             for process in active:
@@ -589,10 +721,11 @@ def main(argv=None):
                         write_json(args.output/'fatal-provider-error.json',fatal)
                         interrupt(None,None)
                         return
+                    if unavailable_web_proxy(path):
+                        pause_budget('Local Clash web tunnel unavailable; no new paid dispatch')
             except Exception as error:
                 write_json(args.output/'monitor-error.json',dict(error_type=type(error).__name__))
-                interrupt(None,None)
-                return
+                pause_budget('Provider monitor failed; preserve in-flight work')
     watcher=threading.Thread(target=provider_watch,daemon=True)
     watcher.start()
     try:
@@ -615,13 +748,26 @@ def main(argv=None):
                                 args.budget_safety_factor,args.balance_reserve)
         write_json(args.output/'balance-admission.json',admission)
         budget_watch=BalanceWatch(lambda:runtime.safe_balance(key,args.output,'balance-current'),
-                                 args.budget_currency,args.balance_reserve)
+                                 args.budget_currency,args.balance_reserve,initial=before)
         if args.retain_started_from:
             with exclusive(args.retain_started_from/'controller.lock'):
                 assert_quiescent(args.retain_started_from)
                 with (args.retain_started_from/'continuation-claim.json').open('x') as stream:
                     json.dump(dict(output=str(args.output),claimed_at=runtime.now()),stream)
                     stream.flush();os.fsync(stream.fileno())
+
+        for index,(b,t,k,out) in enumerate(jobs):
+            identity=(b,t.id,k)
+            if identity not in retained or not finalization.needed(b,t,runtime_backend(k),out):
+                continue
+            if prior_grade(args.retain_started_from,identity):
+                raise ValueError('Unfinalized solver already has a grading claim; refuse automatic replay')
+            target=args.output/'solvers'/b/t.id/k
+            record=finalization.recover(b,t,runtime_backend(k),out,target,root=args.root,
+                image=args.image,evidence_mode=k if k in evidence.MODES else None)
+            retained[identity]=dict(retained[identity],run=str(target),status=record['status'],
+                                    offline_finalization_from=str(out))
+            jobs[index]=(b,t,k,target)
 
         def solve(job):
             b, t, k, out = job
@@ -647,49 +793,61 @@ def main(argv=None):
                 row["status"] = record["status"]
                 if record.get("fatal_provider_error"):
                     stop.set()
+                row['status']=reconcile_solver_status(row['status'],report.parent)
             elif code is not None:
-                row['status']='dispatch_unknown'
+                row['status']=solver_dispatch_status(report.parent)
             journal.finish('solver',(b,t.id,k),binding,row)
             return row
 
-        with ThreadPoolExecutor(max_workers=args.concurrency) as pool:
-            for future in as_completed([pool.submit(checked, solve, job) for job in jobs]):
-                rows.append(future.result())
-                write_json(args.output / "progress.json", dict(stage="solvers", rows=rows))
-                print(json.dumps(rows[-1]), flush=True)
-
-        def score(job):
+        def score_attempt(job):
             b, t, k, out = job
-            if stop.is_set() or paused.is_set():
-                return dict(benchmark=b, task_id=t.id, backend=k, judge_calls=0, status="not_started")
+            if operator_stop.is_set():
+                return dict(benchmark=b,task_id=t.id,backend=k,judge_calls=0,status='not_started')
             solver_row=next(r for r in rows if (r['benchmark'],r['task_id'],r['backend'])==(b,t.id,k))
             if solver_row['status'] in {'not_started','dispatch_unknown'}:
                 return dict(benchmark=b,task_id=t.id,backend=k,judge_calls=None,status='solver_outcome_unknown')
             actual_backend=runtime_backend(k)
             grades_root=args.output/'grades'/k if k in evidence.MODES else args.output/'grades'
-            submission=out/t.id/actual_backend/'submission.json' if b=='kramabench' else out/'predictions.jsonl'
-            binding=fingerprint(dict(submission=digest(submission) if submission.exists() else None,
-                source=authorization['source_manifest'],task=task_fingerprint(b,t),backend=k,
-                summary=digest(out/'summary.json') if (out/'summary.json').exists() else None))
+            binding=grade_binding(b,t,k,out,authorization['source_manifest'])
             identity=(b,t.id,k)
+            paid_grade=needs_judge(b,t,out,bool(args.authorized_judges))
             previous_grade=None
+            judge_recovery=None
             if args.retain_started_from:
                 previous_grade=prior_grade(args.retain_started_from,identity)
             if previous_grade:
                 if previous_grade['binding']!=binding:
                     raise ValueError('Retained grade artifact or evaluator binding changed')
-                result=(dict(previous_grade['body'],reused_without_dispatch=True,judge_calls=0)
+                if (previous_grade['body'].get('paid_grade') is False
+                        and previous_grade['body'].get('status') in {'grading_failed','grading_outcome_unknown'}):
+                    previous_grade=None  # Deterministic work has no paid side effect to replay.
+                elif args.recover_judge_5xx:
+                    planned=judge_recoveries.get(identity)
+                    judge_recovery=judge_recovery_evidence(previous_grade) if planned else None
+                    if judge_recovery:
+                        if dict(benchmark=b,task_id=t.id,backend=k,**judge_recovery)!=planned:
+                            raise ValueError('Judge recovery evidence changed after planning')
+                        previous_grade=None
+            if previous_grade:
+                result=(dict(previous_grade['body'],reused_without_dispatch=True,judge_calls=0,
+                             original_judge_calls=previous_grade['body'].get('original_judge_calls',previous_grade['body'].get('judge_calls')))
                         if previous_grade['state']=='complete' else
                         dict(benchmark=b,task_id=t.id,backend=k,judge_calls=None,status='grading_outcome_unknown'))
                 journal.claim('grade',identity,binding,result)
                 journal.finish('grade',identity,binding,result)
                 return result
-            try:
-                budget_watch.check()
-            except ValueError as error:
-                pause_budget(error)
+            if paid_grade and args.recover_judge_5xx and identity not in judge_recoveries:
                 return dict(benchmark=b,task_id=t.id,backend=k,judge_calls=0,status='not_started')
-            journal.claim('grade',identity,binding,dict(benchmark=b,task_id=t.id,backend=k,status='grading_outcome_unknown'))
+            if paid_grade and (paused.is_set() or stop.is_set()):
+                return dict(benchmark=b,task_id=t.id,backend=k,judge_calls=0,status='not_started')
+            if paid_grade:
+                try:
+                    budget_watch.check()
+                except ValueError as error:
+                    pause_budget(error)
+                    return dict(benchmark=b,task_id=t.id,backend=k,judge_calls=0,status='not_started')
+            journal.claim('grade',identity,binding,dict(benchmark=b,task_id=t.id,backend=k,
+                paid_grade=paid_grade,judge_recovery=judge_recovery,status='grading_outcome_unknown'))
             result=grade_attempt(b, t, actual_backend, out, data_root=args.root, grades_root=grades_root,
                 credentials=args.credentials, judge_enabled=bool(args.authorized_judges), key=key,
                 command_run=command_run, log=args.output / "logs" / (b + "-" + t.id + "-" + k + "-grade"))
@@ -698,19 +856,46 @@ def main(argv=None):
             if result.get('fatal_provider_error'):
                 stop.set()
             result['grading_artifact']=str(grades_root/b/t.id/actual_backend)
+            result['paid_grade']=paid_grade
+            if judge_recovery:
+                result['judge_recovery']=judge_recovery
             journal.finish('grade',identity,binding,result)
             return result
 
+        def score(job):
+            b,t,k,_=job
+            try:
+                return score_attempt(job)
+            except Exception as error:
+                entry=journal.get('grade',(b,t.id,k))
+                result=dict(benchmark=b,task_id=t.id,backend=k,status='grading_failed',
+                    judge_calls=None,error_type=type(error).__name__,
+                    paid_grade=entry['body'].get('paid_grade',True) if entry else False)
+                if entry and not result['paid_grade']:
+                    journal.finish('grade',(b,t.id,k),entry['binding'],result)
+                # An interrupted paid phase keeps its durable unknown claim; no replay.
+                write_json(args.output/'grading-errors'/b/t.id/(k+'.json'),result)
+                return result
+
         grades = []
-        with ThreadPoolExecutor(max_workers=args.judge_concurrency) as pool:
-            for future in as_completed([pool.submit(checked, score, job) for job in jobs]):
+        # Separate bounded pools overlap independent grading with solver work.
+        with ThreadPoolExecutor(max_workers=args.judge_concurrency) as graders, ThreadPoolExecutor(max_workers=args.concurrency) as solvers:
+            solving={solvers.submit(checked,solve,job):job for job in jobs}
+            grading=[]
+            for future in as_completed(solving):
+                rows.append(future.result())
+                write_json(args.output / 'progress.json',dict(stage='solvers',rows=rows))
+                print(json.dumps(rows[-1]),flush=True)
+                grading.append(graders.submit(score,solving[future]))
+            for future in as_completed(grading):
                 grades.append(future.result())
                 write_json(args.output / "grading-progress.json", dict(rows=grades))
         after = runtime.safe_balance(key, args.output, "balance-after")
         write_json(args.output / "summary.json", dict(rows=rows, grades=grades, authorization=authorization,
-            account_delta=runtime.balance_deltas(before, after) if before and after else None,
+            account_delta=runtime.observed_balance_deltas(before, after),
             accounting_scope="Whole shared-account interval, not attributable per-condition charges",
-            interrupted=stop.is_set() or paused.is_set(), finished_at=runtime.now()))
+            interrupted=stop.is_set() or paused.is_set() or any(r['status']=='not_started' for r in rows)
+                or any(g['status']=='grading_failed' for g in grades), finished_at=runtime.now()))
         grades_ok = all(g["status"] not in {"missing_summary", "missing_predictions", "grading_failed", "judge_error", "not_started",'solver_outcome_unknown','grading_outcome_unknown','judge_outcome_unknown'} for g in grades)
         return 0 if len(rows) == len(jobs) and all(r["status"] == "cli_exited" for r in rows) and grades_ok and not stop.is_set() and not paused.is_set() else 1
     except BaseException as error:
@@ -723,11 +908,7 @@ def main(argv=None):
         monitor_done.set()
         watcher.join()
         if stop.is_set():
-            for receipt in args.output.glob("solvers/**/container-ownership.json"):
-                owned = json.loads(receipt.read_text())
-                name = owned.get("container_name", "")
-                if name.startswith("mas-cli6-"):
-                    subprocess.run(["docker", "rm", "-f", name], capture_output=True, timeout=20)
+            cleanup_owned_containers(args.output/'solvers')
         for s, handler in previous.items():
             signal.signal(s, handler)
         ownership.__exit__(None,None,None)

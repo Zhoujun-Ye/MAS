@@ -18,6 +18,8 @@ def invoke(tmp_path, benchmark, *, enabled, category=None, answer='fixture answe
     commands = []
     def command_run(command, log):
         commands.append(command)
+        if code is None:
+            return None
         target = Path(command[command.index('--output') + 1])
         target.mkdir(parents=True)
         calls = int(command[command.index('--judge-limit') + 1]) if '--judge-limit' in command else 0
@@ -102,6 +104,12 @@ def test_failed_external_grade_is_not_retried(tmp_path):
     result, commands = invoke(tmp_path, 'dataclawbench', enabled=True, code=7)
     assert len(commands) == 1
     assert result['status'] == 'grading_failed' and result['returncode'] == 7
+
+
+def test_skipped_external_grade_is_not_a_completed_failure(tmp_path):
+    result, commands = invoke(tmp_path, 'dataclawbench', enabled=True, code=None)
+    assert len(commands) == 1
+    assert result['status'] == 'not_started' and result['judge_calls'] == 0
 
 
 def test_krama_fatal_judge_error_reaches_batch_controller(tmp_path, monkeypatch):

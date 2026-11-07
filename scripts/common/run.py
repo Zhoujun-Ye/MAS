@@ -26,8 +26,12 @@ from harness.runtime_support import runtime
 from harness.runtime_support.credential_gateway import CredentialGateway
 from harness.runtime_support.proof import validate as validate_proof, validate_runtime, validate_effort
 from benchmarks.policy import default_timeout, timeout_policy
+from harness.runtime_support import web_policy
 from analysis.native_evidence import native_single_agent, native_subagents
 from scripts.common import evidence
+from common.io import fingerprint
+from common.file_digest import DigestCache
+from common.journal import exclusive
 
 BACKENDS = {"claude-code-single-agent": ClaudeCodeSingleAgentCLI, "claude-code-subagents": ClaudeCodeSubagentsCLI}
 
@@ -69,7 +73,7 @@ def load(args):
 
 def run_web_limit(task, args):
     """Run-wide web request limit shared by the prompt, helper ledger and host gateway."""
-    return (getattr(args, "max_web_requests", None) or 4) if task.web else 0
+    return (getattr(args, "max_web_requests", None) or web_policy.DEFAULT_WEB_LIMIT) if task.web else 0
 
 
 def instructions(task, backend, organization_override=None, *, timeout, web_limit=0, evidence_mode=None, worker=False):
@@ -84,7 +88,7 @@ def instructions(task, backend, organization_override=None, *, timeout, web_limi
                    "Use python3 /benchmark-tools.py sql --db PATH --query SQL for read-only queries.\n"
                    "Return concise text for entity/intersection questions; for a SQL question return one canonical query in a fenced sql block.\n")
     common += ("Web search/fetch are enabled: python3 /benchmark-tools.py search --query TEXT; "
-               "python3 /benchmark-tools.py fetch --url URL.\n" if task.web else "No web search, fetching, or other external data access.\n")
+               "python3 /benchmark-tools.py fetch --url URL. Search prints compact JSON lines; full results are shared files under /workspace/web.\n" if task.web else "No web search, fetching, or other external data access.\n")
     common += limit_instructions(timeout, web_limit)
     if worker:
         return common
@@ -121,9 +125,11 @@ def plan(args, tasks):
     verify_sources(args.upstream, args.benchmark)
     evaluator = evaluator_manifest(args.upstream, args.benchmark)
     assets = {}
+    hash_file=DigestCache(args.asset_cache).digest if getattr(args,'asset_cache',None) else digest
     for task in tasks:
         for source, target, _ in mounts(task, args):
-            assets[str(source)] = asset_manifest(source) if source.is_dir() else digest(source)
+            if str(source) not in assets:
+                assets[str(source)] = asset_manifest(source,hash_file=hash_file) if source.is_dir() else hash_file(source)
     prompts = {t.id: t.question + "\n\n" + instructions(t, args.backend, getattr(args, "organization_override", None),
                                                          timeout=args.timeout, web_limit=run_web_limit(t, args),evidence_mode=getattr(args,'evidence_mode',None))
                for t in tasks}
@@ -137,9 +143,14 @@ def plan(args, tasks):
                 assets=assets, attempts=len(tasks), retries=0, judge_calls=0, options=options,
                 image=args.image, network="none", timeout=args.timeout, timeout_policy=timeout_policy(args.benchmark, args.timeout),
                 record_resources=getattr(args,'record_resources',False),
+                cpu_per_attempt=getattr(args,'cpus',2),compute_threads=getattr(args,'compute_threads',1),
+                required_modules=runtime.capability_modules(getattr(args,'require_module',[])),
+                capability_probes=runtime.capability_probes(getattr(args,'capability_probe',[])),
+                asset_hash_policy='stat-validated-sha256-v1' if getattr(args,'asset_cache',None) else 'full-sha256',
                 web_search=args.web_search,
+                web_policy=web_policy.configuration(max(run_web_limit(t,args) for t in tasks)) if any(t.web for t in tasks) else None,
                 web_request_limits={t.id: run_web_limit(t, args) for t in tasks},
-                native_environment=runtime.native_env(args.backend, effort=getattr(args, "effort", "max")),
+                native_environment=runtime.native_env(args.backend, effort=getattr(args, "effort", "max"),compute_threads=getattr(args,'compute_threads',1)),
                 effort=getattr(args, "effort", "max"),
                 max_budget_usd=getattr(args, "max_budget_usd", None),
                 max_web_requests=getattr(args, "max_web_requests", None),
@@ -157,6 +168,30 @@ def evaluator_manifest(upstream, benchmark):
     if not result:
         raise ValueError("Missing upstream evaluator source")
     return result
+
+
+def preflight(args,tasks,frozen):
+    from harness.runtime_support.preflight import check
+    from harness.runtime_support.web_fetch import check_ready
+    if any(t.web for t in tasks):
+        runtime.write_json(args.output/'web-readiness.json',check_ready())
+    checks=args.output/'preflight';checks.mkdir()
+    rows=[]
+    for task in tasks:
+        folder=checks/task.id;work=folder/'workspace';profile=folder/'native-profile'
+        work.mkdir(parents=True);(profile/'home').mkdir(parents=True)
+        if task.benchmark=='hybriddeepresearch':
+            path=f'/data/{task.db}/{task.db}_template.sqlite'
+            code=(f'import sqlite3; c=sqlite3.connect("file:"+{path!r}+"?mode=ro",uri=True); '
+                  'c.execute("PRAGMA query_only=ON"); c.execute("SELECT name FROM sqlite_master LIMIT 1").fetchall(); '
+                  'c.close(); print("read-only database OK")')
+        else:
+            code='from pathlib import Path; p=next(p for p in Path("/data").rglob("*") if p.is_file()); f=p.open("rb"); f.read(80); f.close(); print("input mount readable")'
+        source_mounts=mounts(task,args)+[(Path(__file__).resolve().parents[2]/'harness/runtime_support/tools.py','/benchmark-tools.py',True)]+evidence.source_mounts(getattr(args,'evidence_mode',None))
+        rows.append(check(work,profile,args.image,source_mounts,args.backend,args.effort,args.cpus,
+            args.compute_threads,folder,['python3','-c',code],modules=args.require_module,
+            probes=frozen['capability_probes'],record_resources=args.record_resources))
+    runtime.write_json(args.output/'preflight-ok.json',dict(plan_sha256=fingerprint(frozen),paid_calls=0,checks=rows))
 
 
 def attempt(task, args, key):
@@ -185,7 +220,7 @@ def attempt(task, args, key):
     interrupted = None
     try:
         inputs = mounts(task, args) + [(Path(__file__).resolve().parents[2] / "harness/runtime_support/tools.py", "/benchmark-tools.py", True)] + evidence.source_mounts(mode)
-        environment = {"MAS_BENCHMARK_WEB": "1" if task.web else "0", "MAS_WEB_LEDGER": "/native/web-usage.jsonl",
+        environment = {"MAS_BENCHMARK_WEB": "1" if task.web else "0",
                        "MAS_WEB_PROVIDER": args.web_search or "none"}
         environment["MAS_WEB_MAX_REQUESTS"] = str(web_limit)
         gateway = CredentialGateway(key, unix_path=folder / "gateway.sock",
@@ -193,11 +228,11 @@ def attempt(task, args, key):
         gateway.__enter__()
         identity = runtime.container(work, profile, args.data, args.image, backend=args.backend, gateway=gateway,
             effort=getattr(args, "effort", "max"),
-            dataset_mounts=inputs, environment_overrides=environment,
-            forwarded_env=("TAVILY_API_KEY",) if task.web and args.web_search == "tavily" else ())
+            cpus=getattr(args,'cpus',2),compute_threads=getattr(args,'compute_threads',1),
+            dataset_mounts=inputs, environment_overrides=environment)
         if getattr(args,'record_resources',False):
             from harness.runtime_support.resources import ContainerResources
-            resources=ContainerResources(identity,folder,2).start()
+            resources=ContainerResources(identity,folder,getattr(args,'cpus',2)).start()
         result.update(status="running", container_id=identity, started_at=runtime.now())
         runtime.write_json(folder / "report.json", result)
         kwargs = dict(command_prefix=("docker", "exec", "-i", "--workdir", "/workspace", identity))
@@ -247,6 +282,14 @@ def attempt(task, args, key):
         runtime.write_json(folder / "report.json", result)
     if interrupted is not None:
         raise interrupted
+    return finalize_attempt(folder,args,result)
+
+
+def finalize_attempt(folder,args,result):
+    """Host-only postprocessing, also usable after a quiescent solver crash."""
+    work,profile=folder/'workspace',folder/'native-profile'
+    single=args.backend.endswith('single-agent')
+    mode=getattr(args,'evidence_mode',None)
     if result["status"] == "cleanup_failed":
         return result
     result["integrity_audit"] = inspect_run(folder, args.backend)
@@ -309,7 +352,7 @@ def main(argv=None, *, benchmark=None):
     parser.add_argument("--backend", choices=BACKENDS, required=True)
     parser.add_argument("--task-id", action="append", required=True)
     parser.add_argument("--image", required=True, help="Existing image; never built or pulled here")
-    parser.add_argument("--web-search", choices=("tavily", "deepseek"))
+    parser.add_argument("--web-search", choices=("deepseek",))
     parser.add_argument("--max-budget-usd", type=float, help="Native CLI per-attempt limit; not a provider invoice guarantee")
     parser.add_argument("--max-web-requests", type=int, help="Per-attempt paid web helper request limit across agents")
     parser.add_argument("--output", type=Path, required=True)
@@ -320,19 +363,28 @@ def main(argv=None, *, benchmark=None):
     parser.add_argument("--credentials", type=Path, default=Path("/home/zhoujunye/mas/.env"))
     parser.add_argument("--execute", action="store_true")
     parser.add_argument('--record-resources',action='store_true')
+    parser.add_argument('--cpus',type=int,choices=range(1,129),default=2)
+    parser.add_argument('--compute-threads',type=int,choices=range(1,129),default=1)
+    parser.add_argument('--require-module',action='append',default=[])
+    parser.add_argument('--capability-probe',action='append',default=[])
+    parser.add_argument('--asset-cache',type=Path,help='Host-only stat-validated input hash cache; never mounted')
+    parser.add_argument('--preflight',action='store_true',help='Freeze plan and check actual no-network container without model calls')
+    parser.add_argument('--from-plan',action='store_true',help='Execute only after matching the saved preflight plan')
     parser.add_argument("--effort", choices=("high", "max"), default="max")
     parser.add_argument("--organization-prompt", type=Path,
                         help="Explicit lead-only Claude Subagents study prompt override")
     parser.add_argument('--evidence-mode',choices=evidence.MODES)
     args = parser.parse_args(argv)
+    args.require_module=runtime.capability_modules(args.require_module)
+    if args.compute_threads>args.cpus:parser.error('Compute threads exceed CPU quota')
+    if args.preflight and (args.execute or args.from_plan):parser.error('Preflight is separate from execution')
+    if args.from_plan and not args.execute:parser.error('--from-plan requires --execute')
     args.organization_override = organization_override(args.organization_prompt, args.backend)
     evidence.validate_condition(args)
     if args.timeout is None:
         args.timeout = default_timeout(args.benchmark)
     if args.max_web_requests is None:
-        args.max_web_requests = 4
-    if args.execute and args.web_search == "tavily":
-        parser.error("Paid Tavily execution is disabled until host-side credential isolation is implemented")
+        args.max_web_requests = web_policy.DEFAULT_WEB_LIMIT
     if args.max_budget_usd is not None and (not math.isfinite(args.max_budget_usd) or args.max_budget_usd <= 0):
         parser.error("--max-budget-usd must be positive and finite")
     if args.max_web_requests is not None and args.max_web_requests < 1:
@@ -344,20 +396,23 @@ def main(argv=None, *, benchmark=None):
     for source in (args.upstream, args.data):
         if args.output.is_relative_to(source) or source.is_relative_to(args.output):
             raise ValueError("Output and upstream/data paths must not overlap")
-    if args.output.exists():
+    if args.asset_cache:
+        args.asset_cache=args.asset_cache.resolve()
+        if any(args.asset_cache.is_relative_to(p) for p in [args.upstream,args.data,args.output]):
+            raise ValueError('Hash cache must stay host-side outside inputs and attempt output')
+    if args.output.exists() and not args.from_plan:
         raise ValueError("Use a fresh output directory, including after failed attempts")
     tasks = load(args)
     frozen = plan(args, tasks)
-    if not args.execute:
+    if not args.execute and not args.preflight:
         print(json.dumps(frozen, indent=2))
         return 0
-    if args.authorized_attempts != len(tasks) or args.offline_proof is None:
+    if (args.execute and args.authorized_attempts != len(tasks)) or args.offline_proof is None:
         raise ValueError("Execution requires exact authorized attempt count and offline native proof")
     proof = json.loads(args.offline_proof.read_text())
     evidence.validate_proof(proof,args.evidence_mode)
     validate_proof(proof, args.backend)
     validate_effort(proof, args.effort)
-    key = runtime.credential(args.credentials)
     args.image = json.loads(subprocess.check_output(["docker", "image", "inspect", args.image]))[0]["Id"]
     frozen.update(image_id=args.image, offline_proof_sha256=digest(args.offline_proof))
     binary = runtime.CLAUDE
@@ -365,13 +420,32 @@ def main(argv=None, *, benchmark=None):
     validate_runtime(proof, args.backend, image_id=args.image,
                      binary_sha256=frozen["cli_binary"]["sha256"])
     os.umask(0o077)
-    args.output.mkdir(parents=True, exist_ok=False)
-    runtime.write_json(args.output / "plan.json", frozen)
-    with tarfile.open(args.output / "source.tgz", "w:gz") as archive:
-        for relative, path in runtime.source_files():
-            archive.add(path, arcname=str(relative), recursive=False)
-    with graceful_signals():
-        return execute_tasks(tasks, args, key)
+    if args.from_plan:
+        saved=json.loads((args.output/'plan.json').read_text())
+        receipt=json.loads((args.output/'preflight-ok.json').read_text())
+        if fingerprint(frozen)!=fingerprint(saved) or receipt['plan_sha256']!=fingerprint(saved):
+            raise ValueError('Frozen plan or runtime/input settings changed')
+        if (args.output/'predictions.jsonl').exists():raise ValueError('Attempt already started; never replay')
+    else:
+        args.output.mkdir(parents=True, exist_ok=False)
+    if args.preflight or not args.from_plan:
+        runtime.write_json(args.output/'plan.json',frozen)
+        preflight(args,tasks,frozen)
+        if args.preflight:return 0
+    with exclusive(args.output/'execution.lock'):
+        if any(t.web for t in tasks):
+            from harness.runtime_support.web_fetch import check_ready
+            runtime.write_json(args.output/'web-readiness-execution.json',check_ready())
+        with (args.output/'execution-claim.json').open('x') as stream:
+            json.dump(dict(plan_sha256=fingerprint(frozen),status='dispatch_unknown',retries=0),stream)
+            stream.flush();os.fsync(stream.fileno())
+        key = runtime.credential(args.credentials)
+        runtime.write_json(args.output / "plan.json", frozen)
+        with tarfile.open(args.output / "source.tgz", "w:gz") as archive:
+            for relative, path in runtime.source_files():
+                archive.add(path, arcname=str(relative), recursive=False)
+        with graceful_signals():
+            return execute_tasks(tasks, args, key)
 
 
 def execute_tasks(tasks, args, key):

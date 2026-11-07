@@ -34,7 +34,7 @@ def test_both_conditions_receive_identical_task_rules_and_limits(benchmark, web)
 def test_web_limit_is_derived_once_and_rejected_for_offline_tasks():
     offline, online = SimpleNamespace(web=False), SimpleNamespace(web=True)
     assert run_web_limit(offline, SimpleNamespace(max_web_requests=9)) == 0
-    assert run_web_limit(online, SimpleNamespace()) == 4
+    assert run_web_limit(online, SimpleNamespace()) == 20
     assert run_web_limit(online, SimpleNamespace(max_web_requests=7)) == 7
     with pytest.raises(ValueError, match="web-enabled"):
         instructions(SimpleNamespace(benchmark="dataclawbench", db="x", web=False), "claude-code-subagents",
