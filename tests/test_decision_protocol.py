@@ -25,6 +25,8 @@ def capture(protocol, value, call='a', **kwargs):
 
 def choose(protocol, value):
     view = protocol.view()
+    for item in view['candidates']:
+        protocol.read(candidate_id=item['id'])
     candidate = next(c for c in view['candidates'] if c['value'] == value)
     return protocol.select(view['snapshot'], candidate['id'],
         {'task_quote':'population mean in kilograms', 'criterion':'Population, missingness and units match the task'},
@@ -70,7 +72,7 @@ def test_no_automatic_correctness_or_majority_vote(protocol):
     capture(protocol, 3, 'c')
     view = protocol.view()
     assert len(view['candidates']) == 2
-    assert all(set(c) == {'id','value','target_id','target','interpretations'} for c in view['candidates'])
+    assert all(set(c) == {'id','value','target_id','target','interpretations','evidence_access'} for c in view['candidates'])
     assert view == protocol.view()
     choose(protocol, 3)
     # A wrong semantic choice can still be consistent. The protocol must not claim otherwise.
@@ -136,24 +138,3 @@ def test_inflight_execution_blocks_commit(protocol):
     collect(protocol.store, dict(hook_event_name='PreToolUse', tool_name='Bash', agent_id='worker',
         tool_use_id='pending', tool_input={'command':'compute'}))
     assert protocol.check({'answer':2})['reason'] == 'execution_pending'
-
-
-def test_replay_is_read_only_and_gold_does_not_generate_candidates(tmp_path):
-    from scripts.probes.replay_decisions import replay
-    run = tmp_path / 'run'
-    folder = run / 'task/backend'
-    events = folder / 'native-profile/observer/events.jsonl'
-    events.parent.mkdir(parents=True)
-    events.write_text(json.dumps(dict(hook_event_name='PostToolUse', tool_name='Bash',
-        tool_response={'stdout':'{"answer":1}'}))+'\n')
-    (folder / 'workspace').mkdir()
-    (folder / 'workspace/submission.json').write_text('{"answer":1}')
-    (folder / 'report.json').write_text('{"grade":{"score":0,"target":2}}')
-    summary = tmp_path / 'summary.json'
-    summary.write_text(json.dumps({'rows':[dict(run=str(run),task_id='task',backend='backend',benchmark='kramabench')]}))
-    before = {str(p):p.read_bytes() for p in tmp_path.rglob('*') if p.is_file()}
-    report = replay([summary])
-    row = next(iter(report['aggregates'].values()))
-    assert row['incorrect_gold_covered'] == 0 and row['covered_runs'] == 1
-    assert row['incorrect_submitted_value_absent'] == 0
-    assert before == {str(p):p.read_bytes() for p in tmp_path.rglob('*') if p.is_file()}

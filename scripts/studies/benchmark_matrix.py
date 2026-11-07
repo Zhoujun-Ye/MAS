@@ -20,10 +20,13 @@ from benchmarks.hybriddeepresearch.tasks import load_tasks as hdr_tasks
 from benchmarks.kramabench.tasks import load_tasks as krama_tasks
 from harness.runtime_support import runtime
 from scripts.common.grading import grade_attempt
-from harness.runtime_support.proof import validate_runtime
+from harness.runtime_support.proof import validate_runtime, validate_effort
 from benchmarks._external import digest
 from benchmarks.policy import TIMEOUT_SECONDS_BY_BENCHMARK, default_timeout, timeout_policy
 from scripts.common import evidence
+from common.io import fingerprint
+from common.journal import Journal, exclusive
+from harness.runtime_support.admission import admit_balance, amount, BalanceWatch, fatal_provider_record
 
 BACKENDS = ("claude-code-single-agent", "claude-code-subagents",)
 BENCHMARKS = ("dataclawbench", "hybriddeepresearch", "kramabench")
@@ -36,24 +39,40 @@ def task_fingerprint(benchmark, task):
     return hashlib.sha256(json.dumps(public, sort_keys=True).encode()).hexdigest()
 
 
+def task_pools(root, benchmarks=BENCHMARKS):
+    loaders = dict(dataclawbench=lambda:dc_tasks(root/'dataclawbench/upstream'),
+        hybriddeepresearch=lambda:hdr_tasks(root/'hybriddeepresearch/release/hybrid_ds_release/hybrid_ds_release.jsonl'),
+        kramabench=lambda:krama_tasks(root/'kramabench/upstream')[0])
+    return {b:loaders[b]() for b in benchmarks}
+
+
 def manifest_selections(root, manifest, offset, count):
-    if manifest.get("kind") != "validation20-v1" or offset < 0 or offset + count > 20:
+    full = manifest.get('kind')=='benchmark-full-v1'
+    if (manifest.get("kind") not in {"validation20-v1","benchmark-full-v1"} or offset < 0
+            or (count is not None and count<1) or (not full and (count is None or offset+count>20))):
         raise ValueError("Invalid validation manifest or task slice")
-    pools = dict(dataclawbench=dc_tasks(root / "dataclawbench/upstream"),
-                 hybriddeepresearch=hdr_tasks(root / "hybriddeepresearch/release/hybrid_ds_release/hybrid_ds_release.jsonl"),
-                 kramabench=krama_tasks(root / "kramabench/upstream")[0])
+    names = list(manifest['benchmarks'])
+    if not names or set(names)-set(BENCHMARKS):
+        raise ValueError('Unknown or empty manifest benchmarks')
+    pools = task_pools(root,names)
     result = []
-    for benchmark in BENCHMARKS:
+    for benchmark in names:
         frozen = manifest["benchmarks"][benchmark]
         ids = [row["task_id"] for row in frozen]
-        if len(ids) != 20 or len(set(ids)) != 20:
+        if not ids or len(set(ids))!=len(ids) or (not full and len(ids)!=20):
             raise ValueError("Each validation benchmark must contain 20 unique IDs")
+        if offset>=len(ids) or (count is not None and offset+count>len(ids)):
+            raise ValueError('Manifest slice exceeds task count')
         by_id = {t.id: t for t in pools[benchmark]}
+        if full and (len(by_id)!=len(pools[benchmark]) or set(ids)!=set(by_id)):
+            raise ValueError('Full manifest must cover every current task exactly once')
+        if full and ids!=[t.id for t in pools[benchmark]]:
+            raise ValueError('Full manifest must preserve upstream task order')
         for row in frozen:
             task = by_id.get(row["task_id"])
             if task is None or task_fingerprint(benchmark, task) != row["task_sha256"]:
                 raise ValueError("Frozen validation task changed or disappeared")
-        result.extend((benchmark, by_id[i]) for i in ids[offset:offset + count])
+        result.extend((benchmark, by_id[i]) for i in ids[offset:None if count is None else offset + count])
     return result
 
 
@@ -78,47 +97,157 @@ def balanced_sample(tasks, count, group, seed):
 
 
 def selections(root, count=2, seed=42):
-    if count != 2:
-        krama, _ = krama_tasks(root / "kramabench/upstream")
-        pools = (
-            ("dataclawbench", dc_tasks(root / "dataclawbench/upstream"), lambda t: t.category),
-            ("hybriddeepresearch", hdr_tasks(root / "hybriddeepresearch/release/hybrid_ds_release/hybrid_ds_release.jsonl"), lambda t: t.category),
-            ("kramabench", krama, lambda t: t.domain),
-        )
-        return [(bench, task) for bench, tasks, group in pools
-                for task in balanced_sample(tasks, count, group, seed)]
-    dc = [t for t in dc_tasks(root / "dataclawbench/upstream") if not t.web][:2]
-    hdr = hdr_tasks(root / "hybriddeepresearch/release/hybrid_ds_release/hybrid_ds_release.jsonl")
-    hdr = [next(t for t in hdr if t.category == category) for category in ("search_to_sql", "sql_to_search")]
     krama, _ = krama_tasks(root / "kramabench/upstream")
-    easy = [t for t in krama if "-easy-" in t.id]
-    krama = easy if len(easy) >= 2 else krama
-    return [("dataclawbench", t) for t in dc] + [("hybriddeepresearch", t) for t in hdr] + [("kramabench", t) for t in krama[:2]]
+    pools = (
+        ("dataclawbench", dc_tasks(root / "dataclawbench/upstream"), lambda t: t.category),
+        ("hybriddeepresearch", hdr_tasks(root / "hybriddeepresearch/release/hybrid_ds_release/hybrid_ds_release.jsonl"), lambda t: t.category),
+        ("kramabench", krama, lambda t: t.domain),
+    )
+    return [(bench, task) for bench, tasks, group in pools
+            for task in balanced_sample(tasks, count, group, seed)]
 
 
 def runtime_backend(condition):
     return 'claude-code-subagents' if condition in evidence.MODES else condition
 
 
-def retained_attempts(path, jobs, settings, manifest_sha):
+def retained_attempts(path, jobs, settings, manifest_sha, _seen=None):
     if path is None:
         return {}
-    previous=json.loads((path/'summary.json').read_text())
+    seen=set() if _seen is None else set(_seen)
+    if path.resolve() in seen:
+        raise ValueError('Resume provenance cycle')
+    seen.add(path.resolve())
+    summary_path=path/'summary.json'
+    previous=json.loads(summary_path.read_text()) if summary_path.exists() else dict(
+        authorization=json.loads((path/'authorization.json').read_text()),interrupted=True)
     authorization=previous['authorization']
     if not previous.get('interrupted') or authorization['protocol_settings']!=settings or authorization['task_manifest_sha256']!=manifest_sha:
         raise ValueError('Only a sealed interrupted batch with identical task/settings scope may continue')
     key=lambda r:(r['benchmark'],r['task_id'],r['backend'])
     expected={(b,t.id,k) for b,t,k,_ in jobs}
-    rows=previous['rows']
+    if (path/'journal.sqlite').exists():
+        with exclusive(path/'controller.lock'):
+            assert_quiescent(path)
+            if authorization.get('source_manifest') != runtime.source_manifest():
+                raise ValueError('Resume source changed; retain the frozen source stage')
+            journal=Journal(path/'journal.sqlite')
+            inherited=retained_attempts(Path(authorization['retained_from']),jobs,settings,manifest_sha,seen) if authorization.get('retained_from') else {}
+            rows=[]
+            for b,t,k,out in jobs:
+                entry=journal.get('solver',(b,t.id,k))
+                if entry is None:
+                    rows.append(inherited.get((b,t.id,k),dict(benchmark=b,task_id=t.id,backend=k,status='not_started',run=str(out))))
+                    continue
+                row=dict(entry['body'])
+                if k in evidence.MODES:
+                    row.update(runtime_backend=runtime_backend(k),evidence_mode=k)
+                if entry['state']!='complete':
+                    report=Path(row['run'])/t.id/runtime_backend(k)/'report.json'
+                    record=json.loads(report.read_text()) if report.exists() else {}
+                    row['status']=record.get('status') if record.get('status') not in {None,'running'} else 'dispatch_unknown'
+                rows.append(row)
+    else:
+        raise ValueError('Continuation requires a durable journal; old evidence remains read-only')
     if len(rows)!=len(expected) or {key(r) for r in rows}!=expected:
         raise ValueError('Retained batch question/condition scope differs')
     if any(r['status']=='running' for r in rows):
         raise ValueError('Cannot continue a live batch')
     retained={key(r):r for r in rows if r['status']!='not_started'}
+    roots=[(path/'solvers').resolve()]
+    ancestor=authorization.get('retained_from')
+    visited={path.resolve()}
+    while ancestor:
+        parent=Path(ancestor).resolve()
+        if parent in visited:
+            raise ValueError('Resume provenance cycle')
+        visited.add(parent)
+        roots.append((parent/'solvers').resolve())
+        parent_auth=json.loads((parent/'authorization.json').read_text())
+        ancestor=parent_auth.get('retained_from')
     for r in retained.values():
-        if not Path(r['run']).resolve().is_relative_to((path/'solvers').resolve()):
+        if not any(Path(r['run']).resolve().is_relative_to(root) for root in roots):
             raise ValueError('Retained artifact lies outside its original batch')
     return retained
+
+
+def assert_quiescent(path):
+    for proc in Path('/proc').glob('[0-9]*/cmdline'):
+        try:
+            argv=proc.read_bytes().decode().split('\0')
+            if '--output' in argv:
+                output=Path(argv[argv.index('--output')+1]).resolve()
+                if output.is_relative_to((path/'solvers').resolve()):
+                    raise ValueError('A prior solver/grader process is still live')
+        except (OSError,UnicodeError,IndexError):
+            continue
+    for receipt in path.glob('solvers/**/container-ownership.json'):
+        name=json.loads(receipt.read_text()).get('container_name','')
+        if not name.startswith('mas-cli6-'):
+            raise ValueError('Invalid owned container receipt')
+        result=subprocess.run(['docker','inspect','--format','{{.State.Running}}',name],capture_output=True,text=True,timeout=15)
+        if result.returncode==0 and result.stdout.strip()=='true':
+            raise ValueError('Owned container is still running; reconcile it before resuming')
+        if result.returncode and 'No such' not in result.stderr:
+            raise ValueError('Cannot verify prior container quiescence')
+
+
+def prior_grade(path, identity):
+    seen=set()
+    while path:
+        path=Path(path)
+        if path.resolve() in seen:
+            raise ValueError('Resume provenance cycle')
+        seen.add(path.resolve())
+        if (path/'journal.sqlite').exists():
+            entry=Journal(path/'journal.sqlite').get('grade',identity)
+            if entry:return entry
+        path=json.loads((path/'authorization.json').read_text()).get('retained_from')
+    return None
+
+
+def upstream_recovery(path, jobs, settings, manifest_sha):
+    """Select only terminal CLI failures whose last model response is upstream 5xx."""
+    if path is None:
+        return {}
+    previous = json.loads((path / 'summary.json').read_text())
+    auth = previous['authorization']
+    if (previous.get('interrupted') or auth.get('upstream_recovery_from')
+            or auth['protocol_settings'] != settings or auth['task_manifest_sha256'] != manifest_sha):
+        raise ValueError('Upstream recovery requires a sealed original batch with identical tasks/settings')
+    claim = Path(str(path) + '.upstream-recovery-claim.json')
+    if claim.exists():
+        raise ValueError('Upstream recovery has already been claimed; no repeated recovery')
+    key = lambda row: (row['benchmark'], row['task_id'], row['backend'])
+    expected = {(b, t.id, k) for b, t, k, _ in jobs}
+    rows = previous['rows']
+    if len(rows) != len(expected) or {key(row) for row in rows} != expected:
+        raise ValueError('Original question/condition scope differs')
+    if any(row['status'] in {'running', 'not_started'} for row in rows):
+        raise ValueError('Original batch has unfinished attempts')
+    eligible = {}
+    for row in rows:
+        if row['status'] != 'cli_error':
+            continue
+        output = Path(row['run']).resolve()
+        if not output.is_relative_to((path / 'solvers').resolve()):
+            raise ValueError('Original attempt lies outside its batch')
+        actual = runtime_backend(row['backend'])
+        folder = output / row['task_id'] / actual
+        report_path, ledger_path = folder / 'report.json', folder / 'gateway-requests.jsonl'
+        report = json.loads(report_path.read_text())
+        if report.get('status') != 'cli_error' or not report.get('cli', {}).get('returncode'):
+            continue
+        requests = [r for line in ledger_path.read_text().splitlines() for r in [json.loads(line)]
+                    if r.get('event') == 'finished' and r.get('upstream_attempted') is True
+                    and r.get('route') == '/anthropic/v1/messages']
+        last = requests[-1] if requests else {}
+        status = last.get('http_status')
+        if type(status) is int and 500 <= status < 600 and last.get('outcome') == 'upstream_rejected':
+            eligible[key(row)] = dict(benchmark=row['benchmark'], task_id=row['task_id'], backend=row['backend'],
+                original_run=str(output), http_status=status, report_sha256=digest(report_path),
+                ledger_sha256=digest(ledger_path), policy='one explicitly authorized upstream-5xx recovery')
+    return eligible
 
 
 def solver_command(args, benchmark, task, backend, output, *, execute=False):
@@ -135,9 +264,21 @@ def solver_command(args, benchmark, task, backend, output, *, execute=False):
         command += ["--organization-prompt", str(args.organization_prompt)]
     if benchmark == "kramabench":
         command += ["--concurrency", "1", "--replay-timeout", "180", "--judge-limit", "0"]
+        if getattr(args, 'cpus', 2) != 2:
+            command += ['--cpus', str(args.cpus)]
+        if getattr(args, 'record_resources', False):
+            command += ['--record-resources']
+        if getattr(args, 'compute_threads', 1) != 1:
+            command += ['--compute-threads', str(args.compute_threads)]
+        for module in runtime.capability_modules(getattr(args, 'require_module', [])):
+            command += ['--require-module', module]
+        for probe in runtime.capability_probes(getattr(args, 'capability_probe', [])):
+            command += ['--capability-probe', probe['path']]
         if execute:
             command.append("--from-plan")
     else:
+        if getattr(args,'record_resources',False):
+            command += ['--record-resources']
         data = args.root / ("dataclawbench/upstream/assets/database" if benchmark == "dataclawbench" else "hybriddeepresearch/data")
         command += ["--data", str(data), "--authorized-attempts", "1"]
         if getattr(task, "web", benchmark == "hybriddeepresearch"):
@@ -153,13 +294,50 @@ def solver_command(args, benchmark, task, backend, output, *, execute=False):
 def protocol_settings(args):
     backends = getattr(args, "backends", BACKENDS)
     override = organization_override(getattr(args, "organization_prompt", None), "claude-code-subagents")
-    return dict(effort=args.effort,
+    settings = dict(effort=args.effort,
                 organization_sha256={k: hashlib.sha256(
                     (override["text"] if override and k == "claude-code-subagents"
                      else evidence.lead_prompt(k)
                      if k in evidence.MODES else backend_instructions(k)).encode()).hexdigest() for k in backends},
                 timeout_seconds_by_benchmark=dict(TIMEOUT_SECONDS_BY_BENCHMARK),
                 solver_concurrency=args.concurrency, judge_concurrency=args.judge_concurrency)
+    if getattr(args, 'cpus', 2) != 2 or getattr(args, 'record_resources', False):
+        settings.update(cpu_per_attempt=getattr(args, 'cpus', 2),
+                        record_resources=getattr(args, 'record_resources', False))
+    if getattr(args, 'compute_threads', 1) != 1:
+        settings['compute_threads'] = args.compute_threads
+    if getattr(args, 'require_module', []):
+        settings['required_modules'] = runtime.capability_modules(args.require_module)
+    if getattr(args, 'capability_probe', []):
+        settings['capability_probes'] = runtime.capability_probes(args.capability_probe)
+    return settings
+
+
+def runtime_preflight(args):
+    """Check every condition before creating a run namespace or dispatching children."""
+    available=None
+    if Path('/proc/meminfo').exists():
+        memory=dict(line.split(':',1) for line in Path('/proc/meminfo').read_text().splitlines())
+        available=int(memory['MemAvailable'].split()[0])*1024
+        if getattr(args,'concurrency',8)*8*1024**3 > available*.9:
+            raise ValueError('Configured solver concurrency exceeds conservative available-memory admission')
+    image = json.loads(subprocess.check_output(['docker', 'image', 'inspect', args.image],
+                                              text=True, timeout=30))[0]['Id']
+    binary = digest(runtime.CLAUDE)
+    proofs = {}
+    for condition in args.backends:
+        path = args.proofs / condition / 'proof.json'
+        raw = path.read_bytes()
+        proof = json.loads(raw)
+        evidence.validate_proof(proof, condition if condition in evidence.MODES else None)
+        validate_runtime(proof, runtime_backend(condition), image_id=image, binary_sha256=binary)
+        validate_effort(proof, args.effort)
+        proofs[condition] = dict(path=str(path), sha256=hashlib.sha256(raw).hexdigest(),
+                                 requested_effort=args.effort, request_effort_verified=True)
+    return dict(image_id=image, binary_sha256=binary, proofs=proofs, paid_calls=0,
+                capacity=dict(host_cpus=os.cpu_count(),available_memory_bytes=available,
+                              memory_per_solver_bytes=8*1024**3),
+                scope='Image/binary/effort/tool proofs only; task/container preflights still required')
 
 
 def main(argv=None):
@@ -168,30 +346,78 @@ def main(argv=None):
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--proofs", type=Path, required=True)
     parser.add_argument("--image", required=True)
+    parser.add_argument('--benchmarks', nargs='+', choices=BENCHMARKS, default=BENCHMARKS,
+                        help='Explicit benchmark scope; defaults to all three benchmarks')
     parser.add_argument("--credentials", type=Path, default=Path("/home/zhoujunye/mas/.env"))
-    parser.add_argument("--concurrency", type=int, default=8, choices=range(1, 13))
+    parser.add_argument("--concurrency", type=int, default=8, choices=range(1, 257))
+    parser.add_argument('--cpus', type=int, choices=range(1, 129), default=2)
+    parser.add_argument('--record-resources', action='store_true')
+    parser.add_argument('--compute-threads', type=int, choices=range(1, 129), default=1)
+    parser.add_argument('--require-module', action='append', default=[])
+    parser.add_argument('--capability-probe', action='append', default=[])
     parser.add_argument("--effort", choices=("high", "max"), default="max")
     parser.add_argument("--organization-prompt", type=Path)
     parser.add_argument("--backends", nargs="+", choices=BACKENDS, default=BACKENDS,
                         help="Explicit conditions to run; defaults to the matched Single/Subagents pair")
     parser.add_argument('--evidence-modes',nargs='+',choices=evidence.MODES)
+    parser.add_argument('--conditions', nargs='+', choices=BACKENDS + evidence.MODES,
+                        help='Explicit mixed baseline/evidence conditions for an authorized matched study')
     parser.add_argument('--retain-started-from',type=Path,help='Never rerun started attempts; dispatch only previously not_started slots')
-    parser.add_argument("--tasks-per-benchmark", type=int, default=2, choices=range(1, 101))
+    parser.add_argument('--recover-upstream-from', type=Path,
+                        help='Explicitly authorized one-time recovery of terminal upstream-5xx failures')
+    parser.add_argument("--tasks-per-benchmark", type=int, default=2)
+    parser.add_argument('--all-tasks',action='store_true',help='Use every task in a frozen full manifest')
+    parser.add_argument('--estimated-cost',help='Explicit estimated remaining total solver+grading cost; required for execution')
+    parser.add_argument('--budget-currency',choices=('CNY','USD'),default='CNY')
+    parser.add_argument('--budget-safety-factor',default='1.5')
+    parser.add_argument('--balance-reserve',default='1')
     parser.add_argument("--sample-seed", type=int, default=42)
     parser.add_argument("--task-manifest", type=Path, help="Frozen public ID/hash manifest, never questions or gold")
     parser.add_argument("--protocol-settings", type=Path, help="Explicit settings for an authorized rerun of the unchanged frozen tasks")
     parser.add_argument("--task-offset", type=int, default=0)
-    parser.add_argument("--judge-concurrency", type=int, default=2, choices=range(1, 3))
+    parser.add_argument("--judge-concurrency", type=int, default=2, choices=range(1, 65))
     parser.add_argument("--authorized-attempts", type=int)
     parser.add_argument("--authorized-judges", type=int, default=0)
     parser.add_argument("--execute", action="store_true")
+    parser.add_argument('--check-runtime', action='store_true',
+                        help='Verify image, CLI and all condition proofs during planning; never dispatch paid calls')
     args = parser.parse_args(argv)
+    if args.tasks_per_benchmark<1:
+        raise ValueError('Task count must be positive')
+    args.require_module = runtime.capability_modules(args.require_module)
+    if (args.require_module or args.capability_probe) and args.benchmarks != ['kramabench']:
+        raise ValueError('Capability requirements currently require KramaBench-only scope')
+    if len(set(args.benchmarks)) != len(args.benchmarks):
+        raise ValueError('Select unique benchmarks')
+    if args.recover_upstream_from and (args.retain_started_from or not args.task_manifest):
+        raise ValueError('Upstream recovery requires a frozen manifest and cannot retain/resume attempts')
+    if args.recover_upstream_from:
+        args.recover_upstream_from = args.recover_upstream_from.resolve()
+    if args.compute_threads > args.cpus:
+        raise ValueError('Compute threads cannot exceed the container CPU quota')
+    if (args.cpus != 2 or args.compute_threads != 1) and args.benchmarks != ['kramabench']:
+        raise ValueError('Explicit CPU resource studies currently require KramaBench-only scope')
+    if args.conditions:
+        if args.evidence_modes or args.organization_prompt or args.backends != BACKENDS:
+            raise ValueError('Explicit conditions cannot be combined with backend or prompt overrides')
+        args.backends = args.conditions
     if args.evidence_modes:
         if args.organization_prompt or args.backends!=['claude-code-subagents'] or len(set(args.evidence_modes))!=len(args.evidence_modes):
             raise ValueError('Select only Subagents, unique evidence modes, and no organization override')
         args.backends=args.evidence_modes
     args.root, args.output, args.proofs = args.root.resolve(), args.output.resolve(), args.proofs.resolve()
+    if args.retain_started_from:
+        args.retain_started_from=args.retain_started_from.resolve()
+        if args.output.is_relative_to(args.retain_started_from) or args.retain_started_from.is_relative_to(args.output):
+            raise ValueError('Continuation output must not overlap original evidence')
+    if args.recover_upstream_from and (args.output.is_relative_to(args.recover_upstream_from)
+            or args.recover_upstream_from.is_relative_to(args.output)):
+        raise ValueError('Recovery output must not overlap original evidence')
     manifest = json.loads(args.task_manifest.read_text()) if args.task_manifest else None
+    if manifest and set(args.benchmarks)-set(manifest.get('benchmarks',{})):
+        raise ValueError('Selected benchmark absent from frozen manifest')
+    if args.all_tasks and (not manifest or manifest.get('kind')!='benchmark-full-v1' or args.task_offset):
+        raise ValueError('--all-tasks requires a frozen full manifest and zero offset')
     explicit_protocol = json.loads(args.protocol_settings.read_text()) if args.protocol_settings else None
     if len(set(args.backends)) != len(args.backends):
         raise ValueError("Select unique backends")
@@ -204,21 +430,33 @@ def main(argv=None):
         raise ValueError("Runtime settings differ from the explicit protocol settings")
     if args.task_offset and manifest is None:
         raise ValueError("A task offset requires a frozen task manifest")
-    selected = (manifest_selections(args.root, manifest, args.task_offset, args.tasks_per_benchmark)
-                if manifest else selections(args.root) if args.tasks_per_benchmark == 2
-                else selections(args.root, args.tasks_per_benchmark, args.sample_seed))
+    selected = (manifest_selections(args.root, manifest, args.task_offset, None if args.all_tasks else args.tasks_per_benchmark)
+                if manifest else selections(args.root, args.tasks_per_benchmark, args.sample_seed))
+    selected = [(bench, task) for bench, task in selected if bench in args.benchmarks]
     jobs = [(bench, task, backend, args.output / "solvers" / bench / task.id / backend)
             for bench, task in selected for backend in args.backends]
+    recovery = upstream_recovery(args.recover_upstream_from, jobs, observed_settings,
+                                 digest(args.task_manifest) if args.task_manifest else None)
+    if args.recover_upstream_from:
+        jobs = [(b, t, k, out) for b, t, k, out in jobs if (b, t.id, k) in recovery]
     retained=retained_attempts(args.retain_started_from,jobs,observed_settings,digest(args.task_manifest) if args.task_manifest else None)
     jobs=[(b,t,k,Path(retained[(b,t.id,k)]['run']) if (b,t.id,k) in retained else out) for b,t,k,out in jobs]
     maximum_judges = sum(1 for b, t, _, _ in jobs
                          if b != "hybriddeepresearch" or t.category != "search_to_sql")
     authorization = dict(attempts=len(jobs), maximum_judge_calls=maximum_judges, retries=0, effort=args.effort,
+        benchmarks=list(args.benchmarks),
+        upstream_recovery_from=str(args.recover_upstream_from) if args.recover_upstream_from else None,
+        upstream_recovery=list(recovery.values()),
         retained_started_attempts=len(retained),new_solver_attempts=len(jobs)-len(retained),
         retained_from=str(args.retain_started_from) if args.retain_started_from else None,
         tasks_per_benchmark=args.tasks_per_benchmark, sample_seed=args.sample_seed,
-        selection_policy="frozen-validation-manifest" if manifest else "legacy-two" if args.tasks_per_benchmark == 2 else "seeded-public-strata-round-robin",
+        selection_policy="authorized-upstream-5xx-recovery" if args.recover_upstream_from else "frozen-validation-manifest" if manifest else "seeded-public-strata-round-robin",
         task_offset=args.task_offset,
+        order_policy='manifest-order-unchanged' if manifest else 'seeded-public-strata-round-robin',
+        source_manifest=runtime.source_manifest(),
+        memory_per_attempt='8g',
+        budget_policy=dict(estimated_cost=args.estimated_cost,currency=args.budget_currency,
+                           safety_factor=args.budget_safety_factor,reserve=args.balance_reserve),
         task_manifest_sha256=digest(args.task_manifest) if args.task_manifest else None,
         protocol_settings=observed_settings,
         protocol_settings_source="explicit-protocol" if args.protocol_settings else "frozen-manifest" if manifest else "current-runtime",
@@ -228,17 +466,30 @@ def main(argv=None):
         timeout_policy_by_benchmark={b: timeout_policy(b) for b in TIMEOUT_SECONDS_BY_BENCHMARK},
         solver_concurrency=args.concurrency, judge_concurrency=args.judge_concurrency,
         monetary_cap=None, selections=[dict(benchmark=b, task_id=t.id, backend=k) for b, t, k, _ in jobs])
+    if args.execute:
+        expected_attempts = len(jobs) if args.recover_upstream_from or args.all_tasks else len(args.benchmarks) * len(args.backends) * args.tasks_per_benchmark
+        if not jobs or len(jobs) != expected_attempts or args.authorized_attempts != len(jobs) or args.authorized_judges not in (0, maximum_judges):
+            raise ValueError(f"Require exactly {len(jobs)} authorized solvers and zero or at most {maximum_judges} authorized judges")
+        if manifest:
+            expected = explicit_protocol if args.protocol_settings else manifest['baseline_settings']
+            if expected != observed_settings or (args.organization_prompt and not args.protocol_settings):
+                raise ValueError('Baseline settings differ from the frozen validation study')
+        if args.estimated_cost is None or amount(args.estimated_cost)<=0:
+            raise ValueError('Execution requires an explicit positive --estimated-cost for the remaining scope')
+    if amount(args.budget_safety_factor)<1:
+        raise ValueError('Budget safety factor must be >= 1')
+    amount(args.balance_reserve)
+    readiness = runtime_preflight(args) if args.execute or args.check_runtime else None
+    if readiness is not None:
+        authorization['runtime_preflight'] = readiness
     if not args.execute:
         print(json.dumps(authorization, indent=2))
         return 0
-    if len(jobs) != len(BENCHMARKS) * len(args.backends) * args.tasks_per_benchmark or args.authorized_attempts != len(jobs) or args.authorized_judges not in (0, maximum_judges):
-        raise ValueError(f"Require exactly {len(jobs)} authorized solvers and zero or at most {maximum_judges} authorized judges")
-    if manifest:
-        expected = explicit_protocol if args.protocol_settings else manifest["baseline_settings"]
-        if expected != observed_settings or (args.organization_prompt and not args.protocol_settings):
-            raise ValueError("Baseline settings differ from the frozen validation study")
     os.umask(0o077)
     args.output.mkdir(parents=True, exist_ok=False)
+    ownership=exclusive(args.output/'controller.lock')
+    ownership.__enter__()
+    journal=Journal(args.output/'journal.sqlite')
     write_json(args.output / "authorization.json", {**authorization, "authorized_judges": args.authorized_judges})
     if manifest:
         write_json(args.output / "task-manifest.json", manifest)
@@ -248,20 +499,28 @@ def main(argv=None):
         # Pin the validated text so every child reads the same lead instructions.
         args.organization_prompt = args.output / "organization-prompt.txt"
         args.organization_prompt.write_text(authorization["organization_override"]["text"], encoding="utf-8")
-    args.image = json.loads(subprocess.check_output(["docker", "image", "inspect", args.image], text=True))[0]["Id"]
-    for backend in args.backends:
-        proof = json.loads((args.proofs / backend / "proof.json").read_text())
-        evidence.validate_proof(proof,backend if backend in evidence.MODES else None)
-        validate_runtime(proof, runtime_backend(backend), image_id=args.image,
-            binary_sha256=digest(runtime.CLAUDE))
-        if args.effort != "max" and not (proof.get("requested_effort") == args.effort
-                and proof.get("request_effort_verified") is True):
-            raise ValueError("Matching offline request-effort proof is required for this study")
-    active, lock, stop = set(), threading.Lock(), threading.Event()
+    args.image = readiness['image_id']
+    active, lock, stop = set(), threading.RLock(), threading.Event()
+    paused=threading.Event()
+    monitor_done=threading.Event()
+    budget_watch=None
+
+    def pause_budget(error):
+        with lock:
+            if not paused.is_set():
+                paused.set()
+                write_json(args.output/'balance-paused.json',dict(reason=str(error),observed_at=runtime.now()))
 
     def command_run(command, log):
-        if stop.is_set():
+        paid='--execute' in command or '--execute-judges' in command
+        if stop.is_set() or (paid and paused.is_set()):
             return None
+        if paid and budget_watch is not None:
+            try:
+                budget_watch.check()
+            except ValueError as error:
+                pause_budget(error)
+                return None
         log.parent.mkdir(parents=True, exist_ok=True)
         with log.with_suffix(".stdout.log").open("x") as stdout, log.with_suffix(".stderr.log").open("x") as stderr:
             # Never inherit credential-like host variables into CLI subprocesses.
@@ -305,6 +564,37 @@ def main(argv=None):
             raise
     rows = []
     before = after = None
+    def provider_watch():
+        observed={}
+        ledgers=[out/t.id/runtime_backend(k)/'gateway-requests.jsonl' for b,t,k,out in jobs
+                 if (b,t.id,k) not in retained]
+        while not monitor_done.wait(1):
+            try:
+                if budget_watch is not None and not paused.is_set():
+                    try:
+                        budget_watch.check()
+                    except ValueError as error:
+                        pause_budget(error)
+                for path in ledgers:
+                    try:
+                        stat=path.stat()
+                    except FileNotFoundError:
+                        continue
+                    version=(stat.st_mtime_ns,stat.st_size)
+                    if observed.get(path)==version:
+                        continue
+                    observed[path]=version
+                    fatal=fatal_provider_record(path)
+                    if fatal:
+                        write_json(args.output/'fatal-provider-error.json',fatal)
+                        interrupt(None,None)
+                        return
+            except Exception as error:
+                write_json(args.output/'monitor-error.json',dict(error_type=type(error).__name__))
+                interrupt(None,None)
+                return
+    watcher=threading.Thread(target=provider_watch,daemon=True)
+    watcher.start()
     try:
         # All offline preflights must pass before any paid attempt starts.
         with ThreadPoolExecutor(max_workers=args.concurrency) as pool:
@@ -312,15 +602,39 @@ def main(argv=None):
                                    args.output / "logs" / (b + "-" + t.id + "-" + k + "-preflight")) for b, t, k, out in jobs if (b,t.id,k) not in retained]
             if any(f.result() != 0 for f in futures):
                 raise RuntimeError("Matrix preflight failed; no paid attempts dispatched")
+        if args.recover_upstream_from:
+            claim = Path(str(args.recover_upstream_from) + '.upstream-recovery-claim.json')
+            with claim.open('x', encoding='utf-8') as stream:
+                json.dump(dict(output=str(args.output), attempts=list(recovery.values()),
+                               claimed_at=runtime.now()), stream, indent=2)
         key = runtime.credential(args.credentials)
         before = runtime.safe_balance(key, args.output, "balance-before")
         if before is None or not before.get("response", {}).get("is_available"):
             raise RuntimeError("Balance preflight failed; no paid attempts dispatched")
+        admission=admit_balance(before,args.budget_currency,args.estimated_cost,
+                                args.budget_safety_factor,args.balance_reserve)
+        write_json(args.output/'balance-admission.json',admission)
+        budget_watch=BalanceWatch(lambda:runtime.safe_balance(key,args.output,'balance-current'),
+                                 args.budget_currency,args.balance_reserve)
+        if args.retain_started_from:
+            with exclusive(args.retain_started_from/'controller.lock'):
+                assert_quiescent(args.retain_started_from)
+                with (args.retain_started_from/'continuation-claim.json').open('x') as stream:
+                    json.dump(dict(output=str(args.output),claimed_at=runtime.now()),stream)
+                    stream.flush();os.fsync(stream.fileno())
 
         def solve(job):
             b, t, k, out = job
             if (b,t.id,k) in retained:
-                return dict(retained[(b,t.id,k)],retained_without_rerun=True)
+                row=dict(retained[(b,t.id,k)],retained_without_rerun=True)
+                journal.claim('solver',(b,t.id,k),'retained',row)
+                journal.finish('solver',(b,t.id,k),'retained',row)
+                return row
+            if stop.is_set() or paused.is_set():
+                return dict(benchmark=b,task_id=t.id,backend=k,run=str(out),status='not_started')
+            binding=fingerprint(dict(task=task_fingerprint(b,t),settings=observed_settings,source=authorization['source_manifest']))
+            initial=dict(benchmark=b,task_id=t.id,backend=k,run=str(out),status='dispatch_unknown')
+            journal.claim('solver',(b,t.id,k),binding,initial)
             code = command_run(solver_command(args, b, t, k, out, execute=True),
                                args.output / "logs" / (b + "-" + t.id + "-" + k + "-solver"))
             actual_backend=runtime_backend(k)
@@ -333,6 +647,9 @@ def main(argv=None):
                 row["status"] = record["status"]
                 if record.get("fatal_provider_error"):
                     stop.set()
+            elif code is not None:
+                row['status']='dispatch_unknown'
+            journal.finish('solver',(b,t.id,k),binding,row)
             return row
 
         with ThreadPoolExecutor(max_workers=args.concurrency) as pool:
@@ -343,15 +660,45 @@ def main(argv=None):
 
         def score(job):
             b, t, k, out = job
-            if stop.is_set():
+            if stop.is_set() or paused.is_set():
                 return dict(benchmark=b, task_id=t.id, backend=k, judge_calls=0, status="not_started")
+            solver_row=next(r for r in rows if (r['benchmark'],r['task_id'],r['backend'])==(b,t.id,k))
+            if solver_row['status'] in {'not_started','dispatch_unknown'}:
+                return dict(benchmark=b,task_id=t.id,backend=k,judge_calls=None,status='solver_outcome_unknown')
             actual_backend=runtime_backend(k)
             grades_root=args.output/'grades'/k if k in evidence.MODES else args.output/'grades'
+            submission=out/t.id/actual_backend/'submission.json' if b=='kramabench' else out/'predictions.jsonl'
+            binding=fingerprint(dict(submission=digest(submission) if submission.exists() else None,
+                source=authorization['source_manifest'],task=task_fingerprint(b,t),backend=k,
+                summary=digest(out/'summary.json') if (out/'summary.json').exists() else None))
+            identity=(b,t.id,k)
+            previous_grade=None
+            if args.retain_started_from:
+                previous_grade=prior_grade(args.retain_started_from,identity)
+            if previous_grade:
+                if previous_grade['binding']!=binding:
+                    raise ValueError('Retained grade artifact or evaluator binding changed')
+                result=(dict(previous_grade['body'],reused_without_dispatch=True,judge_calls=0)
+                        if previous_grade['state']=='complete' else
+                        dict(benchmark=b,task_id=t.id,backend=k,judge_calls=None,status='grading_outcome_unknown'))
+                journal.claim('grade',identity,binding,result)
+                journal.finish('grade',identity,binding,result)
+                return result
+            try:
+                budget_watch.check()
+            except ValueError as error:
+                pause_budget(error)
+                return dict(benchmark=b,task_id=t.id,backend=k,judge_calls=0,status='not_started')
+            journal.claim('grade',identity,binding,dict(benchmark=b,task_id=t.id,backend=k,status='grading_outcome_unknown'))
             result=grade_attempt(b, t, actual_backend, out, data_root=args.root, grades_root=grades_root,
                 credentials=args.credentials, judge_enabled=bool(args.authorized_judges), key=key,
                 command_run=command_run, log=args.output / "logs" / (b + "-" + t.id + "-" + k + "-grade"))
             if k in evidence.MODES:
                 result.update(backend=k,runtime_backend=actual_backend)
+            if result.get('fatal_provider_error'):
+                stop.set()
+            result['grading_artifact']=str(grades_root/b/t.id/actual_backend)
+            journal.finish('grade',identity,binding,result)
             return result
 
         grades = []
@@ -363,9 +710,9 @@ def main(argv=None):
         write_json(args.output / "summary.json", dict(rows=rows, grades=grades, authorization=authorization,
             account_delta=runtime.balance_deltas(before, after) if before and after else None,
             accounting_scope="Whole shared-account interval, not attributable per-condition charges",
-            interrupted=stop.is_set(), finished_at=runtime.now()))
-        grades_ok = all(g["status"] not in {"missing_summary", "missing_predictions", "grading_failed", "judge_error", "not_started"} for g in grades)
-        return 0 if len(rows) == len(jobs) and all(r["status"] == "cli_exited" for r in rows) and grades_ok and not stop.is_set() else 1
+            interrupted=stop.is_set() or paused.is_set(), finished_at=runtime.now()))
+        grades_ok = all(g["status"] not in {"missing_summary", "missing_predictions", "grading_failed", "judge_error", "not_started",'solver_outcome_unknown','grading_outcome_unknown','judge_outcome_unknown'} for g in grades)
+        return 0 if len(rows) == len(jobs) and all(r["status"] == "cli_exited" for r in rows) and grades_ok and not stop.is_set() and not paused.is_set() else 1
     except BaseException as error:
         interrupt(None, None)
         write_json(args.output / "failure.json", dict(error_type=type(error).__name__,
@@ -373,6 +720,8 @@ def main(argv=None):
             interrupted=stop.is_set(), observed_at=runtime.now()))
         raise
     finally:
+        monitor_done.set()
+        watcher.join()
         if stop.is_set():
             for receipt in args.output.glob("solvers/**/container-ownership.json"):
                 owned = json.loads(receipt.read_text())
@@ -381,6 +730,7 @@ def main(argv=None):
                     subprocess.run(["docker", "rm", "-f", name], capture_output=True, timeout=20)
         for s, handler in previous.items():
             signal.signal(s, handler)
+        ownership.__exit__(None,None,None)
 
 
 if __name__ == "__main__":

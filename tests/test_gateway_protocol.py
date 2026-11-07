@@ -28,7 +28,7 @@ def no_paid_network(monkeypatch):
     monkeypatch.setattr(socket.socket, "connect_ex", guarded(_connect_ex))
 
 
-def post(gateway, path="/responses", payload=None):
+def post(gateway, path="/anthropic/v1/messages", payload=None):
     request = urllib.request.Request(gateway.url + path,
         data=json.dumps(payload or {"model": "deepseek-flash", "input": "private question"}).encode(),
         headers={"Authorization": "Bearer " + gateway.token})
@@ -74,6 +74,7 @@ def test_error_preserves_protocol_without_secrets(tmp_path, monkeypatch):
     assert [r["event"] for r in rows] == ["started", "dispatched", "finished"]
     assert rows[-1]["provider_request_id"] == "req-fixture"
     assert rows[-1]["outcome"] == "upstream_rejected"
+    assert rows[-1]['rate_limit_headers'] == {'retry-after': '2', 'x-ratelimit-remaining-requests': '0'}
     assert len(calls) == 1
     assert "private question" not in ledger.read_text()
     assert "synthetic-secret" not in ledger.read_text()
@@ -188,7 +189,7 @@ def test_shutdown_blocks_incomplete_body_before_provider(tmp_path, monkeypatch):
     monkeypatch.setattr(gateway, "receipt", observe)
     gateway.__enter__()
     with socket.create_connection(gateway.server.server_address, timeout=3) as client:
-        headers = ("POST /responses HTTP/1.1\r\nHost: localhost\r\nAuthorization: Bearer " + gateway.token
+        headers = ("POST /anthropic/v1/messages HTTP/1.1\r\nHost: localhost\r\nAuthorization: Bearer " + gateway.token
                    + "\r\nContent-Length: 100\r\n\r\n{")
         client.sendall(headers.encode())
         assert started.wait(3)

@@ -51,3 +51,10 @@ def test_legacy_validator_remains_compatible_without_runtime_binding():
     del proof["runtime_binding"]
     del proof["backend"]
     validate(proof, "claude-code-single-agent")
+
+
+def test_error_injection_proof_never_admits_paid_launch():
+    proof = claude_proof()
+    proof['proof_kind'] = 'native_error_injection'
+    with pytest.raises(ValueError, match='error probe'):
+        validate(proof, 'claude-code-single-agent')

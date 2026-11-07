@@ -1,45 +1,39 @@
-# Current Validation20 Results
+# Retained Results
 
-20 frozen questions per benchmark and condition, one solver attempt each.
-Timeouts score zero as requested. The original Single/Structured results remain
-unchanged; two original HDR Subagents answers had artifact-only regrades, both zero.
-On 2026-11-05, the separately authorized Native Subagents prompt condition
-completed the same 60 questions, with no replacement attempts.
+The completed CPU8 KramaBench Structured/FULL comparison and two subsequently
+authorized four-task engineering checks are retained.
+Both conditions have 20 effective questions, mean score 0.7453846154 and 14 fully
+correct answers. Scores match question by question. FULL averages 7.7321 CLI
+minutes versus Structured's 7.3662. These are validation results, not a held-out
+test or a causal mechanism ablation.
 
-| Benchmark | Single Mean | Structured Mean | Native Mean | Single Full | Structured Full | Native Full |
-| --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| DataClaw | 0.7750 | 0.9000 | 0.8750 | 15/20 | 18/20 | 17/20 |
-| HDR | 0.3500 | 0.3500 | 0.3500 | 7/20 | 7/20 | 7/20 |
-| KramaBench | 0.7454 | 0.7954 | 0.7287 | 14/20 | 15/20 | 13/20 |
+Server output prefix:
+`/home/zhoujunye/mas/outputs/krama-cpu8-paired-20261106-03`.
+The primary artifacts are `-effective-export.json` and `-effective-report/`.
+Three once-only authorized upstream-503 replacements reside in
+`-upstream-recovery-01/`. Keep original failures and all incurred costs, not only
+the effective successful attempts. No score-based best-of selection is allowed.
 
-Full-score totals: Single 36/60, Structured 40/60, Native 37/60. This repeatedly used development
-set is not an independent final test. Different benchmark scores are not pooled.
+Observed complete-request USD scenario subtotals including failures/recovery:
+Structured 1.561336, FULL 2.051078. Nine HTTP 503 requests lack usage metadata
+(seven Structured, two FULL), so full costs are unknown. These are not invoices.
+Mean measured CPU cores are 0.4901 / 0.5357, with zero quota throttled seconds.
 
-HDR `sql2s_103` uses saved CLI final text because the required original submission
-file was missing (score zero). Single HDR `parallel_009` timed out (zero).
-Krama Subagents `wildfire-easy-3` retains its original lifecycle flag in this
-report; offline lifecycle reconciliation did not change its score.
+The twenty-question run used decision-v3. The two decision-v4 paid checks used
+the same four frozen questions, CPU8, four numerical threads and eight concurrent
+solvers total, without reruns. Each condition scored 0.976923 on both checks,
+with three full-score tasks and one partial score. FULL mean CLI time fell
+232.87 -> 173.55 seconds; Structured varied 162.30 -> 150.79 seconds. FULL's
+estimated cost at the same historical pricing scenario fell 25.10%. These are
+small-sample observations, not evidence of universal or causal speed gains.
 
-Retained private reports under server `/home/zhoujunye/mas/outputs/`:
+The two smoke output prefixes are `krama-infra-smoke4-20261107-01` and `-02`
+under the same server outputs directory. Keep both raw batches: the first is
+the comparison baseline, not a disposable interrupted run.
 
-- Original comparison: `validation20-current-report/REPORT.md`.
-- Single/Structured uniform accounting audit:
-  `validation20-baseline-accounting-audited-20261105-01/REPORT.md`.
-- Native artifact-only accounting correction:
-  `claude-validation20-native-20261105-01-report-audited-01/REPORT.md`.
-
-These ignored output files are not published as repository-relative links.
-The Native condition had 60 normal CLI exits and 60 passing native lifecycle
-audits; these do not establish correctness or substantive worker contribution.
-See [Native run and web diagnostics](studies/validation20-native.md) for limitations.
-One cancelled model stream leaves the total cost unknown; no score was changed
-by the accounting correction and no solver was rerun for it.
-Uniform reinspection also leaves one original Single task and three original
-Structured tasks with incomplete model charges. The earlier complete totals
-must not be treated as audited batch totals. All three complete totals are
-unknown; [README](../README.md) lists the known subtotals, cost coverage and
-per-attempt times using the same accounting rule. Original scores and HDR
-regrade provenance are preserved.
-Original run and artifact-only regrade directories retain their recorded names;
-raw evidence, original scores and earlier reports are preserved on the server.
-No current prompt version label is implied by historical directory names.
+- [Retained run configuration and accounting](studies/krama-cpu8-paired.md)
+- [Trajectory diagnosis](studies/cpu8-trajectory-analysis.md)
+- [Active infra](studies/evidence-infra.md)
+- [Latest paid speed check](studies/infra-smoke4-speed-check.md)
+- [Full-scale offline readiness](studies/fullscale-infra.md)
+- [Retention policy](archive.md)

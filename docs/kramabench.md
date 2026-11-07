@@ -45,10 +45,10 @@ backend are supported. No automatic retries or replacement attempts are made.
 
 Claude Single removes and denies native delegation tools, with observed policy
 and zero-delegation checks. Missing evidence is not a pass. Deep Agents is retired;
-its historical 500-turn results remain evidence, not an active execution choice.
+its adapters, historical results and checkpoint readers have been removed.
 The native tool policy is not an adversarial shell/network sandbox.
 
-Agent Teams is retired as an execution condition; historical results remain readable.
+Agent Teams and its historical result readers are retired.
 
 `claude-code-subagents` uses the separate print-mode adapter and explicitly
 disables Agent Teams. Native SubagentStart/Stop and root SessionEnd, no Team
@@ -92,12 +92,10 @@ can be reused for offline rescoring; no new judge is called implicitly.
 - `catalog.py` and `prepare.py`: pinned task/input provenance; provisioning is
   separately authorized and plan-only unless explicitly executed.
 - `scripts/probes/`: loopback fake-provider transport and native policy checks.
-- `score.py` and `rescore_native.py`: artifact-bound offline grading and rescoring;
+- `score.py`: artifact-bound offline scoring into a fresh namespace;
   semantic verdicts require separately authorized judge calls.
 - `scripts/studies/matched_matrix_report.py`: current matched comparison across
   all three benchmarks; supports an explicit timeout-zero reporting policy.
-- `scripts/studies/rescore_validation20_hdr.py`: explicitly authorized two-case
-  recovery from existing artifacts, never a solver rerun.
 
 The old 104-task repaired Single/Team publisher, mixed Deep Agents/Claude joiners,
 and publication-specific retention tool are retired. Their old input studies
@@ -105,5 +103,6 @@ were deleted previously; source is retained in the cleanup snapshot, not as
 active commands. Current results and caveats are in [current-results.md](current-results.md).
 
 All tests and experiments run on the server. Source/data/scoring hashes, original
-failures, unknown accounting and current raw artifacts remain preserved. Historical
-records are in [archives](archive.md); no old authorization permits new paid work.
+failures, unknown accounting and current paired raw artifacts remain preserved.
+Older records were removed under the [retention policy](archive.md); no old
+authorization permits new paid work.

@@ -28,3 +28,12 @@ def test_tiny_reference_regression_and_explicit_legacy_policy():
     assert numeric_success(1e-7, 0, numeric_policy='upstream_v2') == 1
     with pytest.raises(ValueError, match='Unknown numeric policy'):
         numeric_success(1, 1, numeric_policy='invalid')
+
+
+def test_zero_numeric_strings_and_relative_tolerance_boundary():
+    assert numeric_success(0,0)==1
+    assert numeric_success('0.0',0)==1
+    assert numeric_success('-0.0000001',0)==0
+    assert numeric_success('5.107269247909184e-13','4.638e-13')==0
+    assert numeric_success(10001.0,10000.0)==1
+    assert numeric_success(10001.01,10000.0)==0

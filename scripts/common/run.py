@@ -24,7 +24,7 @@ from harness import ClaudeCodeSingleAgentCLI, ClaudeCodeSubagentsCLI
 from analysis.run_integrity import inspect_run
 from harness.runtime_support import runtime
 from harness.runtime_support.credential_gateway import CredentialGateway
-from harness.runtime_support.proof import validate as validate_proof, validate_runtime
+from harness.runtime_support.proof import validate as validate_proof, validate_runtime, validate_effort
 from benchmarks.policy import default_timeout, timeout_policy
 from analysis.native_evidence import native_single_agent, native_subagents
 from scripts.common import evidence
@@ -136,6 +136,7 @@ def plan(args, tasks):
                                  utf8_bytes=len(v.encode())) for k, v in prompts.items()},
                 assets=assets, attempts=len(tasks), retries=0, judge_calls=0, options=options,
                 image=args.image, network="none", timeout=args.timeout, timeout_policy=timeout_policy(args.benchmark, args.timeout),
+                record_resources=getattr(args,'record_resources',False),
                 web_search=args.web_search,
                 web_request_limits={t.id: run_web_limit(t, args) for t in tasks},
                 native_environment=runtime.native_env(args.backend, effort=getattr(args, "effort", "max")),
@@ -180,6 +181,7 @@ def attempt(task, args, key):
     runtime.write_json(folder / "report.json", result)
     identity = None
     gateway = None
+    resources = None
     interrupted = None
     try:
         inputs = mounts(task, args) + [(Path(__file__).resolve().parents[2] / "harness/runtime_support/tools.py", "/benchmark-tools.py", True)] + evidence.source_mounts(mode)
@@ -193,6 +195,9 @@ def attempt(task, args, key):
             effort=getattr(args, "effort", "max"),
             dataset_mounts=inputs, environment_overrides=environment,
             forwarded_env=("TAVILY_API_KEY",) if task.web and args.web_search == "tavily" else ())
+        if getattr(args,'record_resources',False):
+            from harness.runtime_support.resources import ContainerResources
+            resources=ContainerResources(identity,folder,2).start()
         result.update(status="running", container_id=identity, started_at=runtime.now())
         runtime.write_json(folder / "report.json", result)
         kwargs = dict(command_prefix=("docker", "exec", "-i", "--workdir", "/workspace", identity))
@@ -217,8 +222,16 @@ def attempt(task, args, key):
     finally:
         if identity is not None:
             try:
-                result["cleanup"] = runtime.stop_container(identity)
-                subprocess.run(["docker", "rm", identity], check=True, capture_output=True)
+                try:
+                    try:
+                        if resources is not None:
+                            result['resources']=resources.close()
+                    finally:
+                        result["cleanup"] = runtime.stop_container(identity)
+                    if resources is not None:
+                        result['resources']=resources.record_exit()
+                finally:
+                    subprocess.run(["docker", "rm", identity], check=True, capture_output=True)
             except Exception as error:
                 result.update(status="cleanup_failed", cleanup_error=type(error).__name__)
         if gateway is not None:
@@ -266,10 +279,9 @@ def attempt(task, args, key):
             raise ValueError("Expected exactly one final_answer text field")
         if mode == 'full':
             result['decision_gate'] = evidence.host_check(folder, data)
-            if not result['decision_gate']['accepted']:
-                result['protocol_status'] = 'incomplete'
-            else:
-                result['protocol_status'] = 'complete'
+            gate=result['decision_gate']
+            result['protocol_status'] = ('coverage_unknown' if gate.get('coverage') is False
+                else 'complete' if gate['accepted'] else 'incomplete')
         result["submission_sha256"] = digest(submission)
         shutil.copyfile(submission, folder / "submission.json")
         if evaluable_prediction(result):
@@ -307,6 +319,7 @@ def main(argv=None, *, benchmark=None):
     parser.add_argument("--authorized-attempts", type=int)
     parser.add_argument("--credentials", type=Path, default=Path("/home/zhoujunye/mas/.env"))
     parser.add_argument("--execute", action="store_true")
+    parser.add_argument('--record-resources',action='store_true')
     parser.add_argument("--effort", choices=("high", "max"), default="max")
     parser.add_argument("--organization-prompt", type=Path,
                         help="Explicit lead-only Claude Subagents study prompt override")
@@ -343,6 +356,7 @@ def main(argv=None, *, benchmark=None):
     proof = json.loads(args.offline_proof.read_text())
     evidence.validate_proof(proof,args.evidence_mode)
     validate_proof(proof, args.backend)
+    validate_effort(proof, args.effort)
     key = runtime.credential(args.credentials)
     args.image = json.loads(subprocess.check_output(["docker", "image", "inspect", args.image]))[0]["Id"]
     frozen.update(image_id=args.image, offline_proof_sha256=digest(args.offline_proof))

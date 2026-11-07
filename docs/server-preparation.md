@@ -28,7 +28,7 @@ The existing KramaBench base image is retained for builds.
 External `receipts/data-hydration.json`, data verification and
 `receipts/evaluation-requirements.lock` describe data/environment provenance,
 not disposable cleanup logs. Runtime-bound native offline proofs are needed
-for execution admission; current proof paths are in [the run record](studies/validation20-final.md).
+for execution admission; current proof requirements are in [active infra](studies/evidence-infra.md).
 No installation or environment change is implicit in these instructions.
 
 ## Safety

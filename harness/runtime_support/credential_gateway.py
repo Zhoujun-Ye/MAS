@@ -18,7 +18,7 @@ import urllib.request
 import uuid
 
 
-ROUTES = {"/responses", "/anthropic/v1/messages", "/anthropic/v1/messages/count_tokens",
+ROUTES = {"/anthropic/v1/messages", "/anthropic/v1/messages/count_tokens",
           "/v1/tools/search", "/v1/tools/fetch"}
 USAGE_FIELDS = {"input_tokens", "output_tokens", "total_tokens", "prompt_tokens", "completion_tokens",
                 "cache_creation_input_tokens", "cache_read_input_tokens", "cached_tokens", "reasoning_tokens",
@@ -63,25 +63,16 @@ class UsageObserver:
         self.pending = b""
         self.usage = {}
         self.response_id = None
-        self.output_ids = set()
         self.overflow = False
 
     def observe(self, value):
         if not isinstance(value, dict):
             return
         self.usage.update(numeric_usage(value.get("usage")))
-        items = value.get("output", [])
-        if isinstance(value.get("item"), dict):
-            items = [*items, value["item"]] if isinstance(items, list) else [value["item"]]
-        for item in items if isinstance(items, list) else []:
-            identity = item.get("id") if isinstance(item, dict) else None
-            if isinstance(identity, str) and re.fullmatch(r"[A-Za-z0-9_.:-]{1,200}", identity):
-                if len(self.output_ids) < 4096:
-                    self.output_ids.add(identity)
         identity = value.get("id")
         if isinstance(identity, str) and re.fullmatch(r"[A-Za-z0-9_.:-]{1,200}", identity):
             self.response_id = identity
-        for name in ("response", "message"):
+        for name in ("message",):
             if isinstance(value.get(name), dict):
                 self.observe(value[name])
 
@@ -290,7 +281,6 @@ class CredentialGateway:
                         self.record["usage_status"] = ("observed" if self.record["outcome"] == "response_complete" else "partial") if observer.usage else "unknown"
                         if observer.response_id:
                             self.record["provider_response_id"] = gateway.redact(observer.response_id)
-                        self.record["provider_output_ids"] = sorted(gateway.redact(i) for i in observer.output_ids)
                     self.record["finished_at"] = now()
                     if gateway.budget is not None:
                         gateway.budget.settle(self.record)
@@ -302,6 +292,8 @@ class CredentialGateway:
                     allowed = lower in {"request-id", "x-request-id", "retry-after"} or lower.startswith(("x-ratelimit-", "ratelimit-", "anthropic-ratelimit-"))
                     if allowed and len(value) <= 512 and "\r" not in value and "\n" not in value:
                         self.send_header(name, gateway.redact(value))
+                        if lower == 'retry-after' or lower.startswith(('x-ratelimit-', 'ratelimit-', 'anthropic-ratelimit-')):
+                            self.record.setdefault('rate_limit_headers', {})[lower] = gateway.redact(value)
                         if lower in {"request-id", "x-request-id"} and re.fullmatch(r"[A-Za-z0-9_.:-]{1,200}", value):
                             self.record["provider_request_id"] = gateway.redact(value)
 

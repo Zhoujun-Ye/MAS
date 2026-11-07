@@ -26,6 +26,7 @@ def main():
     parser.add_argument("--image", required=True)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--execute", action="store_true")
+    parser.add_argument('--effort', choices=('high', 'max'), default='max')
     args = parser.parse_args()
     if not args.execute:
         print(json.dumps(dict(status="planned", mode_probes=4, budget_probes=2, paid_calls=0)))
@@ -55,7 +56,8 @@ def main():
             inputs = mounts(task, argparse.Namespace(upstream=dc_root, data=data, data_variant="database"))
             script = code / "scripts/probes" / ("single_agent.py" if mode == "single-agent" else "subagents.py")
             inputs += [(script, "/probe.py", True), (code / "harness/runtime_support/tools.py", "/benchmark-tools.py", True)]
-            identity = runtime.container(work, profile, data, args.image, network="none", backend=backend, dataset_mounts=inputs)
+            identity = runtime.container(work, profile, data, args.image, network="none", backend=backend,
+                                         dataset_mounts=inputs, effort=args.effort)
             try:
                 if task.benchmark == "hybriddeepresearch":
                     check = ["python3", "/benchmark-tools.py", "sql", "--db", f"/data/{task.db}/{task.db}_template.sqlite",
@@ -86,6 +88,10 @@ def main():
             shutil.copyfile(profile / "probe/stdout.log", folder / "cli/stdout.log")
             proof = json.loads((profile / "probe/transport.json").read_text())
             proof.update(backend=backend, task_id=task.id, benchmark=task.benchmark)
+            requests = json.loads((profile / 'probe/fake-provider-requests.json').read_text())
+            observed = [r.get('output_config', {}).get('effort') for r in requests]
+            proof.update(requested_effort=args.effort, observed_request_efforts=observed,
+                         request_effort_verified=bool(observed) and all(v == args.effort for v in observed))
             if budget:
                 events = [json.loads(line) for line in (folder / "cli/stdout.log").read_text().splitlines() if line.startswith("{")]
                 native = next((e for e in reversed(events) if e.get("type") == "result"), {})
@@ -98,6 +104,7 @@ def main():
                     proof["passed"] = proof["passed"] and proof.get("delegation_rejections_observed", 0) >= 2
             with runtime.CLAUDE.open("rb") as binary:
                 unchanged = hashlib.file_digest(binary, "sha256").hexdigest() == binary_sha256
+            proof['passed'] = bool(proof['passed'] and proof['request_effort_verified'])
             if proof["passed"] and unchanged:
                 proof["runtime_binding"] = binding
             elif not unchanged:

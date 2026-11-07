@@ -1,8 +1,8 @@
 # Project Instructions
 
 The user retired Deep Agents on 2026-11-03. The active Claude Code harness contains Subagents and Single Agent adapters.
-Claude Code Agent Teams was retired on 2026-11-04; preserve historical evidence,
-but do not restore its adapter, probes or launch choices. Research orchestration remains separate. Do not
+Claude Code Agent Teams was retired on 2026-11-04; do not restore its adapter,
+historical readers, probes or launch choices. Research orchestration remains separate. Do not
 restore the retired custom Team runtime, provider relay, Single/Team launchers,
 coordinator/full modes, capability catalogs, or custom scheduling semantics.
 
@@ -10,14 +10,16 @@ coordinator/full modes, capability catalogs, or custom scheduling semantics.
 
 - The active CLI pin is Claude Code 2.1.286. Codex adapters, launch choices and
   results were retired at the user's request. Do not restore active Codex paths.
-  Read-only historical evidence readers may remain; preserve Claude comparisons.
+  Retired runtime readers are removed; retain the authorized Claude comparisons
+  listed in `docs/archive.md`.
 
 - `harness/claude_code_subagents/`: print-mode ordinary native Claude subagents, with Teams disabled.
 - `harness/claude_code_single_agent/`: print-mode strict Single, with native delegation tools removed and denied.
 - `harness/_claude_cli.py` and `_claude_hooks.py`: shared native arguments/observations and opt-in Single permission policy.
 - `harness/_cli.py`: CLI preflight, process lifetime, stdin and raw evidence only.
 - `harness/evidence_mas/`: our opt-in MAS harness, currently the observation
-  store, historical analytical ledger and decision-v3 FULL protocol. On 2026-11-05
+  store, bounded delta sharing and decision-v4 FULL protocol. The manual
+  historical ledger API was removed on 2026-11-07. On 2026-11-05
   the user authorized system-side candidate extraction and submission consistency
   gates, without Structured prompting for the explicit FULL/OBS studies. The user
   subsequently requested the exact existing Native (N) prompt in both, FULL as a
@@ -31,7 +33,7 @@ coordinator/full modes, capability catalogs, or custom scheduling semantics.
   `scripts/`; scripts own executable workflows, not reusable harness mechanisms.
 - Agent contexts, tools, communication and scheduling belong to the external CLI.
 - Do not clone or vendor the upstream runtime, or import its SDK here.
-- Deep Agents is retired. Keep historical evidence/readers, not active adapters,
+- Deep Agents is retired. Do not keep historical readers or active adapters,
   executable requirements, mounts, environment settings, probes or launch choices.
 - Do not label ordinary subagents as a native Agent Team.
 - Claude Single is a strict single-agent baseline. Use explicit native single
@@ -62,14 +64,13 @@ coordinator/full modes, capability catalogs, or custom scheduling semantics.
   add our specialist roles, fixed roster, judge mechanism or cost-reduction policy.
   Lead-only instructions belong in the lead prompt, not worker-visible rule files.
   Run limits are shared task rules: state them identically to every condition.
-- `analysis/` retains generic utilities and read-only historical-schema readers.
+- `analysis/` owns generic utilities and current Claude evidence analysis.
 - Validation20 v1 is the user-adopted reusable development/validation set: exactly
   20 frozen questions per active benchmark. See `docs/studies/validation20.md`
   and its public ID/hash manifest. Do not reroll questions based on results, silently
   replace failures, or describe this repeatedly used set as an independent final test.
-- CooperBench is retired; preserve its evidence and retention exceptions in
-  `docs/archive.md`, not an active dependency.
-- Preserve unrelated changes and historical evidence. Snapshot overlapping
+- CooperBench is retired, not an active dependency or retained result source.
+- Preserve unrelated changes and current paired evidence. Snapshot overlapping
   uncommitted source before removing it; Git alone does not preserve that work.
 
 See `docs/cli-adapters.md` for pinned versions, references and limitations.
@@ -105,13 +106,25 @@ See `docs/cli-adapters.md` for pinned versions, references and limitations.
   and no retries; it must not implement model orchestration or scheduling.
   A leaked provider key must be revoked before paid experiments resume.
 - Installs use the Tsinghua PyPI mirror. Do not provision environments, CLIs,
-  Docker or cloud resources implicitly. Preserve historical images/assets and runs.
+  Docker or cloud resources implicitly. Preserve required current images/assets.
 - Deploy, launch jobs and clean server files only within user authorization.
 
 ## Runtime And Evidence
 
+- The completed CPU8 paired run and its authorized upstream recovery are retained.
+  Earlier interrupted batches were deleted by user request. Do not launch another
+  paid comparison without renewed run-specific authorization. See
+  `docs/studies/krama-cpu8-paired.md` and `docs/studies/evidence-infra.md`.
 - No paid agents, judges, simulators or retries without run-specific authorization
   and size. Offline tests use fake CLIs and must not invoke a paid provider.
+- For user-authorized reruns of attempts terminated by confirmed upstream HTTP
+  5xx errors, use the rerun artifact as the primary result for that same task and
+  condition. Do not keep the infrastructure-failed first attempt in the primary
+  score denominator as an extra task, and do not select whichever score is better.
+  Preserve the original failed attempt and its accounting as audit evidence;
+  disclose rerun counts and total incurred costs, including failed calls. This
+  replacement policy does not authorize retries for wrong answers, lifecycle-only
+  exceptions, or additional paid attempts without run-specific permission.
 - Planning is the default; execution requires an explicit `execute=True` or
   `--execute` plus run-specific user authorization.
 - Never automatically bypass CLI permissions. A shell allow-list is neither a
@@ -131,3 +144,29 @@ See `docs/cli-adapters.md` for pinned versions, references and limitations.
 - Report prompt lengths, token-weighted cache reuse by role, estimated/actual
   costs and unverified behavior when native evidence makes them available.
   Missing accounting is unknown, never zero.
+
+## Current Infra And Retention Override (2026-11-07)
+
+- The user authorized generic sharing/decision/infra repairs and offline tests,
+  not new paid experiments. Use decision-v4 and the canonical workflow in
+  `docs/studies/evidence-infra.md` going forward. Keep the Structured baseline
+  exact and do not hardcode validation task IDs, answers or reference-specific logic.
+- Observation context is bounded and incremental. Hook emissions, evidence reads,
+  semantic correctness and actual model incorporation are distinct measurements.
+  Native scheduling remains external; never add automatic semantic selection,
+  submission, retries or a custom worker scheduler.
+- The user explicitly revoked earlier retain-all-history instructions: delete
+  earlier results, interrupted batches, obsolete receipts/stages, retired sources
+  and result-only compatibility code without making result backups. Base retention is
+  `krama-cpu8-paired-20261106-03` and its one-time upstream recovery, including
+  original failures, all incurred accounting and frozen provenance. Keep current
+  trajectory/infra validation receipts. See `docs/archive.md`.
+- Later paid authorizations added smoke4 batches `krama-infra-smoke4-20261107-01`
+  and `-02`. Preserve both raw batches and frozen paid sources: they provide the
+  before/after speed comparison. Superseded offline iterations and duplicate logs
+  are disposable; do not delete paid evidence merely because its implementation
+  has since changed. Full-scale operation is documented in `docs/studies/fullscale-infra.md`.
+- Read-only decision-v3 support remains solely for that retained paired run;
+  old protocols and manual ledgers are not launch options. Active data, environments,
+  credentials, required images, fixed question manifests and unrelated user work
+  remain protected. Never touch `agent-team` resources or rewrite Git history.

@@ -19,89 +19,50 @@ evidence-review question.
 
 Deep Agents, Claude Code Agent Teams and Codex adapters are retired. Do not restore
 their active adapters or launch choices. Codex results were removed at the user's
-request. Earlier paid results were deleted on 2026-11-04; the subsequently
-authorized current run and its derived regrading reports are retained.
+request. Retained experiments are the CPU8 paired run and its two authorized
+four-task engineering comparisons; see [retention](docs/archive.md).
 
 ## Current Results
 
-All three conditions completed the same 60 frozen Validation20 questions:
-20 per benchmark, one assigned attempt each. Claude Code 2.1.286, DeepSeek Flash,
-high effort, solver concurrency 6 and grading concurrency 2. Structured is still
-the default prompt; Native is a separately authorized prompt study, not Agent Teams.
+The retained twenty-question 8-CPU KramaBench Structured/FULL comparison uses
+20 fixed questions per condition, eight concurrent tasks total, Claude Code
+2.1.286 and DeepSeek Flash at high effort. The three authorized upstream-503
+recoveries replace the matching primary rows; original failures and all incurred
+cost evidence remain part of this batch.
 
-### DataClaw
+| Metric | Structured | FULL (decision-v3 run) |
+| --- | ---: | ---: |
+| Mean score | 0.7453846154 | 0.7453846154 |
+| Full-score questions | 14/20 | 14/20 |
+| Mean effective CLI minutes | 7.3662 | 7.7321 |
+| Mean CPU cores | 0.4901 | 0.5357 |
+| Measured quota throttled seconds | 0 | 0 |
 
-| Condition | Mean Score | Full Score | Mean Min/Task | Known Cost Subtotal (USD) | Cost Coverage |
-| --- | ---: | ---: | ---: | ---: | ---: |
-| Single | 0.7750 | 15/20 | 4.27 | 0.604693 | 20/20 |
-| Structured Subagents | 0.9000 | 18/20 | 4.86 | 1.076522 | 20/20 |
-| Native Subagents | 0.8750 | 17/20 | 5.46 | 1.226527 | 20/20 |
+Scores match on every question. These reused validation questions do not establish
+held-out performance or causal superiority. Earlier experiments and their
+result-only compatibility paths were removed at the user's request on 2026-11-07.
+See [current evidence](docs/current-results.md) for scope and cost limitations.
 
-### HDR
-
-| Condition | Mean Score | Full Score | Mean Min/Task | Known Cost Subtotal (USD) | Cost Coverage |
-| --- | ---: | ---: | ---: | ---: | ---: |
-| Single | 0.3500 | 7/20 | 7.87 | 0.939461 | 19/20 |
-| Structured Subagents | 0.3500 | 7/20 | 12.56 | 2.187651 | 18/20 |
-| Native Subagents | 0.3500 | 7/20 | 13.09 | 2.474321 | 19/20 |
-
-### KramaBench
-
-| Condition | Mean Score | Full Score | Mean Min/Task | Known Cost Subtotal (USD) | Cost Coverage |
-| --- | ---: | ---: | ---: | ---: | ---: |
-| Single | 0.7454 | 14/20 | 3.93 | 0.477129 | 20/20 |
-| Structured Subagents | 0.7954 | 15/20 | 6.46 | 1.242427 | 19/20 |
-| Native Subagents | 0.7287 | 13/20 | 8.30 | 1.826549 | 20/20 |
-
-Cost coverage is the number of tasks with complete cost records. Below 20/20,
-the benchmark total cost is unknown; the displayed subtotal is not the total.
-
-### Overall
-
-| Condition | Full-Score Tasks | Mean Min/Task | Known Cost Subtotal (USD) | Cost Coverage | Complete Total Cost |
-| --- | ---: | ---: | ---: | ---: | --- |
-| Single | 36/60 | 5.36 | 2.021283 | 59/60 | Unknown |
-| Structured Subagents | 40/60 | 7.96 | 4.506601 | 57/60 | Unknown |
-| Native Subagents | 37/60 | 8.95 | 5.527397 | 59/60 | Unknown |
-
-- Scores retain the two HDR artifact-only regrades and timeout-zero policy.
-  Different benchmark score scales are not pooled into an overall mean.
-- Time is mean CLI elapsed time per assigned attempt, not batch wall-clock time;
-  all 180 attempts have timing records. Timeouts remain in the denominator.
-- Costs use the same off-peak token-price scenario plus successful-HTTP web and
-  judge estimates, not invoices. A subtotal includes only tasks with complete
-  model, web and judge cost records; other tasks are unknown, never zero.
-  Differently covered subtotals are not directly comparable complete totals.
-- All three conditions now use the same request-ID/completeness accounting audit.
-  This corrects previously reported complete totals without changing any scores,
-  solver attempts or original reports. The two separate web diagnostic calls are
-  outside these task totals. Actual attributable total charges remain unknown.
-- This reused development set and one attempt per condition do not establish
-  general superiority or prompt causality. Current code includes previously
-  documented evaluation fixes after the original run; see the Native run record.
-
-Sources and retained server report paths: [current results](docs/current-results.md)
-and [Native run/diagnostics](docs/studies/validation20-native.md).
-Original reports and private raw evidence remain unchanged. Future experiments
-require fresh run-specific authorization.
-
-See [current result status](docs/current-results.md) and
-[the fixed validation set](docs/studies/validation20.md).
+The repaired decision-v4 FULL was subsequently tested twice on the same four
+questions. Mean FULL time fell from 232.87 to 173.55 seconds with identical scores;
+Structured varied from 162.30 to 150.79 seconds. This small stochastic sample is
+not a full-benchmark speed guarantee. See [paid speed check](docs/studies/infra-smoke4-speed-check.md),
+[active infra](docs/studies/evidence-infra.md) and [full-scale operation](docs/studies/fullscale-infra.md).
 
 ## Layout
 
 - `harness/`: native CLI adapters and our opt-in MAS harness; see [ownership](harness/README.md).
-- `harness/evidence_mas/`: observation store, analytical decision ledger and hook/MCP interfaces.
+- `harness/evidence_mas/`: observation sharing, execution-backed decisions and hook/MCP interfaces.
 - `scripts/common/prompts/`: solver condition text, prompt selection and shared run-limit wording.
 - `benchmarks/{kramabench,dataclawbench,hybriddeepresearch}/`: tasks and independent evaluation.
 - `scripts/<benchmark>/{catalog,run,score}.py`: benchmark entry points.
-- `common/`: domain-independent JSON persistence and fingerprints.
+- `common/`: domain-independent persistence, fingerprints and durable phase claims.
 - `harness/runtime_support/`: containers, native CLI environment, tools, credential transport and provenance.
 - `scripts/common/`: shared benchmark experiment workflows, not reusable runtime implementations.
 - `scripts/server/`: source deployment, provisioning and server operations.
 - `scripts/probes/`: isolated native CLI and credential-containment checks.
-- `scripts/studies/`: study-specific execution and historical result maintenance, not baseline defaults.
-- `analysis/`: read-only native and historical evidence readers.
+- `scripts/studies/`: frozen manifests, bounded matrix execution, journal recovery and reporting.
+- `analysis/`: read-only active native evidence and current-run analysis.
 - `tests/`: offline regressions; run on the server, not locally.
 - `docs/`: operational contracts; `docs/studies/` holds study protocols and reports.
 

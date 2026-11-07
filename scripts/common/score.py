@@ -63,6 +63,9 @@ def judge_rows(rows, *, benchmark, upstream, model, output, client):
             except Exception as error:
                 # Do not print provider exception bodies, which may contain keys.
                 result.update(status="judge_error", error_type=type(error).__name__)
+                status = getattr(error, 'status_code', None)
+                if status in {401, 402, 403}:
+                    result.update(http_status=status, fatal_provider_error=True)
                 stopped = True
         results.append(result)
         write_json(output / (identity + ".json"), result)
@@ -159,6 +162,7 @@ def main(argv=None, *, benchmark=None):
         write_jsonl(args.output / "judge-results.jsonl", judged)
         receipt["judge_calls"] = sum(row.get("attempted_calls", 0) for row in judged)
         receipt["judge_model"] = args.judge_model
+        receipt['fatal_provider_error'] = any(row.get('fatal_provider_error') for row in judged)
         receipt["judge_status"] = "complete" if all(row["status"] in {"graded", "empty_prediction"} for row in judged) else "incomplete"
         write_json(args.output / "receipt.json", receipt)
         if receipt["judge_status"] == "incomplete":

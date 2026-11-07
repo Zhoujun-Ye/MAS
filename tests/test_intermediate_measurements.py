@@ -25,6 +25,8 @@ def captured(p, data, call):
 
 def select(p, value):
     view = p.view()
+    for item in view['candidates']:
+        p.read(candidate_id=item['id'])
     chosen = next(c for c in view['candidates'] if c['value']==value)
     return p.select(view['snapshot'],chosen['id'], {'task_quote':'population   mean\nin kg','criterion':'Task estimand'},
         {c['id']:'Different analysis option' for c in view['candidates'] if c['target_id']==chosen['target_id'] and c['id']!=chosen['id']})
@@ -121,7 +123,7 @@ def test_readonly_old_store_never_migrates_or_audits(tmp_path):
     ro = Store(p.store.root,'run',readonly=True)
     ro.call('obs.list',{})
     with pytest.raises(StoreError,match='Read-only'):
-        ro.call('ledger.open_issue',{'question':'x','analysis_scope':'x','source_refs':[]})
+        ro.call('obs.capture',{'tool_name':'Bash','tool_input':{}},role='collector')
     assert before == {str(f):hashlib.sha256(f.read_bytes()).hexdigest() for f in p.store.root.rglob('*') if f.is_file()}
 
 
@@ -193,21 +195,23 @@ def test_prompt_only_has_identical_guidance_but_no_decision_tools(tmp_path):
     args = EvidenceMASCLI().command('fixture', store_root=tmp_path, run_id='run',
         task_rules='limits', observer_target=tmp_path/'observer', mode='full-prompt-only')
     mcp = json.loads(args[args.index('--mcp-config')+1])['mcpServers']['evidence']['args']
-    assert mcp[mcp.index('--protocol')+1] == 'ledger-v1'
+    assert mcp[mcp.index('--protocol')+1] == 'observations-v1'
     assert mcp[mcp.index('--mode')+1] == 'observations'
     worker = json.loads(args[args.index('--agents')+1])['evidence-worker']
     assert not any('decision_' in t for t in worker['tools'])
     assert any('obs_read' in t for t in worker['tools'])
 
 
-def test_equal_answers_across_targets_preserve_choice(tmp_path):
+def test_new_target_interpretation_requires_renewed_review(tmp_path):
     p = protocol(tmp_path)
     captured(p, {'answer':42}, 'a')
     captured(p, {'answer':45}, 'b')
     select(p, 42)
     before = p.view()['snapshot']
     captured(p, measurement(42, TARGET, {}, answer_target=True), 'c')
-    assert p.view()['snapshot'] == before
+    assert p.view()['snapshot'] != before
+    assert p.check({'answer':42})['reason']=='selection_stale'
+    select(p,42)
     assert p.check({'answer':42})['accepted']
     assert len(next(c for c in p.view()['candidates'] if c['value']==42)['interpretations']) == 2
 

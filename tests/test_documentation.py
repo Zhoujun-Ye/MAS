@@ -33,6 +33,6 @@ def test_layout_entries_are_unique():
 
 def test_evidence_readme_describes_current_not_retired_composition():
     text = (ROOT / 'harness/evidence_mas/README.md').read_text()
-    assert 'decision-v3' in text
-    assert 'exact existing Native (N) prompt' in text
+    assert 'decision-v4' in text
+    assert 'frozen Structured baseline is unchanged' in text
     assert 'Both modes prepend the exact frozen Structured lead prompt' not in text

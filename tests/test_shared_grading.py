@@ -6,7 +6,6 @@ import pytest
 
 from scripts.common import grading
 from scripts.studies import benchmark_matrix
-from scripts.studies import grade_interrupted_matrix
 from common.io import read_json
 from scripts.studies.matched_matrix_report import read
 
@@ -30,9 +29,8 @@ def invoke(tmp_path, benchmark, *, enabled, category=None, answer='fixture answe
     return result, commands
 
 
-def test_normal_and_recovery_entry_points_share_one_grader():
+def test_matrix_uses_the_shared_grader():
     assert benchmark_matrix.grade_attempt is grading.grade_attempt
-    assert grade_interrupted_matrix.grade_attempt is grading.grade_attempt
 
 
 def test_shared_json_reader_keeps_missing_defaults_but_does_not_hide_corruption(tmp_path):
@@ -104,3 +102,30 @@ def test_failed_external_grade_is_not_retried(tmp_path):
     result, commands = invoke(tmp_path, 'dataclawbench', enabled=True, code=7)
     assert len(commands) == 1
     assert result['status'] == 'grading_failed' and result['returncode'] == 7
+
+
+def test_krama_fatal_judge_error_reaches_batch_controller(tmp_path, monkeypatch):
+    (tmp_path/'summary.json').write_text(json.dumps(dict(rows=[dict(status='cli_exited',
+        grade=dict(status='pending_judge', score=None))])))
+    monkeypatch.setattr(grading, 'judge_once', lambda **kw: dict(status='judge_error', fatal=True,
+        attempted_calls=1))
+    result = grading.grade_attempt('kramabench', SimpleNamespace(id='fixture', query='public'),
+        'claude-code-subagents', tmp_path, data_root=tmp_path, grades_root=tmp_path/'grades',
+        credentials=tmp_path/'unused', judge_enabled=True, key='synthetic', command_run=None, log=None)
+    assert result['fatal_provider_error'] is True and result['judge_calls'] == 1
+
+
+def test_external_fatal_judge_error_is_redacted_and_stops_queue(tmp_path):
+    from scripts.common.score import judge_rows
+    class Failure(Exception):
+        status_code = 401
+    def create(**kwargs):
+        raise Failure('synthetic-private-key')
+    client = SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(create=create)))
+    rows = [dict(task_id=str(i), task_prompt='public fixture', response='candidate', answer='reference')
+            for i in range(2)]
+    results = judge_rows(rows, benchmark='dataclawbench', upstream=tmp_path, model='fixture',
+                         output=tmp_path, client=client)
+    assert results[0]['fatal_provider_error'] is True and results[0]['http_status'] == 401
+    assert results[1]['status'] == 'not_started'
+    assert 'synthetic-private-key' not in json.dumps(results)

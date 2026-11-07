@@ -5,78 +5,12 @@ from collections import Counter
 import json
 import re
 from pathlib import Path
-import sqlite3
 
 
 def claude_delegation_tool(name):
     # Keep this evidence reader standalone under the decoder's isolated Python.
     return (name in {"Agent", "Task", "SendMessage", "Workflow", "CronCreate", "CronDelete", "CronList", "ScheduleWakeup"}
             or "subagent" in name.lower())
-
-def checkpoint_messages(root, message_types=("AIMessage", "AIMessageChunk")):
-    import ormsgpack
-
-    def extension(code, data):
-        if code in {0, 1, 2, 3, 4, 5, 7}:
-            value = ormsgpack.unpackb(data, ext_hook=extension, option=ormsgpack.OPT_NON_STR_KEYS)
-            if code in {2, 4, 5} and isinstance(value, (list, tuple)) and len(value) >= 3:
-                return dict(serialized_type=value[1], fields=value[2])
-            return value
-        return None
-
-    def walk(value):
-        if isinstance(value, dict):
-            if value.get("serialized_type") in message_types:
-                yield value["fields"]
-            else:
-                for item in value.values():
-                    yield from walk(item)
-        elif isinstance(value, (list, tuple)):
-            for item in value:
-                yield from walk(item)
-
-    for path in root.rglob("*.db"):
-        connection = sqlite3.connect(path.as_uri() + "?mode=ro", uri=True)
-        try:
-            tables = {r[0] for r in connection.execute("SELECT name FROM sqlite_master WHERE type='table'")}
-            for table, column in (("checkpoints", "checkpoint"), ("writes", "value"), ("checkpoint_blobs", "blob")):
-                if table not in tables:
-                    continue
-                columns = {r[1] for r in connection.execute(f'PRAGMA table_info("{table}")')}
-                if column not in columns or "type" not in columns:
-                    continue
-                ns = 'checkpoint_ns' if 'checkpoint_ns' in columns else "''"
-                query = f'SELECT {ns}, type, "{column}" FROM "{table}"'
-                for namespace, kind, payload in connection.execute(query):
-                    if kind != "msgpack" or not isinstance(payload, bytes):
-                        continue
-                    try:
-                        value = ormsgpack.unpackb(payload, ext_hook=extension,
-                                                 option=ormsgpack.OPT_NON_STR_KEYS)
-                    except Exception:
-                        continue
-                    for message in walk(value):
-                        yield message, str(namespace or "leader")
-        finally:
-            connection.close()
-
-
-
-def read_json(path, default=None):
-    return json.loads(path.read_text()) if path.exists() else default
-
-def native_team(folder, original):
-    configs = read_json(folder / "cli/native-team-before-exit.json", [])
-    history = folder / "cli/native-team-history.jsonl"
-    if history.exists():
-        for line in history.read_text().splitlines():
-            configs.extend(json.loads(line).get("configs", []))
-    names = sorted({m.get("name") for cfg in configs for m in cfg.get("data", {}).get("members", [])
-                    if m.get("agentType") != "team-lead" and m.get("name")})
-    cli = original.get("cli", {})
-    return dict(named_member_names=names,
-                native_stop_before_exit=cli.get("native_before_exit", {}).get("ready_to_exit", False),
-                session_end=cli.get("native_lifecycle", {}).get("root_session_end_observed", False))
 
 
 def child_tool_evidence(profile):
@@ -206,135 +140,101 @@ def native_single_agent(folder):
 
 def tool_errors(profile, backend, stdout):
     errors, calls, retry_events = {}, {}, 0
-    rejections, deletes, shutdowns, acknowledgements = {}, set(), set(), set()
+    rejections = {}
     state_writes = {}
-    if backend == "deepagents":
-        for message, scope in checkpoint_messages(profile.resolve(), ("ToolMessage",)):
-            if message.get("status") == "error":
-                identity = message.get("tool_call_id") or message.get("id")
-                errors[identity] = message.get("name", "unknown")
-    else:
-        for path in profile.rglob("*.jsonl"):
-            for line in path.read_text(errors="replace").splitlines():
-                try:
-                    event = json.loads(line)
-                except ValueError:
-                    continue
-                message = event.get("message") or {}
-                if not isinstance(message, dict):
-                    continue
-                for block in message.get("content", []) if isinstance(message.get("content"), list) else []:
-                    if not isinstance(block, dict):
-                        continue
-                    if block.get("type") == "tool_use":
-                        calls[block.get("id")] = block.get("name")
-                        command = (block.get("input") or {}).get("command", "")
-                        if (block.get("name") == "Bash" and isinstance(command, str)
-                                and any(path in command for path in
-                                        ("/native/claude/teams", "/native/claude/tasks", ".claude/teams/", ".claude/tasks/"))
-                                and re.search(r"rm\s+-[rf]*[rf]|json\.dump\(|write_text\(|shutil\.rmtree\(|sed\s+-i", command)):
-                            state_writes[block.get("id")] = command
-                        if block.get("name") == "SendMessage":
-                            kind = (block.get("input") or {}).get("type")
-                            if kind == "shutdown_request":
-                                shutdowns.add(block.get("id"))
-                            if kind == "shutdown_response" and (block.get("input") or {}).get("approve"):
-                                acknowledgements.add(block.get("id"))
-                    if block.get("type") == "tool_result" and block.get("is_error"):
-                        errors[block.get("tool_use_id")] = "unknown"
-                    if block.get("type") == "tool_result":
-                        content = block.get("content")
-                        texts = ([content] if isinstance(content, str) else
-                                 [b.get("text", "") for b in content if isinstance(b, dict)]
-                                 if isinstance(content, list) else [])
-                        for text in texts:
-                            try:
-                                payload = json.loads(text)
-                            except (ValueError, TypeError):
-                                continue
-                            if isinstance(payload, dict) and payload.get("success") is False:
-                                rejections[block.get("tool_use_id")] = "unknown"
-                            if isinstance(payload, dict) and payload.get("success") is True:
-                                deletes.add(block.get("tool_use_id"))
-        for identity in errors:
-            errors[identity] = calls.get(identity, "unknown")
-        for line in stdout.read_text(errors="replace").splitlines() if stdout.exists() else []:
+    for path in profile.rglob("*.jsonl"):
+        for line in path.read_text(errors="replace").splitlines():
             try:
                 event = json.loads(line)
             except ValueError:
                 continue
-            if isinstance(event, dict) and event.get("type") == "system" and "retry" in str(event.get("subtype", "")):
-                retry_events += 1
+            message = event.get("message") or {}
+            if not isinstance(message, dict):
+                continue
+            for block in message.get("content", []) if isinstance(message.get("content"), list) else []:
+                if not isinstance(block, dict):
+                    continue
+                if block.get("type") == "tool_use":
+                    calls[block.get("id")] = block.get("name")
+                    command = (block.get("input") or {}).get("command", "")
+                    if (block.get("name") == "Bash" and isinstance(command, str)
+                            and any(path in command for path in
+                                    ("/native/claude/teams", "/native/claude/tasks", ".claude/teams/", ".claude/tasks/"))
+                            and re.search(r"rm\s+-[rf]*[rf]|json\.dump\(|write_text\(|shutil\.rmtree\(|sed\s+-i", command)):
+                        state_writes[block.get("id")] = command
+                if block.get("type") == "tool_result" and block.get("is_error"):
+                    errors[block.get("tool_use_id")] = "unknown"
+                if block.get("type") == "tool_result":
+                    content = block.get("content")
+                    texts = ([content] if isinstance(content, str) else
+                             [b.get("text", "") for b in content if isinstance(b, dict)]
+                             if isinstance(content, list) else [])
+                    for text in texts:
+                        try:
+                            payload = json.loads(text)
+                        except (ValueError, TypeError):
+                            continue
+                        if isinstance(payload, dict) and payload.get("success") is False:
+                            rejections[block.get("tool_use_id")] = "unknown"
+    for identity in errors:
+        errors[identity] = calls.get(identity, "unknown")
+    for line in stdout.read_text(errors="replace").splitlines() if stdout.exists() else []:
+        try:
+            event = json.loads(line)
+        except ValueError:
+            continue
+        if isinstance(event, dict) and event.get("type") == "system" and "retry" in str(event.get("subtype", "")):
+            retry_events += 1
     return dict(reported_tool_errors=len(errors), by_tool=dict(Counter(errors.values())),
                 payload_rejections_by_tool=dict(Counter(calls.get(i, "unknown") for i in rejections)),
-                team_delete_success_count=sum(calls.get(i) == "TeamDelete" for i in deletes),
-                shutdown_requests=len(shutdowns), shutdown_acknowledgements=len(acknowledgements),
                 native_state_write_commands=[dict(tool_call_id=key, command=value)
                                              for key, value in state_writes.items()],
-                native_retry_events_observed=retry_events if backend != "deepagents" else None,
+                native_retry_events_observed=retry_events,
                 scope="Explicit native error flags only; not proof that other errors or failed requests were absent")
 
 
 def read_evidence(profile, backend):
     root = Path(profile).resolve()
     messages, tools, errors, files = {}, Counter(), [], []
-    if backend == "deepagents":
-        for message, scope in checkpoint_messages(root):
-            identity = message.get("id")
-            if identity:
-                previous = messages.get(identity)
-                if previous is None or (previous[1] == "leader" and scope != "leader"):
-                    messages[identity] = (message, scope)
-        for message, scope in messages.values():
-            for call in message.get("tool_calls", []):
-                tools[call.get("name", "unknown")] += 1
-    else:
-        for path in root.rglob("*.jsonl"):
-            files.append(str(path.relative_to(root)))
-            scope = "member" if "subagents" in path.parts else "leader"
-            with path.open(encoding="utf-8", errors="replace") as stream:
-                for line in stream:
-                    try:
-                        event = json.loads(line)
-                    except ValueError:
-                        continue
-                    message = event.get("message", {}) if isinstance(event, dict) else {}
-                    if not isinstance(message, dict) or not message.get("id") or message.get("role") != "assistant":
-                        continue
-                    identity = message["id"]
-                    if identity in messages:
-                        previous, previous_scope = messages[identity]
-                        merged = dict(previous.get("usage", {}))
-                        for key, value in message.get("usage", {}).items():
-                            if isinstance(value, (int, float)):
-                                merged[key] = max(merged.get(key, 0), value)
-                        blocks = {json.dumps(b, sort_keys=True): b for b in
-                                  [*previous.get("content", []), *message.get("content", [])]}
-                        message = dict(message, usage=merged, content=list(blocks.values()))
-                        scope = "member" if "member" in {scope, previous_scope} else scope
-                    messages[identity] = (message, scope)
-        tool_ids = set()
-        for message, scope in messages.values():
-            for block in message.get("content", []):
-                if isinstance(block, dict) and block.get("type") == "tool_use":
-                    identity = block.get("id", json.dumps(block, sort_keys=True))
-                    if identity not in tool_ids:
-                        tool_ids.add(identity)
-                        tools[block.get("name", "unknown")] += 1
+    for path in root.rglob("*.jsonl"):
+        files.append(str(path.relative_to(root)))
+        scope = "member" if "subagents" in path.parts else "leader"
+        with path.open(encoding="utf-8", errors="replace") as stream:
+            for line in stream:
+                try:
+                    event = json.loads(line)
+                except ValueError:
+                    continue
+                message = event.get("message", {}) if isinstance(event, dict) else {}
+                if not isinstance(message, dict) or not message.get("id") or message.get("role") != "assistant":
+                    continue
+                identity = message["id"]
+                if identity in messages:
+                    previous, previous_scope = messages[identity]
+                    merged = dict(previous.get("usage", {}))
+                    for key, value in message.get("usage", {}).items():
+                        if isinstance(value, (int, float)):
+                            merged[key] = max(merged.get(key, 0), value)
+                    blocks = {json.dumps(b, sort_keys=True): b for b in
+                              [*previous.get("content", []), *message.get("content", [])]}
+                    message = dict(message, usage=merged, content=list(blocks.values()))
+                    scope = "member" if "member" in {scope, previous_scope} else scope
+                messages[identity] = (message, scope)
+    tool_ids = set()
+    for message, scope in messages.values():
+        for block in message.get("content", []):
+            if isinstance(block, dict) and block.get("type") == "tool_use":
+                identity = block.get("id", json.dumps(block, sort_keys=True))
+                if identity not in tool_ids:
+                    tool_ids.add(identity)
+                    tools[block.get("name", "unknown")] += 1
     rows = []
     for identity, (message, scope) in messages.items():
-        if backend == "deepagents":
-            usage = message.get("usage_metadata") or {}
-            details = usage.get("input_token_details") or {}
-            input_tokens, output = usage.get("input_tokens"), usage.get("output_tokens")
-            hit = details.get("cache_read", 0)
-            model = (message.get("response_metadata") or {}).get("model_name")
-        else:
-            usage = message.get("usage") or {}
-            hit = usage.get("cache_read_input_tokens", 0)
-            input_tokens = (usage.get("input_tokens", 0) + hit + usage.get("cache_creation_input_tokens", 0)
-                            if "input_tokens" in usage else None)
-            output, model = usage.get("output_tokens"), message.get("model")
+        usage = message.get("usage") or {}
+        hit = usage.get("cache_read_input_tokens", 0)
+        input_tokens = (usage.get("input_tokens", 0) + hit + usage.get("cache_creation_input_tokens", 0)
+                        if "input_tokens" in usage else None)
+        output, model = usage.get("output_tokens"), message.get("model")
         rows.append(dict(id=identity, scope=scope, model=model, input_tokens=input_tokens,
                          output_tokens=output, cache_hit_tokens=hit, native_usage=usage))
     groups = {}
@@ -365,7 +265,7 @@ def read_evidence(profile, backend):
                 estimated_usd_peak=estimated * 2 if known else None,
                 accounting_coverage="Observed retained messages only; failed requests, compaction or native helper calls may be missing",
                 price_source="https://api-docs.deepseek.com/quick_start/pricing/",
-                child_tool_evidence=child_tool_evidence(root) if backend != "deepagents" else None,
+                child_tool_evidence=child_tool_evidence(root),
                 substantive_work_status="unverified",
                 team_correctness_verified=False)
 
@@ -373,6 +273,6 @@ def read_evidence(profile, backend):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--profile", type=Path, required=True)
-    parser.add_argument("--backend", choices=("deepagents", "claude-code", "claude-code-agent-team", "claude-code-subagents", "claude-code-single-agent"), required=True)
+    parser.add_argument("--backend", choices=("claude-code", "claude-code-subagents", "claude-code-single-agent"), required=True)
     args = parser.parse_args()
     print(json.dumps(read_evidence(args.profile, args.backend), ensure_ascii=False, indent=2))

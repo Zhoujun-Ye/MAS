@@ -1,4 +1,3 @@
-import hashlib
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -7,7 +6,6 @@ import pytest
 from scripts.common import evidence as integration
 from scripts.common.prompts.conditions import condition_instructions
 from scripts.studies import benchmark_matrix as matrix
-from scripts.studies import run_validation20_evidence as driver
 
 
 @pytest.mark.parametrize('mode',integration.MODES)
@@ -42,12 +40,6 @@ def test_matrix_evidence_paths_and_protocol_are_distinct(tmp_path):
             assert '--max-budget-usd' not in command
 
 
-def test_frozen_sixty_question_driver_only_plans(tmp_path,capsys):
-    assert driver.main(['--output',str(tmp_path/'absent'),'--proofs',str(tmp_path/'proofs')])==0
-    assert not (tmp_path/'absent').exists()
-    assert '120' in capsys.readouterr().out
-
-
 @pytest.mark.parametrize('delegated',[False,True])
 def test_audit_reports_delegation_without_compliance_gate(tmp_path,delegated):
     import json
@@ -69,13 +61,19 @@ def test_audit_reports_delegation_without_compliance_gate(tmp_path,delegated):
 
 def test_continuation_retains_started_slots_without_replacements(tmp_path):
     import json
+    from common.journal import Journal
     old=tmp_path/'old';old.mkdir()
     tasks=[('kramabench',SimpleNamespace(id='task'),mode,tmp_path/mode) for mode in integration.MODES]
     rows=[dict(benchmark='kramabench',task_id='task',backend=mode,status=status,
                run=str(old/'solvers/kramabench/task'/mode))
           for mode,status in zip(integration.MODES,('interrupted','not_started','not_started'))]
-    summary=dict(interrupted=True,authorization={'protocol_settings':{},'task_manifest_sha256':'hash'},rows=rows)
+    summary=dict(interrupted=True,authorization={'protocol_settings':{},'task_manifest_sha256':'hash',
+        'source_manifest':matrix.runtime.source_manifest()},rows=rows)
     (old/'summary.json').write_text(json.dumps(summary))
+    journal=Journal(old/'journal.sqlite')
+    row=rows[0];identity=(row['benchmark'],row['task_id'],row['backend'])
+    journal.claim('solver',identity,'frozen',row)
+    journal.finish('solver',identity,'frozen',row)
     kept=matrix.retained_attempts(old,tasks,{},'hash')
     assert list(kept)==[('kramabench','task','observations')]
     with pytest.raises(ValueError):matrix.retained_attempts(old,tasks,{},'different')

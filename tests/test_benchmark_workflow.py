@@ -58,6 +58,7 @@ def workflow(tmp_path, monkeypatch, request):
     binary.write_text("fake executable, never launched")
     proof = tmp_path / "proof.json"
     proof.write_text(json.dumps(dict(passed=True, paid_calls=0, network="none",
+        requested_effort='max', request_effort_verified=True,
         backend="claude-code-subagents", native_subagents=dict(passed=True, subagent_starts=1,
         native_team_configs=0, teammate_idle_events=0),
         runtime_binding=dict(image_id="sha256:fake", binary_sha256=digest(binary)))))
@@ -133,6 +134,7 @@ def test_evidence_modes_use_existing_protected_workflow(workflow,monkeypatch,mod
             collect(protocol.store, dict(hook_event_name='PostToolUse', tool_name='Bash',
                 tool_response={'stdout':'{"final_answer":"1"}'}))
             view = protocol.view()
+            protocol.read(view['candidates'][0]['id'])
             protocol.select(view['snapshot'], view['candidates'][0]['id'],
                 {'task_quote':prompt, 'criterion':'Synthetic fixture'}, {})
         return run.BACKENDS['claude-code-subagents'](executable).run(prompt+'\n'+rules,workspace=work,output=folder/'cli')

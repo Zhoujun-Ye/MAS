@@ -1,5 +1,3 @@
-from scripts.common.prompts.conditions import condition_instructions
-from scripts.common.prompts.limits import limit_instructions
 import json
 import hashlib
 import threading
@@ -17,6 +15,7 @@ def bound_proof(backend):
     single = backend.endswith("single-agent")
     binding = dict(image_id="fixture-image", binary_sha256="fixture-binary-hash")
     proof = dict(backend=backend, passed=True, network="none", paid_calls=0,
+                 requested_effort='max', request_effort_verified=True,
                  runtime_binding=binding, shell_verified=True, tool_exposure_verified=True)
     if single:
         proof["native_single_agent"] = dict(passed=True, subagent_starts=0, executed_delegation_tools=0)
@@ -103,6 +102,28 @@ def test_frozen_options_survive_json_roundtrip(roundtrip_plan):
     if args.backend.startswith("claude-"):
         assert isinstance(plan["backend_options"][args.backend]["allowed_tools"], list)
         assert isinstance(runtime.options(args.backend)["allowed_tools"], tuple)
+
+
+@pytest.mark.parametrize('field,value', [('cpus', 8), ('record_resources', True)])
+def test_frozen_cpu_settings_cannot_change(roundtrip_plan, field, value):
+    args, _ = roundtrip_plan
+    setattr(args, field, value)
+    with pytest.raises(ValueError, match='Frozen CPU resource settings changed'):
+        run.validate(args)
+
+
+def test_frozen_compute_threads_cannot_change(roundtrip_plan):
+    args, _ = roundtrip_plan
+    args.compute_threads = 2
+    with pytest.raises(ValueError,match='Frozen compute thread'):
+        run.validate(args)
+
+
+def test_frozen_required_capabilities_cannot_change(roundtrip_plan):
+    args, _ = roundtrip_plan
+    args.require_module = ['synthetic_module']
+    with pytest.raises(ValueError,match='Frozen required modules'):
+        run.validate(args)
 
 
 def test_frozen_effort_cannot_change(roundtrip_plan):

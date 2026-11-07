@@ -1,0 +1,17 @@
+{
+  "effort": "high",
+  "organization_sha256": {
+    "claude-code-subagents": "31ff6e4176a25d961866f644adb4d7b97cb4b00228e696c0e4e38a52b9485a95",
+    "full": "54b10118105d38e02df448b30c584890de54d983d919a044838eed2b8ff6bd10"
+  },
+  "timeout_seconds_by_benchmark": {
+    "dataclawbench": 1200,
+    "hybriddeepresearch": 1800,
+    "kramabench": 3600
+  },
+  "solver_concurrency": 8,
+  "judge_concurrency": 2,
+  "cpu_per_attempt": 8,
+  "record_resources": true,
+  "compute_threads": 4
+}

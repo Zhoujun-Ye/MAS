@@ -4,7 +4,6 @@ import argparse
 from concurrent.futures import ThreadPoolExecutor
 import json
 from pathlib import Path
-import re
 import secrets
 import shlex
 import subprocess
@@ -120,52 +119,6 @@ class Fixture:
             if not done('trace'):
                 return tool('trace', prefix+'workspace_trace', dict(object_id=cross['items'][0]['id']))
             return dict(type='text', text='Raw observation sharing complete.')
-        if worker:
-            match = re.search(r'ISSUE_ID=([a-f0-9]{32})', json.dumps(body['messages']))
-            if not match:
-                return dict(type='text', text='Missing delegated issue ID.')
-            issue_id = match.group(1)
-            if not done('propose'):
-                return tool('propose', prefix+'ledger_propose', dict(issue_id=issue_id,
-                    alternative='Use measured fixture values', assumptions=['Synthetic only'], dependencies_complete=True))
-            candidate = data('propose', lambda v: v.get('kind') == 'candidate')
-            if not candidate:
-                return dict(type='text', text='Candidate registration unavailable.')
-            if not done('attach'):
-                return tool('attach', prefix+'ledger_attach', dict(target_id=candidate['id'], relation='supports',
-                    claim='Worker observation exists', scope='fixture execution', limitation='Not real task evidence', obs_id=obs_id))
-            if not done('view'):
-                return tool('view', prefix+'ledger_view', dict(issue_id=issue_id))
-            return dict(type='text', text='Worker completed shared evidence registration.')
-        if not done('issue'):
-            return tool('issue', prefix+'ledger_open_issue', dict(question='Which fixture interpretation?', source_refs=[], analysis_scope='offline fixture'))
-        issue = data('issue', lambda v: v.get('kind') == 'issue')
-        if not issue:
-            return dict(type='text', text='Issue registration unavailable.')
-        if not done('delegate'):
-            return tool('delegate', 'Agent', dict(description='Verify shared evidence components',
-                subagent_type='evidence-worker', prompt='ISSUE_ID='+issue['id']+
-                '\nUse synthetic data only. No network or installs. Write scratch files only in /workspace/worker. '+
-                'Read your observation, propose a candidate, attach evidence and view the issue.'))
-        views = [key for key in results if key.startswith('fixture-lead-view')]
-        if not views:
-            return tool('view-0', prefix+'ledger_view', dict(issue_id=issue['id']))
-        view = next((v for v in decoded(results[views[-1]]) if isinstance(v.get('candidates'), list)), None)
-        if not view or not view['candidates']:
-            if 'Worker completed shared evidence registration.' in json.dumps(body['messages']):
-                return tool('view-'+str(len(views)), prefix+'ledger_view', dict(issue_id=issue['id']))
-            return dict(type='text', text='Await the native worker completion notification before reconsidering the ledger.')
-        candidate = view['candidates'][0]
-        if not done('crossread'):
-            return tool('crossread', prefix+'obs_read', dict(obs_id=view['evidence'][0]['obs_id']))
-        if not done('select'):
-            return tool('select', prefix+'ledger_record_selection', dict(issue_id=issue['id'],
-                choice=dict(id=candidate['id'], revision=candidate['revision']), rationale='Worker evidence received',
-                considered_ids=[candidate['id']], evidence_refs=[], expected_revision=0))
-        if not done('trace'):
-            return tool('trace', prefix+'workspace_trace', dict(object_id=view['evidence'][0]['obs_id']))
-        return dict(type='text', text='Lead and worker shared observation and ledger probe complete.')
-
     def decision_next(self, body):
         worker = any(t.get('name', '').startswith('mcp__evidence_worker__') for t in body.get('tools', []))
         role = 'worker' if worker else 'lead'
@@ -176,7 +129,7 @@ class Fixture:
             return dict(type='tool_use', id=f'fixture-{role}-{step}', name=name, input=arguments)
         def done(step):
             return f'fixture-{role}-{step}' in results
-        if any(v.get('is_error') for v in results.values()):
+        if any(v.get('is_error') for key,v in results.items() if key!='fixture-lead-completed-wait'):
             self.errors.append(dict(role=role, error='decision_fixture_tool_error'))
             return dict(type='text', text='Decision fixture failed.')
         if not done('shell'):
@@ -199,14 +152,19 @@ class Fixture:
                 return tool('view-'+str(len(views)), prefix+'decision_view', {})
             return dict(type='text', text='Await native completion notification.')
         candidate = next(c for c in view['candidates'] if c['value'] == 2)
-        if not done('read'):
-            return tool('read', prefix+'decision_read', {'candidate_id':candidate['id']})
+        for item in view['candidates']:
+            key = 'read-'+item['id']
+            if not done(key):
+                return tool(key, prefix+'decision_read', {'candidate_id':item['id']})
         if not done('select'):
             return tool('select', prefix+'decision_select', dict(snapshot=view['snapshot'], candidate_id=candidate['id'],
                 basis={'task_quote':'Verify hooks and shared MCP', 'criterion':'Synthetic fixture requires the worker result'},
                 comparisons={c['id']:'Lead value is the synthetic alternative' for c in view['candidates'] if c['id'] != candidate['id']}))
         if not done('check'):
             return tool('check', prefix+'decision_check', {'submission':{'answer':2}})
+        if not done('completed-wait'):
+            return tool('completed-wait', 'Bash', {'command':'sleep 0.01; echo waited',
+                                                  'description':'Wait for completed subagent'})
         return dict(type='text', text='Decision fixture complete.')
 
 
@@ -243,48 +201,50 @@ def probe(root, image, mode='full', fixture=None, key=None):
         store = Store(profile/'evidence', 'native-offline')
         with store.connect() as db:
             observations = store.latest(db, 'observation')
-            candidates = store.latest(db, 'candidate')
-            selections = store.latest(db, 'selection')
             events = [json.loads(r[0]) for r in db.execute('SELECT body FROM events')]
-        proof['lead_observation'] = any(o['tool_call_id'] == 'fixture-lead-shell' and o['status'] == 'success' for o in observations)
-        proof['worker_observation'] = any(o['tool_call_id'] == 'fixture-worker-shell' and o['status'] == 'success' and o['agent_id'] != 'unknown' for o in observations)
-        proof['worker_proposal'] = any(c['actor'] == 'evidence-worker' for c in candidates)
-        proof['lead_selection'] = bool(selections and selections[0]['actor'] == 'lead' and selections[0]['choice']
-            and any(c['id'] == selections[0]['choice']['id'] and c['actor'] == 'evidence-worker' for c in candidates))
-        proof['role_reads'] = {role: any(e['method'] == 'obs.read' and e['role'] == role for e in events) for role in ('lead', 'worker')}
-        worker_requests = [b for b in fixture.requests if any(t.get('name', '').startswith('mcp__evidence_worker__') for t in b.get('tools', []))]
-        proof['request_effort_verified']=bool(fixture.requests) and all(b.get('output_config',{}).get('effort')=='high' for b in fixture.requests)
-        proof['max_output_tokens_observed']=sorted({b.get('max_tokens') for b in fixture.requests if b.get('max_tokens') is not None})
+        proof['lead_observation'] = any(o['tool_call_id']=='fixture-lead-shell' and o['status']=='success' for o in observations)
+        proof['worker_observation'] = any(o['tool_call_id']=='fixture-worker-shell' and o['status']=='success' and o['agent_id']!='unknown' for o in observations)
+        worker_requests = [b for b in fixture.requests if any(t.get('name','').startswith('mcp__evidence_worker__') for t in b.get('tools',[]))]
+        proof['request_effort_verified'] = bool(fixture.requests) and all(b.get('output_config',{}).get('effort')=='high' for b in fixture.requests)
+        proof['max_output_tokens_observed'] = sorted({b.get('max_tokens') for b in fixture.requests if b.get('max_tokens') is not None})
         proof['worker_selection_not_exposed'] = bool(worker_requests) and all(
-            not any(t['name'].endswith('__ledger_record_selection') for t in b.get('tools', [])) for b in worker_requests)
+            not any(t['name'].endswith(('__decision_select','__decision_check')) for t in b.get('tools',[])) for b in worker_requests)
         proof['degraded'] = (profile/'evidence/degraded.jsonl').exists()
-        worker_obs_ids = {o['id'] for o in observations if o['tool_call_id'] == 'fixture-worker-shell'}
-        proof['lead_reads_worker_observation'] = any(e['method'] == 'obs.read' and e['role'] == 'lead'
-            and store.read_blob(e['arguments_ref'])['obs_id'] in worker_obs_ids for e in events)
-        graphs = [store.read_blob(e['result_ref']) for e in events if e['method'] == 'workspace.trace']
-        proof['trace_verified'] = bool(graphs) and (mode in ('observations', 'full-prompt-only') or
-            {'observation', 'candidate', 'evidence', 'selection'} <= {n['kind'] for n in graphs[-1]['nodes']})
-        proof['observation_mode_no_ledger'] = not candidates and not selections and all(
-            not any('__ledger_' in t['name'] for t in b.get('tools', [])) for b in fixture.requests)
-        expected_mode = proof['worker_proposal'] and proof['lead_selection'] if mode == 'full' else proof['observation_mode_no_ledger']
-        proof['passed'] = bool(result['status'] == 'cli_exited' and proof['native_subagents']['passed']
-            and all(proof[k] for k in ('lead_observation', 'worker_observation', 'worker_selection_not_exposed')) and expected_mode
-            and all(proof['role_reads'].values()) and proof['lead_reads_worker_observation']
-            and proof['trace_verified'] and not proof['degraded'] and not fixture.errors)
-        if mode == 'full':
-            for field in ('worker_proposal','lead_selection','role_reads','lead_reads_worker_observation',
-                          'trace_verified','observation_mode_no_ledger'):
-                proof.pop(field, None)
+        def strings(value):
+            if isinstance(value,str):
+                yield value
+            elif isinstance(value,(dict,list)):
+                for child in value.values() if isinstance(value,dict) else value:
+                    yield from strings(child)
+        proof['cross_context_in_native_request'] = {}
+        for role in ('lead','worker'):
+            requests = worker_requests if role=='worker' else [b for b in fixture.requests if b not in worker_requests]
+            foreign = {o['id'] for o in observations if o['tool_call_id']=='fixture-'+('worker' if role=='lead' else 'lead')+'-shell'}
+            proof['cross_context_in_native_request'][role] = any(
+                'UNTRUSTED shared observations' in text and any(identity in text for identity in foreign)
+                for body in requests for text in strings(body))
+        proof['context_emissions'] = sum(e['method']=='workspace.context' for e in events)
+        proof['workspace_errors'] = sum(e['method']=='workspace.error' for e in events)
+        if mode=='full':
             protocol = DecisionProtocol(store)
             proof['decision_check'] = protocol.check({'answer':2})
             proof['decision_mismatch_rejected'] = not protocol.check({'answer':1})['accepted']
-            worker_requests = [b for b in fixture.requests if any(t.get('name','').startswith('mcp__evidence_worker__') for t in b.get('tools',[]))]
-            proof['worker_selection_not_exposed'] = bool(worker_requests) and all(
-                not any(t['name'].endswith(('__decision_select','__decision_check')) for t in b.get('tools',[])) for b in worker_requests)
-            proof['passed'] = bool(result['status']=='cli_exited' and proof['native_subagents']['passed']
-                and proof['lead_observation'] and proof['worker_observation'] and proof['worker_selection_not_exposed']
-                and proof['decision_check']['accepted'] and proof['decision_mismatch_rejected']
-                and not proof['degraded'] and not fixture.errors)
+            proof['lead_execution_reads'] = sum(e['method']=='decision.read' and e['role']=='lead' for e in events)
+            proof['completed_worker_wait_denied'] = (any(e['method']=='workspace.wait_blocked' for e in events)
+                and not any(o['tool_call_id']=='fixture-lead-completed-wait' and o['status']=='success' for o in observations))
+            mechanism_passed = (proof['decision_check']['accepted'] and proof['decision_mismatch_rejected']
+                                and proof['lead_execution_reads']>=2 and proof['completed_worker_wait_denied'])
+        else:
+            proof['role_reads'] = {role:any(e['method']=='obs.read' and e['role']==role for e in events) for role in ('lead','worker')}
+            foreign = {o['id'] for o in observations if o['tool_call_id']=='fixture-worker-shell'}
+            proof['lead_reads_worker_observation'] = any(e['method']=='obs.read' and e['role']=='lead' and
+                store.read_blob(e['arguments_ref'])['obs_id'] in foreign for e in events)
+            proof['trace_verified'] = any(e['method']=='workspace.trace' for e in events)
+            mechanism_passed = all(proof['role_reads'].values()) and proof['lead_reads_worker_observation'] and proof['trace_verified']
+        proof['passed'] = bool(result['status']=='cli_exited' and proof['native_subagents']['passed']
+            and proof['lead_observation'] and proof['worker_observation'] and proof['worker_selection_not_exposed']
+            and all(proof['cross_context_in_native_request'].values()) and mechanism_passed
+            and not proof['degraded'] and not proof['workspace_errors'] and not fixture.errors)
     except Exception as exc:
         proof.update(error_type=type(exc).__name__, error=str(exc))
     finally:

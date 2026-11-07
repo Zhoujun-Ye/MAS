@@ -1,11 +1,11 @@
 # Repository Ownership
 
-This is the current source map, revised 2026-11-05. Historical receipts and study
-documents retain the paths used when they were produced.
+Current source ownership, revised 2026-11-07. The retained paired run keeps its
+original artifact paths; obsolete study outputs and compatibility source are removed.
 
 | Owner | Contents |
 | --- | --- |
-| `common/` | Domain-independent JSON persistence and canonical fingerprints |
+| `common/` | Domain-independent persistence, fingerprints and durable phase claims |
 | `harness/` | Native adapters, hooks, Shared Evidence Workspace, containers, tools, credential transport and execution provenance |
 | `benchmarks/` | Task loading, references, grading contracts and benchmark policy |
 | `analysis/` | Read-only evidence interpretation and aggregate statistics |
@@ -16,7 +16,7 @@ documents retain the paths used when they were produced.
 | `scripts/server/` | Server/source/data provisioning and operational entrypoints |
 | `tests/` | Behavioral tests, fake runtime fixtures and ownership checks |
 | `docs/` | Current architecture/operations; `docs/studies/` holds study designs and receipts |
-| `outputs/`, `archives/`, `.retired_sources/` | Ignored results and retained historical evidence, not active imports |
+| `outputs/` | Retained CPU8 pair and two authorized smoke comparisons; never active imports |
 
 ## Dependency Rules
 
@@ -32,60 +32,16 @@ documents retain the paths used when they were produced.
 `tests/test_benchmark_layout.py` checks these import boundaries and checks that
 relocated modules have one owner, with no obsolete forwarding copies.
 
-## Relocations
+## Active Deployment
 
-| Previous source | Current owner |
-| --- | --- |
-| `benchmarks/_io.py` | `common/io.py` |
-| `scripts/common/runtime.py` | `harness/runtime_support/runtime.py` |
-| `scripts/common/timeouts.py` | `benchmarks/policy.py` |
-| `scripts/common/{tools,credential_gateway,gateway_bridge,proof}.py` | `harness/runtime_support/` |
-| `scripts/server/benchmark_matrix.py` | `scripts/studies/benchmark_matrix.py` |
-| `scripts/server/offline_benchmarks.py` | `scripts/probes/offline_benchmarks.py` |
-| `scripts/server/offline_gateway.py` | `scripts/probes/offline_gateway.py` |
+Canonical source is local `/Users/zhoujun/Desktop/MAS` and server
+`/home/zhoujunye/mas`. Reusable runtime code has one owner under `harness/`;
+benchmark execution composition belongs to scripts. There are no forwarding
+copies for retired module locations. Historical ledger/runtime readers and
+study-specific replay/regrading entrypoints were removed.
 
-Imports, executable commands, package discovery and source sync include the new
-owners. No baseline model settings, budgets, scoring semantics or prompts change.
-The pre-cleanup working source was preserved at
-`/tmp/mas-before-repo-classification-20261105.tar.gz` before edits. No historical
-outputs, assets, credentials, environments or retained source stages were deleted.
-
-Validation takes place in the isolated server source stage
-`/home/zhoujunye/MAS-information-stages/20261105-repo-classification`, not by
-silently deploying over the active server repository.
-
-Verification: 448 server tests passed in 12.87 seconds. Native Claude 2.1.286
-full/observations-only probes both passed using a fake provider (19/14 synthetic
-requests, zero paid calls); receipt:
-`/home/zhoujunye/MAS-information-data/receipts/shared-evidence-classification-20261105/summary.json`.
-Probe containers were removed. Frozen baseline adapters and Lead prompt were not
-changed. Results establish relocation/integration correctness, not accuracy gains.
-
-## Cleanup And Deployment
-
-On 2026-11-05, the current working source (including explicit decision FULL/OBS
-studies) was backed up locally at
-`/tmp/mas-before-cleanup-20261105-source.tar.gz`. The previous active server source
-was backed up at `/tmp/mas-before-cleanup-20261105-server-source.tar.gz` on the
-server before source-only synchronization to `/home/zhoujunye/mas`.
-
-The active server tree passed all 546 offline tests in 15.79 seconds. No paid
-benchmark, judge or native-provider validation was run in this cleanup. Generated
-Python/pytest caches and empty legacy `configs`/`.cache` directories were removed;
-the active source inventory had no server-only files. Historical outputs, retired
-source snapshots, datasets, environments, package metadata and Docker images were
-preserved. This verification does not establish FULL/OBS accuracy improvements.
-
-A second cleanup removed eight superseded design/repair documents from both active
-trees after source snapshots and hash-checked server deletion; see
-[Retention](archive.md). The evidence harness README now describes decision-v3
-instead of reproducing the old ledger contract. Duplicate layout entries, obsolete
-timeout ownership and nonportable report links were corrected. Four documentation
-regressions were added; the final server suite passed **550 tests in 16.24 seconds**.
-All 31 script module help entrypoints passed before the documentation-only edits.
-
-Native Claude 2.1.286 fake-provider probes passed for Single/Subagents and FULL/OBS,
-using two concurrent probe groups with two conditions each. Receipts are under
-`/home/zhoujunye/mas/outputs/cleanup-audit-offline-20261106T041959Z/`.
-All four owned containers were removed; paid calls were zero. Runtime behavior
-against a real provider and benchmark efficacy were not retested.
+Source sync is scoped, never `--delete`; retired remote source is removed by
+an explicit reviewed path list. See [active infra](studies/evidence-infra.md)
+and [retention](archive.md). Environments, current input data and unrelated user
+projects are not cleanup targets. Offline tests run on the server; passing tests
+or native fake-provider probes are not benchmark quality evidence.

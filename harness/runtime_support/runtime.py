@@ -5,6 +5,7 @@ from decimal import Decimal
 import hashlib
 import json
 import os
+import re
 from pathlib import Path
 import shlex
 import stat
@@ -24,6 +25,48 @@ TOOLS = ("Bash", "Read", "Write", "Edit", "Glob", "Grep", "Agent", "Task", "Send
 
 THREADS = {name: "1" for name in ("OMP_NUM_THREADS", "OPENBLAS_NUM_THREADS", "MKL_NUM_THREADS",
                                   "NUMEXPR_NUM_THREADS", "VECLIB_MAXIMUM_THREADS")}
+
+
+def capability_modules(values):
+    if not isinstance(values, (list, tuple)) or not all(isinstance(v, str) and re.fullmatch(r'[A-Za-z_]\w*', v, flags=re.ASCII) for v in values):
+        raise ValueError('Required modules must be top-level Python module names')
+    return sorted(set(values))
+
+
+def capability_command(modules=()):
+    names = capability_modules(modules)
+    code = f'''import importlib.util, importlib, json
+present, errors = {{}}, {{}}
+for name in {sorted(set(names + ['numpy', 'threadpoolctl']))!r}:
+    try:
+        if importlib.util.find_spec(name) is None:
+            raise ModuleNotFoundError(name)
+        importlib.import_module(name)
+        present[name] = True
+    except Exception as error:
+        present[name] = False
+        errors[name] = type(error).__name__
+threads = None
+if present['threadpoolctl']:
+    from threadpoolctl import threadpool_info
+    threads = [dict(api=x['internal_api'], threads=x['num_threads']) for x in threadpool_info()]
+print(json.dumps(dict(required_modules=present, import_errors=errors, numerical_threads=threads)))
+raise SystemExit(0 if all(present.values()) else 2)
+'''
+    return ['python3', '-c', code]
+
+
+def capability_probes(paths=()):
+    """Freeze explicit offline functional checks, never infer task dependencies."""
+    probes = []
+    for value in paths:
+        path = Path(value).resolve(strict=True)
+        if path.suffix != '.py' or not path.is_file() or path.stat().st_size > 65536:
+            raise ValueError('Capability probe must be a Python file at most 64 KiB')
+        source = path.read_text()
+        compile(source, str(path), 'exec')
+        probes.append(dict(path=str(path), sha256=hashlib.sha256(source.encode()).hexdigest(), source=source))
+    return probes
 
 def now():
     return datetime.now(timezone.utc).isoformat()
@@ -94,11 +137,13 @@ def options(backend):
     return dict(model="deepseek-flash[1m]", allowed_tools=tools,
                 disallowed_tools=("WebSearch", "WebFetch"), isolated_settings=True)
 
-def native_env(backend, *, effort="max"):
+def native_env(backend, *, effort="max", compute_threads=1):
     options(backend)
+    if type(compute_threads) is not int or not 1 <= compute_threads <= 128:
+        raise ValueError('Compute threads must be an integer between 1 and 128')
     if effort not in {"high", "max"}:
         raise ValueError("Study effort must be high or max")
-    return dict(THREADS, HOME="/native/home",
+    return dict({name: str(compute_threads) for name in THREADS}, HOME="/native/home",
                 CLAUDE_CONFIG_DIR="/native/claude", ANTHROPIC_BASE_URL="https://api.deepseek.com/anthropic",
                 ANTHROPIC_MODEL="deepseek-flash[1m]", ANTHROPIC_DEFAULT_OPUS_MODEL="deepseek-flash[1m]",
                 ANTHROPIC_DEFAULT_SONNET_MODEL="deepseek-flash[1m]", ANTHROPIC_DEFAULT_HAIKU_MODEL="deepseek-flash",
@@ -117,7 +162,12 @@ class ContainerStartupError(RuntimeError):
 
 
 def container(work, profile, dataset, image, key=None, network="bridge", backend="claude-code-subagents", *,
-              dataset_mounts=None, environment_overrides=None, forwarded_env=(), gateway=None, effort="max"):
+              dataset_mounts=None, environment_overrides=None, forwarded_env=(), gateway=None, effort="max", cpus=2,
+              compute_threads=1):
+    if type(cpus) is not int or not 1 <= cpus <= 128:
+        raise ValueError('Container CPUs must be an integer between 1 and 128')
+    if type(compute_threads) is not int or not 1 <= compute_threads <= cpus:
+        raise ValueError('Compute threads must be between 1 and the container CPU quota')
     if key and key != "offline-placeholder":
         raise RuntimeError("Paid containers are disabled pending credential isolation: never inject provider keys into solver environments")
     if forwarded_env:
@@ -126,7 +176,7 @@ def container(work, profile, dataset, image, key=None, network="bridge", backend
     if set(environment_overrides or {}) - allowed_overrides:
         raise ValueError("Only benchmark web settings may override container environment")
     container_name = "mas-cli6-" + uuid.uuid4().hex[:12]
-    environment = native_env(backend, effort=effort)
+    environment = native_env(backend, effort=effort, compute_threads=compute_threads)
     environment.update(environment_overrides or {})
     if gateway is not None:
         from harness.runtime_support.credential_gateway import CredentialGateway
@@ -137,7 +187,7 @@ def container(work, profile, dataset, image, key=None, network="bridge", backend
         # The Unix gateway is the only provider/web route, including shell tools.
         network = "none"
     args = ["docker", "run", "-d", "--pull", "never", "--name", container_name,
-            "--label", "purpose=mas-cli6", "--network", network, "--cpus", "2",
+            "--label", "purpose=mas-cli6", "--network", network, "--cpus", str(cpus),
             "--memory", "8g", "--pids-limit", "512", "--cap-drop", "ALL",
             "--security-opt", "no-new-privileges", "--user", f"{os.getuid()}:{os.getgid()}",
             "--workdir", "/workspace"]

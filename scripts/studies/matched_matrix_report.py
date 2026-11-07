@@ -2,6 +2,7 @@
 import json
 import csv
 from collections import Counter
+from decimal import Decimal
 from pathlib import Path
 import argparse
 import copy
@@ -48,12 +49,16 @@ def collect(root):
         report = read(folder / 'report.json', {})
         grade = grade_by_id.get((b, t, k), {})
         target = root/'grades'/k/b/t/actual_backend if item.get('evidence_mode') else root/'grades'/b/t/k
+        if grade.get('grading_artifact'):
+            target=Path(grade['grading_artifact'])
         score, grade_status, judge_cost = None, grade.get('status'), None
         if b == 'kramabench':
             g = grade.get('grade') or {}
             score, grade_status = g.get('score'), g.get('status', grade_status)
             judge = read(target / 'result.json', {})
             judge_cost = price(judge.get('native_usage')) if judge else 0
+            if grade.get('reused_without_dispatch'):
+                judge_cost=0  # Incremental batch expense; the original receipt retains incurred cost.
         else:
             sql = lines(target / 's2sql-results.jsonl')
             judged = lines(target / 'judge-results.jsonl')
@@ -96,6 +101,7 @@ def collect(root):
             prompt = dict(organization_characters=len(plan['backend_instructions'].get(k, '')))
         costs = [model_cost, web_cost, judge_cost]
         result.append(dict(benchmark=b, task_id=t, backend=k, status=item['status'], score=score,
+            resources=report.get('resources'),
             grade_status=grade_status, seconds=report.get('cli', {}).get('elapsed_seconds'),
             model_requests=len(dispatched), model_responses=len(model),
             request_efforts=dict(Counter(r.get('request_effort', 'unknown') for r in dispatched)),
@@ -161,6 +167,50 @@ def timeout_zero(report):
     return revised
 
 
+def replace_upstream_failures(original, recovery):
+    """Use authorized recovery artifacts, without selecting scores or erasing costs."""
+    if original.get('upstream_replacement') or recovery['authorization'].get('upstream_recovery_from') is None:
+        raise ValueError('Require an original report and an explicit upstream recovery')
+    auth = recovery['authorization']
+    if (Path(auth['upstream_recovery_from']).name != original['run']
+            or auth['protocol_settings'] != original['authorization']['protocol_settings']
+            or auth['task_manifest_sha256'] != original['authorization']['task_manifest_sha256']):
+        raise ValueError('Recovery source/settings/manifest differ')
+    key = lambda row: (row['benchmark'], row['task_id'], row['backend'])
+    primary = {key(row): row for row in original['rows']}
+    eligible = {key(row) for row in auth['upstream_recovery']}
+    replacements = {key(row): row for row in recovery['rows']}
+    if (len(primary) != len(original['rows']) or len(replacements) != len(recovery['rows'])
+            or set(replacements) != eligible or not eligible <= set(primary)
+            or any(primary[k]['status'] != 'cli_error' for k in eligible)):
+        raise ValueError('Recovery rows must exactly match authorized infrastructure failures')
+    revised = copy.deepcopy(original)
+    revised['rows'] = [copy.deepcopy(replacements.get(key(row), row)) for row in original['rows']]
+    revised['groups'] = summarize(revised['rows'])
+    all_attempts = original['rows'] + recovery['rows']
+    operational = []
+    for group in summarize(all_attempts):
+        if group['benchmark'] == 'all':
+            continue
+        selected = [r for r in all_attempts if r['benchmark'] == group['benchmark'] and r['backend'] == group['backend']]
+        operational.append({k: group[k] for k in ('benchmark', 'backend', 'attempts', 'cost_coverage',
+            'known_usd_offpeak_subtotal', 'total_usd_offpeak', 'model_requests', 'time_coverage')} |
+            dict(total_cli_seconds=sum(r['seconds'] for r in selected) if all(r['seconds'] is not None for r in selected) else None))
+    first, second = original.get('account_delta'), recovery.get('account_delta')
+    combined = ({currency: str(Decimal(first[currency]) + Decimal(second[currency])) for currency in first}
+                if first is not None and second is not None and first.keys() == second.keys() else None)
+    revised['account_delta'] = combined
+    revised['upstream_replacement'] = dict(recovery_run=recovery['run'], replaced_count=len(eligible),
+        replacements=copy.deepcopy(auth['upstream_recovery']),
+        original_rows=[copy.deepcopy(row) for row in original['rows'] if key(row) in eligible],
+        incurred_by_condition=operational, original_account_delta=first, recovery_account_delta=second,
+        incurred_account_delta=combined, total_attempts=len(all_attempts),
+        policy='Rerun replaces primary artifact regardless of score; original evidence and incurred costs retained')
+    revised['limitations'] = [v for v in revised['limitations'] if not v.startswith('One attempt per task')]
+    revised['limitations'].append('Primary scores/times use authorized upstream-5xx reruns, not best-of-N. Cost estimates in the main table cover effective artifacts; incurred costs include original failed attempts.')
+    return revised
+
+
 def write_report(report, output):
     """Export public operational metadata without copying private run artifacts."""
     output.mkdir(parents=True, exist_ok=False)
@@ -176,7 +226,8 @@ def write_report(report, output):
     fmt = lambda value, spec='.4f': format(value, spec) if value is not None else 'unknown'
     auth = report['authorization']
     text = ['# ' + report.get('condition_label', 'Single vs Subagents'), '',
-            f"Run: {report['run']}. One attempt per selected task and condition; no replacements.",
+            f"Run: {report['run']}. " + ('Authorized upstream-5xx recovery artifacts replace primary results; original evidence retained.'
+                if report.get('upstream_replacement') else 'One attempt per selected task and condition; no replacements.'),
             f"Effort: {auth['effort']}; solver concurrency: {auth['solver_concurrency']}; grading concurrency: {auth['judge_concurrency']}.",
             f"Protocol source: {auth.get('protocol_settings_source', 'historical authorization')}; "
             f"protocol SHA-256: {auth.get('protocol_settings_sha256') or 'not separately recorded'}.", '',
@@ -186,7 +237,8 @@ def write_report(report, output):
         if group['benchmark'] == 'all':
             continue
         count = group['attempts']
-        condition = ({'observations':'Observation','full':'Full'}.get(group['backend']) or
+        condition = (report.get('condition_labels', {}).get(group['backend']) or
+                     {'observations':'Observation','full':'Full'}.get(group['backend']) or
                      ('Single' if group['backend'].endswith('single-agent') else report.get('condition_label', 'Subagents')))
         text.append(f"| {group['benchmark']} | {condition} | {group['graded']}/{count} | {fmt(group['mean_score'])} | "
                     f"{group['full_score']}/{count} | {fmt(group['mean_minutes'], '.2f')} | "
@@ -195,6 +247,19 @@ def write_report(report, output):
     for row in report['rows']:
         if row['native_audit_passed'] is not True:
             text.append(f"- {row['benchmark']} / {row['task_id']} / {row['backend']}: {row['status']}; score {row['score']}.")
+    if report.get('upstream_replacement'):
+        recovery = report['upstream_replacement']
+        text += ['', '## Upstream Recovery', '',
+            f"Replaced {recovery['replaced_count']} infrastructure failures; {recovery['total_attempts']} physical attempts in total.",
+            f"Shared-account interval deltas including original failures: {recovery['incurred_account_delta']}; not attributable invoices.",
+            'Main-table scores/times use the recovery artifacts. Original failures are preserved and their costs are not discarded.', '',
+            '| Condition | Physical Attempts | Complete Cost Records | Known USD Subtotal | Total USD | Total CLI Min |',
+            '| --- | ---: | ---: | ---: | ---: | ---: |']
+        for group in recovery['incurred_by_condition']:
+            seconds = group['total_cli_seconds']
+            text.append(f"| {group['backend']} | {group['attempts']} | {group['cost_coverage']} | "
+                f"{fmt(group['known_usd_offpeak_subtotal'], '.6f')} | {fmt(group['total_usd_offpeak'], '.6f')} | "
+                f"{fmt(seconds/60 if seconds is not None else None, '.2f')} |")
     text += ['', '## Limits', ''] + ['- ' + value for value in report['limitations']]
     (output / 'REPORT.md').write_text('\n'.join(text) + '\n')
 
@@ -204,6 +269,8 @@ if __name__ == '__main__':
     source = parser.add_mutually_exclusive_group(required=True)
     source.add_argument('--run', type=Path)
     source.add_argument('--from-report', type=Path, help='Existing exported summary; no regrading')
+    parser.add_argument('--upstream-recovery-report', type=Path,
+                        help='Use authorized recovery artifacts as primary rows, retaining original costs/evidence')
     parser.add_argument('--timeout-as-zero', action='store_true')
     parser.add_argument('--condition-label', help='Explicit display label for a separately authorized study')
     parser.add_argument('--output', type=Path, required=True)
@@ -214,6 +281,8 @@ if __name__ == '__main__':
     if args.report_dir and (args.report_dir.exists() or (args.run and args.report_dir.resolve().is_relative_to(args.run.resolve()))):
         raise ValueError('Use a fresh report directory outside immutable run evidence')
     report = collect(args.run) if args.run else read(args.from_report)
+    if args.upstream_recovery_report:
+        report = replace_upstream_failures(report, read(args.upstream_recovery_report))
     if args.condition_label:
         report['condition_label'] = args.condition_label
     if args.timeout_as_zero:

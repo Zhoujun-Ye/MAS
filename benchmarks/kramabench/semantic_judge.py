@@ -6,6 +6,7 @@ import urllib.error
 import urllib.request
 
 from common.io import fingerprint, write_json
+from common.journal import exclusive
 from .evaluation import grade_answer
 
 SYSTEM = ("You evaluate whether a candidate answer conveys the same answer as a reference. "
@@ -15,8 +16,29 @@ SYSTEM = ("You evaluate whether a candidate answer conveys the same answer as a 
 
 
 def judge_once(*, upstream, task_id, backend, submission_path, question, key, output, call=None):
+    output=Path(output)
+    binding=dict(task_id=task_id,backend=backend,question=question,
+                 submission=grade_answer(upstream,task_id,submission_path),
+                 evaluator_source=fingerprint(Path(__file__).read_text()))
+    identity=fingerprint(binding)
+    with exclusive(Path(str(output)+'.lock')):
+        marker=output/'binding.json'
+        if output.exists():
+            if not marker.exists() or json.loads(marker.read_text())['identity']!=identity:
+                raise ValueError('Existing judge artifact is unbound or changed')
+            result=output/'result.json'
+            if result.exists():
+                return dict(json.loads(result.read_text()),attempted_calls=0,reused_without_dispatch=True)
+            return dict(status='judge_outcome_unknown',score=None,attempted_calls=0,
+                        previous_attempt_may_be_chargeable=True)
+        output.mkdir(parents=True)
+        write_json(marker,dict(identity=identity))
+        return _judge_once(upstream=upstream,task_id=task_id,backend=backend,
+            submission_path=submission_path,question=question,key=key,output=output,call=call)
+
+
+def _judge_once(*, upstream, task_id, backend, submission_path, question, key, output, call=None):
     output = Path(output)
-    output.mkdir(parents=True, exist_ok=False)
     base = grade_answer(upstream, task_id, submission_path)
     if base["answer_type"] != "string_approximate" or base["status"] != "pending_judge":
         raise ValueError("Only pending string_approximate grades may consume a judge call")

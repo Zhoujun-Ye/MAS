@@ -10,6 +10,7 @@ import secrets
 import subprocess
 import sys
 import threading
+import urllib.error
 from unittest.mock import patch
 from urllib.parse import urlsplit
 
@@ -40,8 +41,9 @@ def sse(frames):
 
 
 class Fixture:
-    def __init__(self, backend):
+    def __init__(self, backend, error_status=None):
         self.backend = backend
+        self.error_status = error_status
         self.single = backend.endswith("single-agent")
         self.requests = []
         self.rejections = set()
@@ -55,6 +57,11 @@ class Fixture:
             if len(self.requests) >= 32:
                 raise ValueError("Offline fixture request ceiling exceeded")
             self.requests.append(body)
+            if self.error_status is not None:
+                kind = {401: 'authentication_error', 402: 'billing_error', 429: 'rate_limit_error'}[self.error_status]
+                error = dict(type='error', error=dict(type=kind, message='Synthetic offline failure; do not retry'))
+                raise urllib.error.HTTPError(request.full_url, self.error_status, 'Synthetic',
+                    {'Content-Type': 'application/json', 'Retry-After': '2'}, io.BytesIO(json.dumps(error).encode()))
             return self.claude(body)
 
     def claude(self, body):
@@ -139,7 +146,12 @@ def probe(backend, root, image, key, fixture, *, effort="max"):
         proof["request_effort_verified"] = bool(observed) and all(value == effort for value in observed)
         proof["passed"] = bool(result["status"] == "cli_exited" and proof["shell_verified"] and native_ok and unchanged
                                and proof["request_effort_verified"])
-        validate_runtime(proof, backend, **binding)
+        if fixture.error_status is not None:
+            proof.update(proof_kind='native_error_injection', injected_http_status=fixture.error_status,
+                retry_count=max(0, len(fixture.requests)-1), passed=bool(result['status']=='cli_error'
+                    and len(fixture.requests)==1 and unchanged and proof['request_effort_verified']))
+        else:
+            validate_runtime(proof, backend, **binding)
     except Exception as error:
         proof.update(passed=False, error_type=type(error).__name__)
         if getattr(error, "container_id", None):
@@ -169,6 +181,8 @@ def main(argv=None):
     parser.add_argument("--image", required=True)
     parser.add_argument("--execute", action="store_true")
     parser.add_argument("--effort", choices=("high", "max"), default="max")
+    parser.add_argument('--error-status', type=int, choices=(401, 402, 429),
+                        help='Synthetic native failure/no-retry probe; not a launch-admission proof')
     args = parser.parse_args(argv)
     if not args.execute:
         print(json.dumps(dict(status="planned", conditions=2, concurrency=2, paid_calls=0, network="none")))
@@ -177,7 +191,7 @@ def main(argv=None):
     args.output = args.output.resolve()
     args.output.mkdir(parents=True, exist_ok=False)
     image = json.loads(subprocess.check_output(["docker", "image", "inspect", args.image]))[0]["Id"]
-    fixtures = {"synthetic-" + secrets.token_hex(24): Fixture(backend) for backend in BACKENDS}
+    fixtures = {"synthetic-" + secrets.token_hex(24): Fixture(backend, args.error_status) for backend in BACKENDS}
 
     def fake_upstream(request):
         key = request.get_header("Authorization", "").removeprefix("Bearer ")

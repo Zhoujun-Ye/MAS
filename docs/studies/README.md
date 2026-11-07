@@ -1,31 +1,20 @@
-# Current Lead Prompt
+# Current Protocols
 
-The default Subagents lead prompt is `scripts/common/prompts/structured_subagents.py`.
-The user froze its text on 2026-11-04 and requested
-removing superseded lead prompt files and version labels.
-
-UTF-8 SHA-256 without trailing newline:
+The Structured lead prompt remains frozen in
+`scripts/common/prompts/structured_subagents.py`. Its UTF-8 SHA-256 without the
+trailing newline is
 `31ff6e4176a25d961866f644adb4d7b97cb4b00228e696c0e4e38a52b9485a95`.
-The exact text is pinned by `tests/test_baseline_prompt.py`.
+The lead receives organization instructions; worker-visible rules contain shared
+task limits, not Structured lead organization. Tests pin the exact baseline.
 
-The lead receives organization instructions; Single does not. Shared task rules
-and limits remain identical across conditions. Native Agent delegation is used,
-not Agent Teams. Lifecycle accounting does not prove substantive contribution.
+- [Active evidence and infra repair](evidence-infra.md)
+- [Full manifests, crash recovery and resource admission](fullscale-infra.md)
+- [Typed intermediate and decision contracts](intermediate-full.md)
+- [Retained CPU8 FULL/Structured comparison](krama-cpu8-paired.md)
+- [CPU8 trajectory diagnosis](cpu8-trajectory-analysis.md)
+- [Frozen validation questions](validation20.md)
+- [Retention and deletion boundaries](../archive.md)
 
-The fixed questions remain in `validation20-v1-manifest.json`; the dataset version
-is not a prompt version. Current settings are in `validation20-final-protocol.json`.
-Neither condition sets a project output token cap. See [run record](validation20-final.md),
-[lifecycle fix](lifecycle-fix-20261104.md) and [current results](../current-results.md).
-Historical raw run names and frozen manifests are not renamed or rewritten.
-
-## Explicit Evidence Studies
-
-These opt-in studies are separate from the frozen Structured baseline. Native,
-OBS and FULL use the existing Native (N) prompt, not the default Structured prompt.
-
-- [Intermediate measurements and shadow grading](intermediate-full.md)
-- [Validation20 evidence batch record](evidence-validation20.md)
-- [Superseded designs and repair receipts](../archive.md)
-
-Study documents and offline checks do not establish benchmark gains or authorize
-paid execution. Retain original attempts, frozen settings and accounting evidence.
+New FULL behavior is decision-v4, separate from the retained decision-v3 results.
+Native organization remains separate from the unchanged Structured prompt.
+No document or offline proof authorizes paid execution.

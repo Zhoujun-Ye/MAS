@@ -15,6 +15,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from scripts.common.prompts.conditions import condition_instructions
 from scripts.common.prompts.limits import limit_instructions
 from common.io import fingerprint, write_json
+from harness.runtime_support.resources import ContainerResources
+from harness.runtime_support import runtime
 from benchmarks.kramabench.evaluation import grade_answer, scoring_contract
 from benchmarks.kramabench.tasks import load_tasks
 from harness import ClaudeCodeSubagentsCLI, ClaudeCodeSingleAgentCLI
@@ -81,6 +83,7 @@ def run_attempt(task, backend, args, key, stop, active, lock):
     write_json(folder / "task.json", asdict(task))
     report, identity = dict(task_id=task.id, backend=backend, status="not_started"), None
     gateway = None
+    resources = None
     if stop.is_set():
         write_json(folder / "report.json", report)
         return report
@@ -90,7 +93,10 @@ def run_attempt(task, backend, args, key, stop, active, lock):
         gateway.__enter__()
         mount_kwargs={'dataset_mounts':[(args.upstream/'data','/data',True)]+evidence.source_mounts(mode)} if mode else {}
         identity = container(work, profile, args.upstream / "data", args.image,
-                             gateway=gateway, backend=backend, effort=getattr(args, "effort", "max"),**mount_kwargs)
+                             gateway=gateway, backend=backend, effort=getattr(args, "effort", "max"),
+                             cpus=getattr(args, 'cpus', 2), compute_threads=getattr(args, 'compute_threads', 1), **mount_kwargs)
+        if getattr(args, 'record_resources', False):
+            resources = ContainerResources(identity, folder, args.cpus).start()
         with lock:
             active.add(identity)
         adapter = ({"claude-code-subagents": ClaudeCodeSubagentsCLI, "claude-code-single-agent": ClaudeCodeSingleAgentCLI}[backend](str(CLAUDE)))
@@ -124,10 +130,14 @@ def run_attempt(task, backend, args, key, stop, active, lock):
                 report["status"] = "single_agent_policy_unverified"
         error_text = "\n".join(p.read_text(errors="replace")[-32000:] for p in
                                (folder / "cli/stdout.log", folder / "cli/stderr.log") if p.exists()).lower()
-        if result["status"] != "cli_exited" and any(marker in error_text for marker in
-                ("insufficient balance", "invalid api key", "authentication_error", "credit balance is too low")):
+        from harness.runtime_support.admission import fatal_provider_record
+        fatal=fatal_provider_record(folder/'gateway-requests.jsonl')
+        if fatal or (result["status"] != "cli_exited" and any(marker in error_text for marker in
+                ("insufficient balance", "invalid api key", "authentication_error", "credit balance is too low"))):
             stop.set()
             report["fatal_provider_error"] = True
+            if fatal:
+                report['fatal_provider_evidence']=fatal
             with lock:
                 owned = list(active)
             for owned_id in owned:
@@ -149,7 +159,13 @@ def run_attempt(task, backend, args, key, stop, active, lock):
         try:
             if identity is not None:
                 try:
-                    report["cleanup"] = stop_container(identity)
+                    try:
+                        if resources is not None:
+                            report['resources'] = resources.close()
+                    finally:
+                        report["cleanup"] = stop_container(identity)
+                        if resources is not None:
+                            report['resources']=resources.record_exit()
                     write_json(folder / "frozen-files.json", snapshot(work))
                 finally:
                     subprocess.run(["docker", "rm", identity], check=True, capture_output=True)
@@ -203,7 +219,9 @@ def collect_attempt(folder, report, args):
             raise ValueError("Submission must contain answer")
         if getattr(args, 'evidence_mode', None) == 'full':
             report['decision_gate'] = decision_host_check(folder, candidate)
-            report['protocol_status'] = 'complete' if report['decision_gate']['accepted'] else 'incomplete'
+            gate=report['decision_gate']
+            report['protocol_status'] = ('coverage_unknown' if gate.get('coverage') is False
+                else 'complete' if gate['accepted'] else 'incomplete')
         shutil.copyfile(raw_submission, folder / "submission.json")
         report["grade"] = grade_answer(args.upstream, task_id, folder / "submission.json")
         if 'decision_gate' in report:
@@ -271,7 +289,12 @@ def preflight(args):
                 backend_options={b: options(b) for b in backends},
                 backend_instructions={b: condition_instructions(args, b) for b in backends},
                 organization_override=getattr(args, "organization_override", None), evidence=evidence.configuration(getattr(args,'evidence_mode',None)),
-                native_environment={b: native_env(b, effort=getattr(args, "effort", "max")) for b in backends}, cpu_per_attempt=2, memory_per_attempt="8g",
+                native_environment={b: native_env(b, effort=getattr(args, "effort", "max"),
+                    compute_threads=getattr(args, 'compute_threads', 1)) for b in backends},
+                compute_threads=getattr(args, 'compute_threads', 1),
+                required_modules=runtime.capability_modules(getattr(args, 'require_module', [])),
+                capability_probes=runtime.capability_probes(getattr(args, 'capability_probe', [])),
+                cpu_per_attempt=getattr(args, 'cpus', 2), record_resources=getattr(args, 'record_resources', False), memory_per_attempt="8g",
                 source=source_manifest(),
                 judge_limit=getattr(args, "judge_limit", 0),
                 replay_timeout_seconds=getattr(args, "replay_timeout", 180),
@@ -294,19 +317,38 @@ def preflight(args):
     backend = backends[0]
     binary = CLAUDE
     identity = container(work, profile, args.upstream / "data", args.image, backend=backend, network="none",
-                         effort=getattr(args, "effort", "max"))
+                         effort=getattr(args, "effort", "max"), cpus=getattr(args, 'cpus', 2),
+                         compute_threads=getattr(args, 'compute_threads', 1))
+    resources = None
     try:
+        if getattr(args, 'record_resources', False):
+            resources = ContainerResources(identity, checks, args.cpus).start()
         commands = [[str(binary), "--version"],
                     ["python3", "-c", "import numpy,pandas,scipy,pypdf; print('domain imports OK')"],
+                    runtime.capability_command(getattr(args, 'require_module', [])),
                     [str(binary), "--help"]]
+        commands.extend(['python3', '-c', p['source']] for p in plan['capability_probes'])
         receipts = []
         for command in commands:
-            output = subprocess.check_output(["docker", "exec", identity, *command], text=True, stderr=subprocess.STDOUT, timeout=60)
-            receipts.append(dict(argv=command, stdout=output))
-        write_json(checks / "checks.json", receipts)
+            try:
+                result = subprocess.run(["docker", "exec", identity, *command], text=True,
+                                        stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=60)
+                receipts.append(dict(argv=command, stdout=result.stdout, returncode=result.returncode))
+                write_json(checks / "checks.json", receipts)
+                result.check_returncode()
+            except subprocess.TimeoutExpired:
+                receipts.append(dict(argv=command, status='timeout', timeout_seconds=60))
+                write_json(checks / "checks.json", receipts)
+                raise
     finally:
-        stop_container(identity)
-        subprocess.run(["docker", "rm", identity], check=True, capture_output=True)
+        try:
+            if resources is not None:
+                resources.close()
+        finally:
+            try:
+                stop_container(identity)
+            finally:
+                subprocess.run(["docker", "rm", identity], check=True, capture_output=True)
     write_json(args.output / "preflight-ok.json", dict(paid_calls=0, plan_sha256=fingerprint(plan)))
     return selected, plan
 

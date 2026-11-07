@@ -15,8 +15,7 @@ arguments, observations, version preflight, stdin, process lifetime and raw logs
 No semantic provider relay, model loop, SDK import, custom scheduler or vendored runtime
 exists. DataClaw/HDR use a host credential gateway that preserves native wire
 protocols without model orchestration. Deep Agents launchers, options, mounts and executable requirements are
-removed. Historical comparisons and read-only checkpoint readers remain usable
-without restoring its active runtime. See [retention](archive.md).
+removed. Historical comparisons and retired checkpoint readers have been removed. See [retention](archive.md).
 
 ## Strict Single
 
@@ -31,12 +30,6 @@ zero executed delegation and zero worker transcript evidence. Missing evidence
 is not success. Shell/Python can access external services in a network-enabled
 container, so this is not an adversarial sandbox; external agent/model calls are
 also forbidden by the study instruction.
-
-The existing installation passed a network-disabled denial probe with dummy
-credentials: production tool restrictions and a deliberately relaxed diagnostic
-surface separately rejected Agent and Task. Six loopback fake requests, zero
-paid calls. Historical server receipt:
-`archives/claude-single-agent-20261103/native-denial-01/proof.json`.
 
 ## Native Subagents
 
@@ -79,15 +72,9 @@ baseline and freeze each prompt/configuration separately. See the official
 [CLI options](https://code.claude.com/docs/en/cli-reference) and
 [hooks](https://code.claude.com/docs/en/hooks).
 
-Existing native wiring proof: `archives/claude-subagents-20261102/native-probe-01/proof.json`
-on the server, one observed subagent start/stop, root end and no native Team,
-four loopback fake requests, zero paid calls. Not benchmark quality evidence.
-
-## Retired Agent Teams
-
-The interactive Agent Teams adapter, launcher choice, and native probe were retired
-on 2026-11-04. Historical results and evidence readers remain available; no Team
-runtime is active. See [retention](archive.md).
+Retired Agent Teams adapters and historical readers are not available. Current
+native proofs are regenerated offline and bound to the active configuration;
+see [active infra](studies/evidence-infra.md). No native Team runtime is active.
 
 ## Execution And Evidence
 

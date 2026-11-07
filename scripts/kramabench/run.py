@@ -24,7 +24,7 @@ from scripts.kramabench.cli_runtime import compact
 from harness.runtime_support import runtime as shared
 from harness.runtime_support.runtime import (monitor, safe_balance)
 from analysis.native_evidence import native_single_agent, native_subagents
-from harness.runtime_support.proof import validate_runtime
+from harness.runtime_support.proof import validate_runtime, validate_effort
 from scripts.common import evidence
 
 
@@ -56,6 +56,7 @@ def validate_native_proof(args, plan, *, frozen=False):
         raise ValueError("Offline proof changed after freeze")
     proof = json.loads(raw)
     evidence.validate_proof(proof,getattr(args,'evidence_mode',None))
+    validate_effort(proof, getattr(args, 'effort', 'max'))
     binary = plan["cli_binaries"]["claude"]
     validate_runtime(proof, args.backend, image_id=plan["image_id"],
                      binary_sha256=binary["sha256"])
@@ -80,9 +81,18 @@ def validate(args):
     plan = json.loads((args.output / "plan.json").read_text())
     if fingerprint(plan) != json.loads((args.output / "preflight-ok.json").read_text())["plan_sha256"]:
         raise ValueError("Plan receipt changed")
-    validate_native_proof(args, plan, frozen=True)
     if plan.get("effort", "max") != getattr(args, "effort", "max"):
         raise ValueError("Frozen effort changed")
+    validate_native_proof(args, plan, frozen=True)
+    if (plan.get('cpu_per_attempt', 2), plan.get('record_resources', False)) != (
+            getattr(args, 'cpus', 2), getattr(args, 'record_resources', False)):
+        raise ValueError('Frozen CPU resource settings changed')
+    if plan.get('compute_threads', 1) != getattr(args, 'compute_threads', 1):
+        raise ValueError('Frozen compute thread setting changed')
+    if plan.get('required_modules', []) != shared.capability_modules(getattr(args, 'require_module', [])):
+        raise ValueError('Frozen required modules changed')
+    if plan.get('capability_probes', []) != shared.capability_probes(getattr(args, 'capability_probe', [])):
+        raise ValueError('Frozen capability probes changed')
     if plan.get('evidence')!=evidence.configuration(getattr(args,'evidence_mode',None)):
         raise ValueError('Frozen evidence configuration changed')
     tasks, _ = load_tasks(args.upstream)
@@ -200,6 +210,13 @@ def main(argv=None):
     parser.add_argument("--credentials", type=Path, default=Path("/home/zhoujunye/mas/.env"))
     parser.add_argument("--image", default="mas/kramabench:20261101-v1")
     parser.add_argument("--concurrency", type=int, default=12)
+    parser.add_argument('--cpus', type=int, choices=range(1, 129), default=2)
+    parser.add_argument('--record-resources', action='store_true')
+    parser.add_argument('--compute-threads', type=int, choices=range(1, 129), default=1)
+    parser.add_argument('--capability-probe', action='append', default=[],
+                        help='Explicit offline Python functional check; runs in network-disabled preflight')
+    parser.add_argument('--require-module', action='append', default=[],
+                        help='Fail preflight if this top-level module is absent; never install automatically')
     parser.add_argument("--timeout", type=int, default=3600)
     parser.add_argument("--replay-timeout", type=int, default=600)
     parser.add_argument("--judge-limit", type=int, choices=range(11), default=0)
@@ -208,6 +225,9 @@ def main(argv=None):
     parser.add_argument("--effort", choices=("high", "max"), default="max")
     parser.add_argument('--evidence-mode',choices=evidence.MODES)
     args = parser.parse_args(argv)
+    args.require_module = shared.capability_modules(args.require_module)
+    if args.compute_threads > args.cpus:
+        parser.error('Compute threads cannot exceed the container CPU quota')
     if not 1 <= args.concurrency <= 12 or args.timeout <= 0 or args.replay_timeout <= 0:
         parser.error("Expected 1-12 CLIs and positive timeouts")
     args.upstream, args.output = args.upstream.resolve(), args.output.resolve()

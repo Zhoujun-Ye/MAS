@@ -1,130 +1,51 @@
-# Benchmark Adaptation Audit
+# Benchmark Contracts
 
-Updated 2026-11-03. This is an implementation/readiness audit, not a benchmark
-result. No paid solver, judge, search request, install or production deployment
-is authorized by it.
+Current ownership and verification boundaries, 2026-11-07. These contracts do
+not authorize paid execution, judge calls, environment installation or provisioning.
 
-The later user-authorized provisioning and smoke work is recorded in
-[Server Preparation](server-preparation.md). The outstanding list below is the
-pre-provisioning snapshot, not the current server installation state.
-
-## Common Structure
-
-The tree below records the 2026-11-03 audit layout. Reusable tools, credential
-transport and proof validation moved to `harness/runtime_support/` on 2026-11-05;
-our new MAS components live in `harness/evidence_mas/`. See the current
-[ownership guide](../harness/README.md). Historical readiness observations below
-are not rewritten as current runtime verification.
-
-```text
-harness/                          external Claude CLI adapters only
-benchmarks/
-  _io.py                          atomic JSON and provenance helpers
-  _external.py                    gold-isolated task/export contracts
-  kramabench/                      tasks.py, evaluation.py, semantic_judge.py
-  dataclawbench/                   tasks.py, evaluation.py
-  hybriddeepresearch/              tasks.py, evaluation.py
-scripts/
-  common/                         shared prompts, containers, proof, run/score/tools
-    grading.py                    one-attempt grading dispatch shared by matrix/recovery
-  kramabench/                      catalog.py, run.py, score.py; replay/publication
-  dataclawbench/                   catalog.py, run.py, score.py
-  hybriddeepresearch/              catalog.py, run.py, score.py
-  probes/                         offline native mode probes
-  studies/                        retained comparison and pilot analysis utilities
-analysis/native_evidence.py        read-only native observations and accounting
-```
-
-Shared code no longer imports execution helpers from KramaBench. All three use
-the same unchanged ordinary Subagents prompt, Claude environment/container helpers
-and backend-specific offline-proof validation. Task loaders and evaluation
-schemas have separate files in every benchmark.
-
-Uniform ownership does not mean identical grading protocols: KramaBench preserves
-its pipeline submission, offline replay, versioned numeric metrics and historical
-result layout. DataClawBench/HDR preserve their final-text submission and outcome
-evaluation schemas. We do not rewrite historical runs or turn continuous scores
-into binary accuracy to make directories look alike.
-
-## Readiness
-
-| Area | KramaBench | DataClawBench | HybridDeepResearch |
+| Benchmark | Task source | Solver inputs | Evaluation |
 | --- | --- | --- | --- |
-| Task loading | Pinned 104-task loader | Upstream sorted QA IDs/rubric | Encrypted release decode, integrity checks |
-| Solver gold isolation | Public question/input lake | No task markdown/gold mounts | Selected DB/KB only; no reference fields |
-| Baseline prompt | Original ordinary prompt | Same prompt | Same prompt |
-| Execution | Existing native run/replay path | Fake-boundary workflow tested | Fake-boundary workflow tested |
-| Outcome evaluation | Versioned numeric/string metrics; explicit semantic judge | Adapted upstream per-part rubric | Official SQL evaluator invocation and text prompt/parser |
-| Process metrics | Native trace/accounting | EE/GPR/TPE mapping not implemented | Native trace/accounting only |
-| Real end-to-end evidence | Retained full runs, not rerun here | Not completed | Not completed |
+| KramaBench | Pinned 104-task workload | Read-only public data lake | Versioned numeric/string/list metrics, exported pipeline replay; explicit semantic judge when required |
+| DataClawBench | Pinned upstream QA IDs/rubric | Selected read-only database, no QA/gold mount | Adapted tool-free per-part rubric; process metrics remain unavailable |
+| HybridDeepResearch | Encrypted 380-task release decoded host-side | Selected read-only SQLite/optional KB, no reference fields | Pinned official SQL evaluator and text judge contract |
 
-Pinned primary contracts checked during this audit:
-[DataClaw task builder](https://github.com/GTML-LAB-sysu/DataClaw/blob/32e138750ceba41b47290211403ad1781d5e1971/dataclaw/build_tasks.py),
-[DataClaw grading](https://github.com/GTML-LAB-sysu/DataClaw/blob/32e138750ceba41b47290211403ad1781d5e1971/dataclaw/utils/grading.py),
-[HDR SQL evaluation](https://github.com/Snowflake-AI-Research/HybridDeepResearch/blob/3523f1da83a0470cdea742ea8b7426e7af6ca89b/evaluation/s2sql_eval.py),
-[HDR text judge](https://github.com/Snowflake-AI-Research/HybridDeepResearch/blob/3523f1da83a0470cdea742ea8b7426e7af6ca89b/evaluation/llm_judge.py).
+Each benchmark owns `tasks.py` and `evaluation.py`, with executable
+`scripts/<benchmark>/{catalog,run,score}.py` entrypoints. Shared grading/workflows
+belong in `scripts/common/`; runtime/container/proof libraries in
+`harness/runtime_support/`; persistence in `common/`; native evidence readers in
+`analysis/`. See [repository ownership](repository-layout.md).
 
-## Fixed During Audit
+## Isolation And Scoring
 
-- Removed the shared runtime's dependency on the KramaBench package; moved
-  native evidence to analysis and study-specific scripts out of active entry points.
-- Removed remaining active-doc references to the retired Deep Agents condition
-  and deleted probe path; historical source/results remain archived.
-- New runners retain progress/predictions after each task, initialize all selected
-  IDs, record interruption/cleanup failures, and stop later dispatch on failure.
-  A failed container stop never produces an accepted final answer.
-- Successful predictions require a frozen submission hash at scoring time.
-  Evaluation outputs cannot overlap original evidence, database or source paths.
-  Judge failure yields an incomplete receipt and nonzero exit, not a success code.
-- Native proofs now check actual mode-specific observations, not only a generic
-  `passed` flag. Legacy mode-specific proofs remain usable without manual relabeling.
-- New plans retain native environment, exact condition instruction, CLI executable
-  hash on execution, and source archive. Task/evaluator files are checked against
-  pinned Git blobs, catching modified or partial checkouts with unchanged HEAD.
-- Source snapshots prune ignored output/archive/cache directories before walking
-  them; historical archives no longer accidentally enter source inventories.
-- KramaBench image preparation now plans by default and requires `--execute` for
-  separately authorized provisioning.
+- Claude Code Single and ordinary Subagents use the pinned external CLI, not a
+  vendored runtime. Structured lead organization remains frozen; shared limits
+  are stated identically across conditions. FULL is a separate opt-in condition.
+- DataClaw/HDR reference answers, gold SQL and decrypted task releases remain
+  host-side. Exporting a public manifest exposes IDs and hashes, not those fields.
+- Live containers have network none; fixed provider/search destinations use the
+  host credential gateway. Credentials never enter solver mounts/environments.
+  Same-UID access remains a limitation, not a claimed security boundary.
+- Final submissions, grading artifacts and evaluator/source hashes are bound.
+  Unknown outcomes and unavailable charges are not zero scores or zero costs.
+  Continuous answer metrics are not binary accuracy or scientific-method validity.
+- Semantic judges require separate authorization; no implicit replay, unit repair,
+  automatic semantic choice, extra solver retry or hidden grading call is allowed.
 
-## Still Outstanding
+## Current Readiness
 
-1. **Assets and environments.** The production benchmark tree has no prepared
-   DataClawBench/HDR checkout or full database installation. Prior temp fixtures
-   are not a prepared environment. Full DataClaw Git LFS hydration and HDR SQLite
-   DB/KB inventory must be obtained and verified under separate provisioning scope.
-2. **HDR SQL dependencies.** Read-only inspection of the project server Python
-   found `numpy` and `openai`, but no `scipy` or `sqlglot`. The pinned official SQL
-   evaluator requires these. No package was installed; real official SQL grading
-   is not yet validated. Do not substitute a handwritten matcher.
-3. **Native end-to-end preflight.** New task/asset mounts and helper tools still
-   need an existing-image, no-network native CLI smoke for each intended mode,
-   then a separately authorized bounded real-provider trial. Fake-boundary tests
-   do not establish real provider, permission, async lifecycle or task correctness.
-4. **Web access.** Tavily/fetch is wired explicitly, but live provider behavior,
-   service cost and complete accounting have not been validated. No search was
-   issued here. Shell networking is not adversarially sandboxed.
-5. **DataClaw scoring scope.** Outcome scoring uses the upstream per-part rubric
-   via a tool-free no-retry client, not the OpenClaw transport. EE/GPR/TPE need a
-   separately validated mapping of native hierarchical traces to upstream steps
-   and milestone judgments. They remain null, never fabricated from tool counts.
-6. **Publication.** New runners export artifact-bound evaluation rows and raw
-   grades, not a validated cross-benchmark leaderboard. Dataset/category/type
-   aggregation, failed-attempt denominators and budget accounting must be fixed
-   before a full study. No existing paid-run authorization is reused.
+Server assets, environment locations and provisioning receipts are documented in
+[server preparation](server-preparation.md). The old pre-provisioning checklist
+and deleted temporary-stage verification are no longer active documentation.
 
-The benchmark-specific commands and data restrictions are in
-[KramaBench](kramabench.md) and [DataClawBench/HDR](research-benchmarks.md).
+The retained paid evidence is the Krama CPU8 pair and two four-task engineering
+checks, described in [current results](current-results.md). It does not establish
+full-benchmark or cross-benchmark correctness. Offline full manifests verify 104
+Krama, 492 DataClaw and 380 HDR tasks without running them.
 
-## Verification Receipt
+[Full-scale infrastructure](studies/fullscale-infra.md) owns frozen ordering,
+durable crash/grade recovery, balance admission, concurrency and memory/OOM
+verification. No document or successful fake-provider check is a paid-run grant.
 
-Fresh server source stage: `/tmp/mas-benchmark-clean.owXBvC`.
-`pytest-results.xml` records **189 passing offline tests**, including both new
-benchmark plan/fake-execution/export workflows, cleanup failure retention,
-submission hash enforcement, pinned Git source checking and layout boundaries.
-All nine benchmark `catalog/run/score --help` commands passed.
-
-The ordinary Subagents instruction matched all **104/104** retained full-run
-prompts. The existing encrypted HDR release was re-read without printing decrypted
-contents: **380 tasks**, 58 search-to-SQL, 203 SQL-to-search, 119 parallel.
-These counts do not establish real task execution or evaluation correctness.
-No paid provider/search requests, installs or production deployment were performed.
+Benchmark-specific details: [KramaBench](kramabench.md),
+[DataClaw/HDR](research-benchmarks.md), [CLI policies](cli-adapters.md),
+[timeouts](timeout-policy.md), [retention](archive.md).

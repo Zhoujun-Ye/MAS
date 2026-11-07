@@ -39,7 +39,7 @@ def test_live_credentials_rejected_before_docker(tmp_path, monkeypatch):
 
 def test_gateway_denies_unscoped_requests():
     with CredentialGateway("synthetic-secret", bind="127.0.0.1", web_limit=0) as gateway:
-        for path, token, expected in [("/responses", "wrong", 403), ("/user/balance", gateway.token, 404),
+        for path, token, expected in [("/anthropic/v1/messages", "wrong", 403), ("/user/balance", gateway.token, 404),
                                        ("/v1/tools/search", gateway.token, 429)]:
             request = urllib.request.Request(gateway.url + path, data=b'{}',
                 headers={"Authorization": "Bearer " + token})
@@ -70,7 +70,7 @@ def test_gateway_injects_key_only_upstream(monkeypatch):
         return original(request, **kwargs)
     monkeypatch.setattr(credential_gateway, "open_upstream", open_request)
     with CredentialGateway("synthetic-secret", bind="127.0.0.1") as gateway:
-        request = urllib.request.Request(gateway.url + "/responses",
+        request = urllib.request.Request(gateway.url + "/anthropic/v1/messages",
             data=json.dumps({"model": "deepseek-flash", "input": "hi"}).encode(),
             headers={"Authorization": "Bearer " + gateway.token})
         with original(request, timeout=2) as response:
@@ -82,9 +82,10 @@ def test_gateway_injects_key_only_upstream(monkeypatch):
 
 
 @pytest.mark.parametrize("path,payload", [
-    ("/responses?redirect=https://example.com", {"model": "deepseek-flash"}),
-    ("/responses", {"model": "unauthorized-model"}),
-    ("/responses", []),
+    ("/responses", {"model": "deepseek-flash"}),
+    ("/anthropic/v1/messages?redirect=https://example.com", {"model": "deepseek-flash"}),
+    ("/anthropic/v1/messages", {"model": "unauthorized-model"}),
+    ("/anthropic/v1/messages", []),
 ])
 def test_invalid_requests_never_reach_provider(monkeypatch, path, payload):
     monkeypatch.setattr(credential_gateway, "open_upstream", lambda *a: pytest.fail("Unexpected provider call"))
@@ -105,7 +106,7 @@ def test_provider_errors_are_generic_and_not_retried(monkeypatch):
         raise urllib.error.HTTPError(request.full_url, 401, "synthetic-secret", {}, io.BytesIO(b"synthetic-secret"))
     monkeypatch.setattr(credential_gateway, "open_upstream", fail)
     with CredentialGateway("synthetic-secret") as gateway:
-        request = urllib.request.Request(gateway.url + "/responses", data=b'{"model":"deepseek-flash"}',
+        request = urllib.request.Request(gateway.url + "/anthropic/v1/messages", data=b'{"model":"deepseek-flash"}',
             headers={"Authorization": "Bearer " + gateway.token})
         with pytest.raises(urllib.error.HTTPError) as caught:
             urllib.request.urlopen(request, timeout=2)

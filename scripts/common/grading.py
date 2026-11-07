@@ -26,6 +26,8 @@ def grade_attempt(benchmark, task, backend, run, *, data_root, grades_root,
                 submission_path=run / task.id / backend / "submission.json", question=task.query,
                 key=key, output=target)
             result.update(status=judged["status"], grade=judged.get("grade"), judge_calls=judged["attempted_calls"])
+            if judged.get('fatal'):
+                result['fatal_provider_error'] = True
         if 'decision_gate' in record:
             raw = (result.get('grade') or {}).get('score')
             accepted = record['decision_gate']['accepted']
@@ -51,4 +53,5 @@ def grade_attempt(benchmark, task, backend, run, *, data_root, grades_root,
     code = command_run(command, log)
     receipt = read_json(target / "receipt.json", {})
     return {**result, "status": "completed" if code == 0 else "grading_failed", "returncode": code,
-            "judge_calls": receipt.get("judge_calls"), "output": str(target)}
+            "judge_calls": receipt.get("judge_calls"), "output": str(target),
+            "fatal_provider_error": bool(receipt.get('fatal_provider_error'))}

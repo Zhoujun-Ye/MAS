@@ -1,49 +1,76 @@
 # Retention
 
-Only current fixed-configuration documentation and comparison reports are active.
-Older prompt studies, mixed-condition publications and their dedicated tools were
-removed at the user's request. Git retains committed source history; do not
-restore retired runtime adapters, launch choices or prompts.
+On 2026-11-07 the user explicitly requested deleting earlier experiment results,
+old records and retired compatibility code, without keeping result backups.
+This supersedes the previous retain-all-experiments policy.
 
-## Current Evidence
+## Retained Experiments
 
-Keep the original 120 assigned attempts and the 60 Native Subagents attempts,
-including failures, their frozen plans, gateway
-accounting, original scores, artifact-only HDR recovery inputs/verdicts and the
-current timeout-zero report. Original paths may contain historical identifiers;
-renaming or overwriting them would break provenance.
-Retain subsequent OBS/FULL study attempts, including interrupted or failed runs,
-their frozen source/settings, intermediate measurements and shadow grades.
-Keep original and accounting-audited reports separately. Code cleanup does not
-authorize deleting superseded exports or changing frozen run source.
+Keep server output entries belonging to
+`krama-cpu8-paired-20261106-03`, including its original 40 attempts, the three
+authorized upstream recoveries, primary effective report/export, frozen settings,
+source and accounting. Original failures are evidence of this retained run;
+replacement results are primary, not best-of selected. Do not change original
+scores or silently discard costs.
 
-Current comparison: [current-results.md](current-results.md).
-Current fixed questions: [studies/validation20.md](studies/validation20.md).
+Subsequent run-specific authorizations added `krama-infra-smoke4-20261107-01`
+and `krama-infra-smoke4-20261107-02`. Keep both batches, their comparisons,
+reports, accounting and frozen paid source stages. They are the before/after
+engineering comparison, not redundant copies of the twenty-question batch.
 
-## Protected Resources
+Retain the current trajectory diagnosis and current infra validation receipts.
+Keep latest successful native/baseline/credential proofs, compute and OOM checks,
+full manifests and recovery/admission tests. Superseded offline probe traces and
+duplicate iteration logs may be removed; a concise failure summary is sufficient
+for a superseded synthetic probe, not for a paid failed attempt.
+The only old decision-protocol reader is read-only decision-v3 support necessary
+to analyze this retained run; it is not a launch option. Historical ledger,
+retired adapter readers and old study-specific replay/regrading drivers are not
+active infrastructure.
 
-Credentials, environments, datasets/checkouts, required Docker images, frozen
-current-run source and unrelated work are protected. The retired local
-MASBench checkout was moved intact to external project data under
-`/Users/zhoujun/Desktop/MAS-information-data/retired/masbench-removal-20261031`.
-No paid execution, retries or provisioning is authorized by cleanup.
+## Protected Runtime Inputs
 
-## Superseded Evidence Documentation
+Keep current benchmark datasets/checkouts, environments, credentials, required
+Docker images, the frozen Validation20 ID/hash manifest and unrelated user work.
+Never touch `/home/zhoujunye/agent-team`. Result cleanup does not authorize new
+paid execution, provisioning, package installation or rewriting Git history.
 
-The current FULL/OBS mechanism is decision-v3, documented in
-[Intermediate Results](studies/intermediate-full.md). Older designs and repair
-reports were removed from the active tree, not merged into current claims:
+## Disposable Material
 
-- `del-protocol.md`, `subagents-evidence-design.md`: original design drafts.
-- `evidence-mas-offline.md`, `shared-evidence-native.md`: initial integration receipts.
-- `evidence-engineering-fix.md`, `evidence-runtime-repair.md`,
-  `evidence-review-repair.md`: superseded implementation/repair receipts.
-- `decision-full.md`: historical decision-v1 design and replay conclusions.
+Earlier output batches/reports, retired source trees, obsolete stages and their
+experiment-only receipts are deleted rather than moved into new archives.
+Source bytecode and parsed-output caches are regenerable. Deletion receipts
+record paths/counts/bytes and retained-artifact hashes, not copies of removed
+result payloads. Scoped source sync never uses `--delete`; remote retired files
+require an explicit deletion allowlist.
 
-Their full text remains in Git commit `003c053` under `docs/studies/`. Before
-removal, these files and the previous harness README were also saved as
-`/tmp/mas-superseded-docs-20261105.tar.gz` on both local and server hosts. Temporary
-snapshots are not durable archives; Git and retained server receipts preserve
-the history. Original private source stages, outputs and receipts remain untouched.
-Historical Structured composition, old API contracts and replay measurements must
-not be presented as current decision-v3 configuration or efficacy evidence.
+## Current Cleanup
+
+The 2026-11-07 maintenance pass removed the obsolete standalone grading-recovery
+driver (superseded by journal recovery) and the old v2-to-v3 score-migration driver,
+plus tests specific only to those retired workflows. The pre-journal continuation
+fallback is also retired: old results remain readable but cannot bypass current
+durable-claim safeguards. Numeric boundary regressions
+remain in the active evaluator tests; journal crash/idempotency tests remain active.
+The upstream numeric comparison policy is still useful for evaluator verification
+and was not removed or made the default.
+
+Superseded synthetic traces, duplicate test/readiness logs, source bytecode and
+the old offline-only `20261107-evidence-infra-v4` stage were removed with an exact
+allowlist. All paid source stages and paid result files remain unchanged. Latest
+native, credential, compute, full-manifest and OOM evidence is retained. Failure
+summaries from superseded synthetic probes remain available without redundant
+workspace copies.
+
+Maintenance receipt and regression output live under
+`/home/zhoujunye/mas-data/receipts/maintenance-20261107/`. No result backup or paid
+experiment was created. A temporary source-only snapshot preserves overlapping
+uncommitted source removed during this pass; it contains no experiment outputs
+or credentials.
+
+Verified maintenance results: 620 server tests passed in 19.33 seconds without
+skips. The initial allowlist removed 514 files / 7,710,709 logical bytes; any
+subsequent test-generated bytecode removal is itemized separately in the receipt.
+All 17,551 retained output files (1,288,506,861 bytes) have the identical aggregate
+path/content digest before and after cleanup. A current real-image offline OOM
+probe and the full-manifest readiness plan also passed with zero paid calls.

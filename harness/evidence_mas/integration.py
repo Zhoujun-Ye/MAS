@@ -9,6 +9,7 @@ from .cli import EvidenceMASCLI, lead_prompt, worker_prompt
 from .audit import check_workflow
 from .store import Store
 from .decision import DecisionProtocol, PROTOCOL
+from .sharing import POLICY as SHARING_POLICY
 
 MODES = ('observations', 'full', 'full-prompt-only')
 
@@ -22,6 +23,7 @@ def configuration(mode, organization_prompt=''):
     return dict(mode=mode, protocol=PROTOCOL if mode=='full' else 'observations-v1', lead_sha256=hashlib.sha256(lead.encode()).hexdigest(),
                 implementation_sha256={p.name:hashlib.sha256(p.read_bytes()).hexdigest() for p in Path(__file__).parent.glob('*.py')},
                 worker_sha256=hashlib.sha256(worker_prompt(mode).encode()).hexdigest(),
+                context_sharing=SHARING_POLICY,
                 gate_enabled=mode=='full', tool_search=False, monetary_cap=None, output_cap=None)
 
 
@@ -59,7 +61,7 @@ def audit(folder, mode):
     with store.connect() as db:
         observations=store.latest(db,'observation')
         events=[json.loads(row[0]) for row in db.execute('SELECT body FROM events')]
-        report.update(counts={kind:len(store.latest(db,kind)) for kind in ('observation','issue','candidate','evidence','selection')},
+        report.update(counts={kind:len(store.latest(db,kind)) for kind in ('observation','decision_access','decision_selection')},
                       db_integrity=db.execute('PRAGMA integrity_check').fetchone()[0])
     starts,stops=set(),set()
     native_events=folder/'native-profile/observer/events.jsonl'
@@ -74,14 +76,28 @@ def audit(folder, mode):
             if agent and event.get('hook_event_name')=='SubagentStop':stops.add(agent)
     completed=starts & stops
     worker_obs={o['id'] for o in observations if o['agent_id'] in completed and o['status']=='success'}
-    lead_reads=any(e['role']=='lead' and e['method']=='obs.read'
-                   and store.read_blob(e['arguments_ref'])['obs_id'] in worker_obs for e in events)
+    lead_reads=False
+    for event in events:
+        if event['role']!='lead':
+            continue
+        if event['method']=='obs.read':
+            lead_reads |= store.read_blob(event['arguments_ref'])['obs_id'] in worker_obs
+        elif event['method']=='decision.read':
+            result=store.read_blob(event['result_ref'])
+            lead_reads |= result.get('observation',{}).get('id') in worker_obs
     report['method_requirements_complete']=report['complete']
     report['delegation']=dict(started_workers=len(starts),completed_workers=len(completed),
                               worker_observations=len(worker_obs),lead_reads_worker=lead_reads)
     report['audit_policy']='descriptive_only'
     report['method_counts']={role:dict(Counter(e['method'] for e in events if e['role']==role))
                              for role in ('lead','worker','collector')}
+    deliveries = [store.read_blob(e['result_ref']) for e in events if e['method']=='workspace.context']
+    errors = [store.read_blob(e['result_ref']) for e in events if e['method']=='workspace.error']
+    report['context_delivery'] = dict(emissions=len(deliveries),
+        observation_references=sum(len(d.get('observations',[])) for d in deliveries),
+        characters=sum(d.get('characters',0) for d in deliveries),
+        scope='Hook emission, not acknowledgement, comprehension or causal use')
+    report['workspace_errors'] = dict(count=len(errors),by_tool=dict(Counter(e.get('tool') for e in errors)))
     report['scope']='Workspace integrity and descriptive usage; not delegation compliance, comprehension, or answer correctness'
     report.update(mode=mode,available=True,degraded=(root/'degraded.jsonl').exists())
     report['complete']=bool(report['complete'] and not report['degraded'] and report['db_integrity']=='ok')

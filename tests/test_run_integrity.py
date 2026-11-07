@@ -1,7 +1,6 @@
 import json
 
 from analysis.run_integrity import inspect_run
-from harness.runtime_support.credential_gateway import UsageObserver
 
 
 def write(path, rows):
@@ -31,23 +30,9 @@ def test_unmatched_calls_and_late_delegation(tmp_path):
 
 
 def test_missing_evidence_is_unknown(tmp_path):
-    audit = inspect_run(tmp_path, "codex-subagents")
+    audit = inspect_run(tmp_path, "claude-code-subagents")
     assert audit["gateway_reconciliation"]["status"] == "incomplete"
     assert audit["lead_delegation_timeline"]["status"] == "unavailable"
-
-
-def test_codex_spawn_ack_is_not_worker_result(tmp_path):
-    write(tmp_path / "native-profile/codex/rollout-root.jsonl", [
-        dict(type="session_meta", payload=dict(id="root", source="cli")),
-        dict(type="response_item", payload=dict(type="function_call", call_id="spawn", name="spawn_agent")),
-        dict(type="response_item", payload=dict(type="function_call_output", call_id="spawn", output="started")),
-        dict(type="response_item", payload=dict(type="function_call", call_id="shell", name="exec_command")),
-        dict(type="response_item", payload=dict(type="message", role="user",
-            content=[dict(type="input_text", text="Message Type: FINAL_ANSWER worker result")]))])
-    timeline = inspect_run(tmp_path, "codex-subagents")["lead_delegation_timeline"]
-    assert timeline["first_delegation_result"] == 3
-    assert timeline["before_first_delegation"]["tool_calls"] == 0
-    assert timeline["before_first_delegation_result"]["tool_calls"] == 2
 
 
 def test_claude_background_ack_is_not_worker_result(tmp_path):
@@ -56,15 +41,3 @@ def test_claude_background_ack_is_not_worker_result(tmp_path):
              input=dict(run_in_background=True))])),
         dict(message=dict(role="user", content=[dict(type="tool_result", tool_use_id="d", content="started")]))])
     assert inspect_run(tmp_path, "claude-code-subagents")["lead_delegation_timeline"]["first_delegation_result"] is None
-
-
-def test_responses_output_id_bridge(tmp_path):
-    observer = UsageObserver(False)
-    observer.observe(dict(id="resp1", output=[dict(id="msg1", type="message")]))
-    assert observer.response_id == "resp1" and observer.output_ids == {"msg1"}
-    write(tmp_path / "native-profile/codex/rollout-root.jsonl", [
-        dict(type="session_meta", payload=dict(id="root", source="cli")),
-        dict(type="response_item", payload=dict(type="message", role="assistant", id="msg1", content=[]))])
-    write(tmp_path / "gateway-requests.jsonl", [dict(request_id="r1", route="/responses",
-        upstream_attempted=True, provider_response_id="resp1", provider_output_ids=["msg1"])])
-    assert inspect_run(tmp_path, "codex-single-agent")["gateway_reconciliation"]["status"] == "matched"

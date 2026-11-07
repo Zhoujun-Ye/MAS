@@ -42,7 +42,7 @@ def main():
 snapshot = json.dumps(dict(os.environ)) + pathlib.Path('/proc/1/environ').read_bytes().decode()
 token = os.environ['ANTHROPIC_AUTH_TOKEN']
 results = []
-for path in ['/responses', '/anthropic/v1/messages', '/v1/tools/search']:
+for path in ['/anthropic/v1/messages', '/v1/tools/search']:
     req = urllib.request.Request('http://127.0.0.1:8765' + path,
         data=b'{"model":"deepseek-flash"}', headers={'Authorization':'Bearer ' + token})
     with urllib.request.urlopen(req, timeout=10) as response:
@@ -79,7 +79,7 @@ print(json.dumps({'snapshot':snapshot, 'results':results,
                     assert not result["host_env_visible"]
                     assert not result["host_ledger_visible"]
                     assert result["external_blocked"] and result["quota_status"] == 429
-                    assert result["results"] == ['data: {"ok":true}\n\n'] * 3
+                    assert result["results"] == ['data: {"ok":true}\n\n'] * 2
                     inspection = subprocess.check_output(["docker", "inspect", identity], text=True)
                     assert key not in inspection
                     assert json.loads(inspection)[0]["HostConfig"]["NetworkMode"] == "none"
@@ -88,7 +88,7 @@ print(json.dumps({'snapshot':snapshot, 'results':results,
                     subprocess.run(["docker", "rm", identity], check=True, capture_output=True)
             assert not socket_path.exists()
             proofs.append(dict(backend=backend, passed=True, host_key_absent=True,
-                               host_env_inaccessible=True, gateway_routes=3, cleanup=True,
+                               host_env_inaccessible=True, gateway_routes=2, cleanup=True,
                                external_network_blocked=True, quota_survives_local_ledger_reset=True,
                                host_ledger=gateway.summary()))
     proof = dict(passed=True, paid_calls=0, network="none", provider_calls_mocked=len(calls), conditions=proofs)

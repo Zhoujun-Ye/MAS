@@ -20,8 +20,25 @@ def cli_args(tmp_path, *extra):
             "--proofs", str(tmp_path / "proofs"), "--image", "fixture-image", *extra]
 
 
+def test_explicit_krama_full_scope_does_not_expand_attempts(tmp_path, monkeypatch, capsys):
+    monkeypatch.setattr(matrix, 'selections', lambda *args: selected_tasks())
+    monkeypatch.setattr(matrix.runtime, 'credential', lambda *a: pytest.fail('Planning must not load credentials'))
+    assert matrix.main(cli_args(tmp_path, '--benchmarks', 'kramabench', '--backends',
+        'claude-code-subagents', '--evidence-modes', 'full')) == 0
+    plan = json.loads(capsys.readouterr().out)
+    assert plan['benchmarks'] == ['kramabench']
+    assert plan['attempts'] == plan['maximum_judge_calls'] == 2
+    assert {r['benchmark'] for r in plan['selections']} == {'kramabench'}
+    assert {r['backend'] for r in plan['selections']} == {'full'}
+
+
+def test_duplicate_benchmark_scope_is_rejected(tmp_path):
+    with pytest.raises(ValueError, match='unique benchmarks'):
+        matrix.main(cli_args(tmp_path, '--benchmarks', 'kramabench', 'kramabench'))
+
+
 def test_plan_is_exact_12_scope_and_never_executes(tmp_path, monkeypatch, capsys):
-    monkeypatch.setattr(matrix, "selections", lambda root: selected_tasks())
+    monkeypatch.setattr(matrix, "selections", lambda *args: selected_tasks())
     monkeypatch.setattr(matrix.subprocess, "Popen", lambda *a, **kw: pytest.fail("Plan must not launch processes"))
     monkeypatch.setattr(matrix.runtime, "credential", lambda *a: pytest.fail("Plan must not load credentials"))
     assert matrix.main(cli_args(tmp_path)) == 0
@@ -70,7 +87,7 @@ def test_all_solver_commands_share_scope_and_benchmark_timeout(tmp_path, execute
 
 @pytest.mark.parametrize("attempts,judges", [(11, 10), (13, 10), (12, 11), (12, -1)])
 def test_execution_rejects_other_authorization_scope(tmp_path, monkeypatch, attempts, judges):
-    monkeypatch.setattr(matrix, "selections", lambda root: selected_tasks())
+    monkeypatch.setattr(matrix, "selections", lambda *args: selected_tasks())
     monkeypatch.setattr(matrix.subprocess, "Popen", lambda *a, **kw: pytest.fail("Invalid scope must not launch"))
     monkeypatch.setattr(matrix.runtime, "credential", lambda *a: pytest.fail("Invalid scope must not load credentials"))
     with pytest.raises(ValueError, match="12 authorized solvers"):
@@ -80,19 +97,21 @@ def test_execution_rejects_other_authorization_scope(tmp_path, monkeypatch, atte
 
 
 def test_selection_uses_public_categories_without_reference_access(tmp_path, monkeypatch):
-    dc = [SimpleNamespace(id="web", web=True), SimpleNamespace(id="dc1", web=False),
-          SimpleNamespace(id="dc2", web=False), SimpleNamespace(id="dc3", web=False)]
+    dc = [SimpleNamespace(id="web", web=True,category='a'), SimpleNamespace(id="dc1", web=False,category='b'),
+          SimpleNamespace(id="dc2", web=False,category='a'), SimpleNamespace(id="dc3", web=False,category='b')]
     hdr = [SimpleNamespace(id="text", category="sql_to_search"),
            SimpleNamespace(id="sql", category="search_to_sql")]
-    krama = [SimpleNamespace(id="k1"), SimpleNamespace(id="k2"), SimpleNamespace(id="k3")]
+    krama = [SimpleNamespace(id="k1",domain='a'), SimpleNamespace(id="k2",domain='b'), SimpleNamespace(id="k3",domain='a')]
     monkeypatch.setattr(matrix, "dc_tasks", lambda path: dc)
     monkeypatch.setattr(matrix, "hdr_tasks", lambda path: hdr)
     monkeypatch.setattr(matrix, "krama_tasks", lambda path: (krama, {}))
-    assert [(b, t.id) for b, t in matrix.selections(tmp_path)] == [
-        ("dataclawbench", "dc1"), ("dataclawbench", "dc2"),
-        ("hybriddeepresearch", "sql"), ("hybriddeepresearch", "text"),
-        ("kramabench", "k1"), ("kramabench", "k2"),
-    ]
+    selected=matrix.selections(tmp_path)
+    assert len(selected)==6
+    assert {t.category for b,t in selected if b=='dataclawbench'}=={'a','b'}
+    assert {t.category for b,t in selected if b=='hybriddeepresearch'}=={'search_to_sql','sql_to_search'}
+    assert {t.domain for b,t in selected if b=='kramabench'}=={'a','b'}
+    dc.reverse();krama.reverse()
+    assert selected==matrix.selections(tmp_path)
 
 
 def test_seeded_sample_is_balanced_reproducible_and_input_order_independent():

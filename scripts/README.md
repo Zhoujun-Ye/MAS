@@ -7,7 +7,7 @@ implementations. See `docs/repository-layout.md` for the full dependency boundar
 | --- | --- |
 | `<benchmark>/` | Catalog, run, score, preparation and benchmark-specific replay |
 | `common/` | Shared experiment workflow composition and frozen prompt selection |
-| `studies/` | Research protocols, experiment matrices and historical regrading |
+| `studies/` | Frozen manifests, bounded matrices, journal recovery and current reports |
 | `probes/` | Explicit offline/native runtime verification commands |
 | `server/` | Source sync, environment/data preparation and server operations |
 

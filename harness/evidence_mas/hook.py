@@ -38,6 +38,11 @@ def collect(store, event):
     if kind in ('SessionStart', 'SessionEnd', 'SubagentStart', 'SubagentStop'):
         identity = event.get('agent_id') or event.get('session_id')
         if identity:
+            if kind in ('SubagentStart', 'SubagentStop') and event.get('agent_id'):
+                with store.connect() as db:
+                    db.execute('CREATE TABLE IF NOT EXISTS native_workers(identity TEXT PRIMARY KEY, state TEXT)')
+                    db.execute('INSERT OR REPLACE INTO native_workers VALUES(?,?)',
+                               (identity, 'running' if kind=='SubagentStart' else 'stopped'))
             return store.call('agent.lifecycle', dict(identity=identity,
                 state='running' if kind.endswith('Start') else 'stopped'), role='collector')
         return None
@@ -76,18 +81,45 @@ def response(event, observation):
                 'submission.json' in packed(args)):
             return dict(hookSpecificOutput=dict(hookEventName='PreToolUse', permissionDecision='deny',
                 permissionDecisionReason='Final submission belongs to the lead; workers return intermediate results only.'))
-    if (event.get('hook_event_name') == 'PreToolUse' and event.get('agent_id')
-            and event.get('tool_name', '').endswith('__ledger_record_selection')):
-        return dict(hookSpecificOutput=dict(hookEventName='PreToolUse', permissionDecision='deny',
-                    permissionDecisionReason='Only the lead records final ledger selections.'))
     return {}
+
+
+def wait_guard(store, event):
+    """Reject only explicit agent-placeholder waits after observed worker shutdown."""
+    from .sharing import pure_delay
+    import re
+    if event.get('hook_event_name') != 'PreToolUse' or event.get('agent_id'):
+        return None
+    if not pure_delay(dict(event, hook_event_name='PostToolUse')):
+        return None
+    description = event.get('tool_input', {}).get('description', '')
+    if not isinstance(description, str) or not re.search(r'\b(?:subagent|agent|worker)s?\b', description, re.I):
+        return None
+    with store.connect() as db:
+        if not db.execute("SELECT 1 FROM sqlite_master WHERE name='native_workers'").fetchone():
+            return None
+        states = [row[0] for row in db.execute('SELECT state FROM native_workers')]
+        if not states or any(state!='stopped' for state in states):
+            return None
+        if any(o['tool_name'] in ('Agent','Task') and o['status']=='unknown'
+               for o in store.latest(db,'observation')):
+            return None
+        reason = ('All observed native workers have stopped. Do not sleep to wait for their reports; '
+                  'inspect delivered native results or shared observations. This does not prove correctness.')
+        db.execute('INSERT INTO events(body) VALUES(?)',
+                   (store.event('workspace.wait_blocked', {}, {'reason':'observed_workers_stopped'},
+                                'lead','lead',None),))
+    return dict(hookSpecificOutput=dict(hookEventName='PreToolUse', permissionDecision='deny',
+                                       permissionDecisionReason=reason))
 
 
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--root', required=True, type=Path)
     parser.add_argument('--run-id', required=True)
-    parser.add_argument('--protocol', choices=('ledger-v1', PROTOCOL), default='ledger-v1')
+    parser.add_argument('--protocol', choices=('observations-v1', PROTOCOL), default='observations-v1')
+    parser.add_argument('--share-context', action='store_true')
+    parser.add_argument('--mode', choices=('full', 'observations'), default='observations')
     args = parser.parse_args()
     reply = {}
     try:
@@ -100,6 +132,11 @@ def main():
             print(json.dumps(reply))
             return
         store = Store(args.root, args.run_id)
+        if args.share_context:
+            guard = wait_guard(store, event)
+            if guard:
+                print(json.dumps(guard))
+                return
         if args.protocol == PROTOCOL:
             guard = decision_guard(store, event)
             if guard:
@@ -107,8 +144,9 @@ def main():
                 return
         observation = collect(store, event)
         reply = response(event, observation)
-        if args.protocol == PROTOCOL and event.get('hook_event_name') in ('PostToolUse','PostToolUseFailure'):
-            reply = {}
+        if args.share_context and not reply:
+            from .sharing import context_reply
+            reply = context_reply(store, event, args.mode)
     except Exception as exc:
         # Never leak payloads, paths, or secrets through a hook error message.
         print('Evidence collection degraded: ' + type(exc).__name__, file=sys.stderr)

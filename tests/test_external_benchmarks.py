@@ -2,7 +2,6 @@ from scripts.common.prompts.conditions import backend_instructions
 import base64
 import hashlib
 import json
-from pathlib import Path
 import sqlite3
 from types import SimpleNamespace
 

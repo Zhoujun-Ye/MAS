@@ -1,7 +1,15 @@
 """Validate harness runtime evidence; mocks do not establish benchmark correctness."""
 
 
+def validate_effort(proof, effort):
+    if (effort not in {'high', 'max'} or proof.get('requested_effort') != effort
+            or proof.get('request_effort_verified') is not True):
+        raise ValueError(f'Matching offline request-effort proof is required for {effort}')
+
+
 def validate(proof, backend):
+    if proof.get('proof_kind') == 'native_error_injection':
+        raise ValueError('A synthetic error probe cannot admit a solver launch')
     if not (proof.get("passed") is True and proof.get("paid_calls") == 0
             and proof.get("network") == "none"):
         raise ValueError("Missing successful no-network native proof with zero paid calls")
