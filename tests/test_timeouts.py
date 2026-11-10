@@ -9,6 +9,7 @@ from benchmarks.policy import TIMEOUT_SECONDS_BY_BENCHMARK, default_timeout, tim
     ("dataclawbench", 1200, False),
     ("hybriddeepresearch", 1800, True),
     ("kramabench", 3600, True),
+    ("fdabench", 1800, True),
 ])
 def test_timeout_defaults_and_provenance(benchmark, seconds, provisional):
     assert default_timeout(benchmark) == seconds
@@ -42,7 +43,7 @@ def test_unknown_benchmark_rejected():
         default_timeout("unknown")
 
 
-@pytest.mark.parametrize("benchmark,expected", [("dataclawbench", 1200), ("hybriddeepresearch", 1800)])
+@pytest.mark.parametrize("benchmark,expected", [("dataclawbench", 1200), ("hybriddeepresearch", 1800), ("fdabench", 1800)])
 @pytest.mark.parametrize("override", [None, 900])
 def test_common_cli_resolves_default_without_changing_override(tmp_path, monkeypatch, benchmark, expected, override):
     from scripts.common import run
@@ -57,7 +58,7 @@ def test_common_cli_resolves_default_without_changing_override(tmp_path, monkeyp
     argv = ["--benchmark", benchmark, "--upstream", str(tmp_path / "upstream"),
             "--data", str(tmp_path / "data"), "--output", str(tmp_path / "output"),
             "--backend", "claude-code-single-agent", "--image", "fixture", "--task-id", "fixture"]
-    if benchmark == "hybriddeepresearch":
+    if benchmark in {"hybriddeepresearch", "fdabench"}:
         argv += ["--tasks", str(tmp_path / "release.jsonl")]
     if override is not None:
         argv += ["--timeout", str(override)]

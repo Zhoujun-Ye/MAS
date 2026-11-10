@@ -16,6 +16,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from scripts.common.prompts.conditions import organization_override, backend_instructions
 from common.io import write_json
 from benchmarks.dataclawbench.tasks import load_tasks as dc_tasks
+from benchmarks.fdabench.tasks import load_tasks as fda_tasks
 from benchmarks.hybriddeepresearch.tasks import load_tasks as hdr_tasks
 from benchmarks.kramabench.tasks import load_tasks as krama_tasks
 from harness.runtime_support import runtime
@@ -24,7 +25,7 @@ from scripts.studies import finalization
 from harness.runtime_support import web_policy
 from harness.runtime_support.proof import validate_runtime, validate_effort
 from benchmarks._external import digest
-from benchmarks.policy import TIMEOUT_SECONDS_BY_BENCHMARK, default_timeout, timeout_policy
+from benchmarks.policy import default_timeout, timeout_policy
 from scripts.common import evidence
 from common.io import fingerprint
 from common.journal import Journal, exclusive
@@ -32,6 +33,7 @@ from harness.runtime_support.admission import admit_balance, amount, BalanceWatc
 
 BACKENDS = ("claude-code-single-agent", "claude-code-subagents",)
 BENCHMARKS = ("dataclawbench", "hybriddeepresearch", "kramabench")
+SUPPORTED_BENCHMARKS = BENCHMARKS + ("fdabench",)
 
 
 def task_fingerprint(benchmark, task):
@@ -44,7 +46,8 @@ def task_fingerprint(benchmark, task):
 def task_pools(root, benchmarks=BENCHMARKS):
     loaders = dict(dataclawbench=lambda:dc_tasks(root/'dataclawbench/upstream'),
         hybriddeepresearch=lambda:hdr_tasks(root/'hybriddeepresearch/release/hybrid_ds_release/hybrid_ds_release.jsonl'),
-        kramabench=lambda:krama_tasks(root/'kramabench/upstream')[0])
+        kramabench=lambda:krama_tasks(root/'kramabench/upstream')[0],
+        fdabench=lambda:fda_tasks(root/'fdabench/release'))
     return {b:loaders[b]() for b in benchmarks}
 
 
@@ -54,7 +57,7 @@ def manifest_selections(root, manifest, offset, count):
             or (count is not None and count<1) or (not full and (count is None or offset+count>20))):
         raise ValueError("Invalid validation manifest or task slice")
     names = list(manifest['benchmarks'])
-    if not names or set(names)-set(BENCHMARKS):
+    if not names or set(names)-set(SUPPORTED_BENCHMARKS):
         raise ValueError('Unknown or empty manifest benchmarks')
     pools = task_pools(root,names)
     result = []
@@ -98,15 +101,11 @@ def balanced_sample(tasks, count, group, seed):
     return selected
 
 
-def selections(root, count=2, seed=42):
-    krama, _ = krama_tasks(root / "kramabench/upstream")
-    pools = (
-        ("dataclawbench", dc_tasks(root / "dataclawbench/upstream"), lambda t: t.category),
-        ("hybriddeepresearch", hdr_tasks(root / "hybriddeepresearch/release/hybrid_ds_release/hybrid_ds_release.jsonl"), lambda t: t.category),
-        ("kramabench", krama, lambda t: t.domain),
-    )
-    return [(bench, task) for bench, tasks, group in pools
-            for task in balanced_sample(tasks, count, group, seed)]
+def selections(root, count=2, seed=42, benchmarks=BENCHMARKS):
+    pools = task_pools(root, benchmarks)
+    return [(bench, task) for bench, tasks in pools.items()
+            for task in balanced_sample(tasks, count,
+                (lambda t: t.domain) if bench == 'kramabench' else (lambda t: t.category), seed)]
 
 
 def runtime_backend(condition):
@@ -383,6 +382,9 @@ def solver_command(args, benchmark, task, backend, output, *, execute=False):
         if benchmark == "hybriddeepresearch":
             command += ["--tasks", str(args.root / "hybriddeepresearch/release/hybrid_ds_release/hybrid_ds_release.jsonl"),
                         ]
+        if benchmark == "fdabench":
+            command[command.index("--data") + 1] = str(args.root / "fdabench/data")
+            command += ["--tasks", str(args.root / "fdabench/release")]
     if execute:
         command.append("--execute")
     return command
@@ -397,7 +399,8 @@ def protocol_settings(args):
                     (override["text"] if override and k == "claude-code-subagents"
                      else evidence.lead_prompt(k)
                      if k in evidence.MODES else backend_instructions(k)).encode()).hexdigest() for k in backends},
-                timeout_seconds_by_benchmark=dict(TIMEOUT_SECONDS_BY_BENCHMARK),
+                timeout_seconds_by_benchmark={b: default_timeout(b) for b in (
+                    SUPPORTED_BENCHMARKS if 'fdabench' in getattr(args, 'benchmarks', ()) else BENCHMARKS)},
                 solver_concurrency=args.concurrency, judge_concurrency=args.judge_concurrency)
     if getattr(args, 'cpus', 2) != 2 or getattr(args, 'record_resources', False):
         settings.update(cpu_per_attempt=getattr(args, 'cpus', 2),
@@ -411,8 +414,19 @@ def protocol_settings(args):
     return settings
 
 
+def sql_evaluator_preflight(root):
+    script = root / 'hybriddeepresearch/upstream/evaluation/s2sql_eval.py'
+    try:
+        subprocess.run([sys.executable, str(script), '--help'], check=True,
+                       capture_output=True, timeout=30)
+    except (OSError, subprocess.SubprocessError) as error:
+        raise ValueError('HDR SQL evaluator preflight failed; use the documented evaluation Python') from error
+    return dict(python=sys.executable, script=str(script), cli_imports_verified=True, paid_calls=0)
+
+
 def runtime_preflight(args):
     """Check every condition before creating a run namespace or dispatching children."""
+    evaluator = sql_evaluator_preflight(args.root) if getattr(args, 'sql_grading_required', False) else None
     available=None
     if Path('/proc/meminfo').exists():
         memory=dict(line.split(':',1) for line in Path('/proc/meminfo').read_text().splitlines())
@@ -437,6 +451,7 @@ def runtime_preflight(args):
         from harness.runtime_support.web_fetch import check_ready
         proxy=check_ready()
     return dict(image_id=image, binary_sha256=binary, proofs=proofs, paid_calls=0,web_readiness=proxy,
+                sql_evaluator=evaluator,
                 capacity=dict(host_cpus=os.cpu_count(),available_memory_bytes=available,
                               memory_per_solver_bytes=8*1024**3),
                 scope='Image/binary/effort/tool proofs only; task/container preflights still required')
@@ -448,7 +463,7 @@ def main(argv=None):
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--proofs", type=Path, required=True)
     parser.add_argument("--image", required=True)
-    parser.add_argument('--benchmarks', nargs='+', choices=BENCHMARKS, default=BENCHMARKS,
+    parser.add_argument('--benchmarks', nargs='+', choices=SUPPORTED_BENCHMARKS, default=BENCHMARKS,
                         help='Explicit benchmark scope; defaults to all three benchmarks')
     parser.add_argument("--credentials", type=Path, default=Path("/home/zhoujunye/mas/.env"))
     parser.add_argument("--concurrency", type=int, default=8, choices=range(1, 257))
@@ -534,9 +549,10 @@ def main(argv=None):
     if args.task_offset and manifest is None:
         raise ValueError("A task offset requires a frozen task manifest")
     selected = (manifest_selections(args.root, manifest, args.task_offset, None if args.all_tasks else args.tasks_per_benchmark)
-                if manifest else selections(args.root, args.tasks_per_benchmark, args.sample_seed))
+                if manifest else selections(args.root, args.tasks_per_benchmark, args.sample_seed, args.benchmarks))
     selected = [(bench, task) for bench, task in selected if bench in args.benchmarks]
     args.web_required=any(getattr(t,'web',b=='hybriddeepresearch') for b,t in selected)
+    args.sql_grading_required=any(b=='hybriddeepresearch' and t.category=='search_to_sql' for b,t in selected)
     jobs = [(bench, task, backend, args.output / "solvers" / bench / task.id / backend)
             for bench, task in selected for backend in args.backends]
     recovery = upstream_recovery(args.recover_upstream_from, jobs, observed_settings,
@@ -583,8 +599,8 @@ def main(argv=None):
         protocol_settings_source="explicit-protocol" if args.protocol_settings else "frozen-manifest" if manifest else "current-runtime",
         protocol_settings_sha256=digest(args.protocol_settings) if args.protocol_settings else None,
         organization_override=organization_override(args.organization_prompt, "claude-code-subagents"),
-        timeout_seconds_by_benchmark=dict(TIMEOUT_SECONDS_BY_BENCHMARK),
-        timeout_policy_by_benchmark={b: timeout_policy(b) for b in TIMEOUT_SECONDS_BY_BENCHMARK},
+        timeout_seconds_by_benchmark=observed_settings['timeout_seconds_by_benchmark'],
+        timeout_policy_by_benchmark={b: timeout_policy(b) for b in observed_settings['timeout_seconds_by_benchmark']},
         solver_concurrency=args.concurrency, judge_concurrency=args.judge_concurrency,
         monetary_cap=None, selections=[dict(benchmark=b, task_id=t.id, backend=k) for b, t, k, _ in jobs])
     if args.execute:

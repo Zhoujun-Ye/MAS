@@ -11,6 +11,22 @@ Exports, comparison JSON and report directory share that prefix. The comparison
 is against `krama-infra-smoke4-20261107-01`, not the original 20-task batch.
 Both paid source stages and original results are retained unchanged.
 
+The first stage is `20261107-krama-infra-smoke4`, with batch suffix `-01`.
+Its first observer timestamps spanned 08:29:40.839-08:29:41.125 UTC; all eight
+solvers/grades completed with no paid judge, no rerun and 289 complete HTTP200
+model responses. Compared with the same four effective CPU8 artifacts, its
+Structured/FULL mean CLI times changed 205.06/262.66 -> 162.30/232.87 seconds,
+with identical scores. Those historical effective-artifact cost subtotals exclude
+unknown/replaced failed calls and are not all-incurred-cost comparisons.
+
+That first FULL exposed a dictionary/scalar answer-representation conflict and
+one stale-evidence selection error. Its seven sleep-plus-echo waits totalled
+286.31 task-seconds, including 114.72 seconds without an observed active worker;
+these are not additional parallel batch wall time. Exact same-event offline
+replay reduced hook emissions 250,183 -> 140,107 characters (44.0%), preserving
+all 241 references. The later measured paid path is reported below; neither
+replay nor source inspection predicts a counterfactual model trajectory.
+
 ## Scope And Comparability
 
 Same frozen manifest slice 0:4, question hashes, image/CLI, high effort, timeouts,

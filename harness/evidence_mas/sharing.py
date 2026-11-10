@@ -77,6 +77,9 @@ def context_reply(store, event, mode):
                 tool=obs['tool_name'], status=obs['status'], completeness=obs['completeness'],
                 input_preview=preview(packed(store.read_blob(obs['input_ref'])),80),
                 output_preview=preview(store.output_text(obs),160))
+            if obs.get('persisted_output_status'):
+                item['persisted_output'] = dict(available=bool(obs.get('persisted_output_ref')),
+                    status=obs['persisted_output_status'], read_field='persisted_output')
             if obs['tool_name']=='Bash' and obs['status']=='success' and obs['completeness']=='complete':
                 from .decision import parsed_output
                 result = parsed_output(store,obs['output_ref'])

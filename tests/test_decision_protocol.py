@@ -2,7 +2,7 @@ import json
 
 import pytest
 
-from harness.evidence_mas.decision import DecisionProtocol, PROTOCOL, extract_answers, host_check
+from harness.evidence_mas.decision import DecisionProtocol, PROTOCOL, extract_answers, host_check, complete_access
 from harness.evidence_mas.hook import collect, decision_guard
 from harness.evidence_mas.mcp import Server
 from harness.evidence_mas.store import Store, StoreError
@@ -138,3 +138,13 @@ def test_inflight_execution_blocks_commit(protocol):
     collect(protocol.store, dict(hook_event_name='PreToolUse', tool_name='Bash', agent_id='worker',
         tool_use_id='pending', tool_input={'command':'compute'}))
     assert protocol.check({'answer':2})['reason'] == 'execution_pending'
+
+
+def test_access_requires_contiguous_input_and_output_not_read_count():
+    def page(start, count):
+        return dict(start=start, input_characters=count, output_characters=count,
+                    total={'input': 10, 'output': 10})
+    assert not complete_access([page(0, 1)] * 20)
+    assert not complete_access([page(0, 4), page(5, 5)])
+    assert complete_access([page(5, 5), page(0, 5)])
+    assert complete_access([page(0, 6), page(4, 6)])

@@ -1,9 +1,12 @@
+import json
 from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
 
 from scripts.common import evidence as integration
+from harness.evidence_mas.store import Store
+from harness.evidence_mas.hook import response
 from scripts.common.prompts.conditions import condition_instructions
 from scripts.studies import benchmark_matrix as matrix
 
@@ -42,8 +45,6 @@ def test_matrix_evidence_paths_and_protocol_are_distinct(tmp_path):
 
 @pytest.mark.parametrize('delegated',[False,True])
 def test_audit_reports_delegation_without_compliance_gate(tmp_path,delegated):
-    import json
-    from harness.evidence_mas.store import Store
     root=tmp_path/'native-profile/evidence';store=Store(root,'benchmark-evidence')
     observation=store.call('obs.capture',dict(tool_name='Bash',tool_input={'command':'fixture'},tool_output='result',
         agent_id='worker' if delegated else 'unknown',status='success',completeness='complete'),role='collector')
@@ -60,7 +61,6 @@ def test_audit_reports_delegation_without_compliance_gate(tmp_path,delegated):
 
 
 def test_continuation_retains_started_slots_without_replacements(tmp_path):
-    import json
     from common.journal import Journal
     old=tmp_path/'old';old.mkdir()
     tasks=[('kramabench',SimpleNamespace(id='task'),mode,tmp_path/mode) for mode in integration.MODES]
@@ -83,3 +83,29 @@ def test_continuation_retains_started_slots_without_replacements(tmp_path):
     summary['interrupted']=False
     (old/'summary.json').write_text(json.dumps(summary))
     with pytest.raises(ValueError):matrix.retained_attempts(old,tasks,{},'hash')
+
+
+def test_audit_requires_no_ceremonial_reads(tmp_path):
+    Store(tmp_path / 'native-profile/evidence', 'benchmark-evidence')
+    audit = integration.audit(tmp_path, 'full')
+    assert audit['complete'] and audit['missing'] == []
+    assert audit['delegation']['lead_reads_worker'] is False
+    assert audit['audit_policy'] == 'descriptive_only'
+    context = response({'hook_event_name': 'PostToolUse'}, {'id': 'obs'})
+    assert context == {}
+
+
+@pytest.mark.parametrize('mode', ['observations', 'full', 'full-prompt-only'])
+def test_benchmark_launch_uses_protocol_without_structured_prompt(tmp_path, monkeypatch, mode):
+    from harness.evidence_mas import cli
+    from scripts.common import evidence
+    monkeypatch.setattr(cli, 'run_cli', lambda **kwargs: kwargs)
+    result = evidence.launch(mode, 'claude', 'synthetic task', 'shared limits', tmp_path,
+        tmp_path, 'fixture-container', model='fixture', allowed_tools=(), disallowed_tools=(), timeout=60)
+    from scripts.common.prompts.structured_subagents import PROMPT
+    assert result['prompt'] == 'synthetic task\n\nshared limits' + evidence.PROMPT + '\n\n' + cli.workspace_guidance(mode)
+    assert PROMPT not in result['prompt']
+    argv = result['argv']
+    worker = json.loads(argv[argv.index('--agents') + 1])['evidence-worker']
+    assert PROMPT not in worker['prompt']
+    assert worker['prompt'] == cli.worker_prompt(mode) + '\nShared task rules:\nshared limits'

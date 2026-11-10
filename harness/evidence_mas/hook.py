@@ -54,13 +54,17 @@ def collect(store, event):
         return None
     status = {'PreToolUse': 'unknown', 'PostToolUse': 'success', 'PostToolUseFailure': 'failed'}[kind]
     output = event.get('tool_response') if kind == 'PostToolUse' else event.get('error')
-    if event.get('is_interrupt'):
+    if event.get('is_interrupt') or (isinstance(output, dict) and output.get('interrupted')):
         status = 'cancelled'
+    has_overflow = name == 'Bash' and isinstance(output, dict) and any(
+        key in output for key in ('persistedOutputPath', 'persistedOutputSize'))
+    truncated = event.get('truncated') or (isinstance(output, dict) and output.get('truncated'))
     args = dict(tool_name=name, tool_input=event.get('tool_input', {}), tool_output=output,
                 session_id=event.get('session_id') or 'unknown',
                 agent_id=event.get('agent_id') or 'unknown',
                 tool_call_id=event.get('tool_use_id') or 'unknown', status=status,
-                completeness='missing' if output is None else 'truncated' if event.get('truncated') else 'complete')
+                completeness='missing' if output is None else 'truncated' if truncated else
+                             'pointer' if has_overflow else 'complete')
     # Only deduplicate where the native runtime supplied a call identity.
     key = hashlib.sha256(packed([kind, args]).encode()).hexdigest() if args['tool_call_id'] != 'unknown' else None
     observation = store.call('obs.capture', args, actor=args['agent_id'], role='collector', operation_id=key)

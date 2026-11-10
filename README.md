@@ -19,8 +19,8 @@ evidence-review question.
 
 Deep Agents, Claude Code Agent Teams and Codex adapters are retired. Do not restore
 their active adapters or launch choices. Codex results were removed at the user's
-request. Retained experiments are the CPU8 paired run and its two authorized
-four-task engineering comparisons; see [retention](docs/archive.md).
+request. Paid comparisons and their frozen source/accounting are retained under
+the explicit [retention policy](docs/archive.md).
 
 ## Current Results
 
@@ -49,12 +49,17 @@ Structured varied from 162.30 to 150.79 seconds. This small stochastic sample is
 not a full-benchmark speed guarantee. See [paid speed check](docs/studies/infra-smoke4-speed-check.md),
 [active infra](docs/studies/evidence-infra.md) and [full-scale operation](docs/studies/fullscale-infra.md).
 
+The latest four-task FULL infrastructure check completed without retries: both
+DataClaw tasks and Krama scored 1, HDR SQL scored 0. Overflow capture was exercised;
+later DNS/read repairs were checked offline and with free probes, not another
+paid efficacy comparison. See [the November 10 audit](docs/studies/full-infra-20261110.md).
+
 ## Layout
 
 - `harness/`: native CLI adapters and our opt-in MAS harness; see [ownership](harness/README.md).
 - `harness/evidence_mas/`: observation sharing, execution-backed decisions and hook/MCP interfaces.
 - `scripts/common/prompts/`: solver condition text, prompt selection and shared run-limit wording.
-- `benchmarks/{kramabench,dataclawbench,hybriddeepresearch}/`: tasks and independent evaluation.
+- `benchmarks/{kramabench,dataclawbench,hybriddeepresearch,fdabench}/`: tasks and independent evaluation.
 - `scripts/<benchmark>/{catalog,run,score}.py`: benchmark entry points.
 - `common/`: domain-independent persistence, fingerprints and durable phase claims.
 - `harness/runtime_support/`: containers, native CLI environment, tools, credential transport and provenance.
@@ -77,8 +82,8 @@ Authoritative request accounting lives outside the solver workspace. A run token
 does not prove which same-UID process issued a request; native and gateway evidence
 must not be presented as tamper-proof attribution.
 
-Default solver limits are DataClaw 1200 seconds, HDR 1800 seconds and Krama 3600
-seconds. DataClaw follows its pinned upstream configuration; the other two are
+Default solver limits are DataClaw 1200 seconds, HDR/FDABench 1800 seconds and Krama 3600
+seconds. DataClaw follows its pinned upstream configuration; the others are
 provisional engineering defaults. All conditions within one benchmark share its
 limit. See [timeout policy](docs/timeout-policy.md).
 
@@ -96,5 +101,6 @@ environments, outputs or `--delete`. Do not touch the unrelated Agent-Team proje
 - [Claude CLI contracts](docs/cli-adapters.md)
 - [Benchmark structure](docs/benchmark-adaptation.md)
 - [KramaBench](docs/kramabench.md) and [DataClaw/HDR](docs/research-benchmarks.md)
+- [FDABench local, publicly scoreable scope](docs/fdabench.md)
 - [Server preparation](docs/server-preparation.md)
 - [Current evidence retention](docs/archive.md)

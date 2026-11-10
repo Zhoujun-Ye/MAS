@@ -130,7 +130,7 @@ def test_seeded_sample_is_balanced_reproducible_and_input_order_independent():
 def test_ten_task_plan_is_matched_and_has_bounded_judges(tmp_path, monkeypatch, capsys):
     tasks = [(bench, SimpleNamespace(id=f"task-{i}", category="search_to_sql" if i < 4 else "sql_to_search"))
              for bench in ("dataclawbench", "hybriddeepresearch", "kramabench") for i in range(10)]
-    monkeypatch.setattr(matrix, "selections", lambda root, count, seed: tasks)
+    monkeypatch.setattr(matrix, "selections", lambda root, count, seed, benchmarks=matrix.BENCHMARKS: tasks)
     monkeypatch.setattr(matrix.subprocess, "Popen", lambda *a, **kw: pytest.fail("Plan must not launch"))
     assert matrix.main(cli_args(tmp_path, "--tasks-per-benchmark", "10", "--sample-seed", "42")) == 0
     plan = json.loads(capsys.readouterr().out)

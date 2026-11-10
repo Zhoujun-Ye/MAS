@@ -138,6 +138,9 @@ class Fixture:
                 period='not_applicable',unit='count',dataset='fixture-v1'), {'option':role}, answer_target=True)
             return tool('shell', 'Bash', dict(command="printf '%s\\n' " + shlex.quote(json.dumps(measured)), description='Synthetic typed measurement'))
         if worker:
+            if not done('overflow'):
+                return tool('overflow', 'Bash', dict(command="python -c 'print(\"x\" * 40000); print(\"native-overflow-tail\")'",
+                    description='Synthetic native overflow capture'))
             if not done('view'):
                 return tool('view', prefix+'decision_view', {})
             return dict(type='text', text='Decision worker finished.')
@@ -152,6 +155,15 @@ class Fixture:
                 return tool('view-'+str(len(views)), prefix+'decision_view', {})
             return dict(type='text', text='Await native completion notification.')
         candidate = next(c for c in view['candidates'] if c['value'] == 2)
+        if not done('overflow-list'):
+            return tool('overflow-list', prefix+'obs_list', dict(filters={'tool_call_id':'fixture-worker-overflow'}))
+        listed = next((v for v in decoded(results['fixture-lead-overflow-list']) if isinstance(v.get('items'),list)), None)
+        if not listed or not listed['items']:
+            self.errors.append(dict(role=role, error='native_overflow_missing'))
+            return dict(type='text', text='Native overflow fixture missing.')
+        if not done('overflow-read'):
+            return tool('overflow-read', prefix+'obs_read', dict(obs_id=listed['items'][0]['id'],
+                field='persisted_output', start=39990, limit=100))
         for item in view['candidates']:
             key = 'read-'+item['id']
             if not done(key):
@@ -227,13 +239,23 @@ def probe(root, image, mode='full', fixture=None, key=None):
         proof['workspace_errors'] = sum(e['method']=='workspace.error' for e in events)
         if mode=='full':
             protocol = DecisionProtocol(store)
+            overflow = [o for o in observations if o['tool_call_id']=='fixture-worker-overflow']
+            overflow_ids = {o['id'] for o in overflow}
+            proof['native_overflow_capture'] = bool(overflow) and all(
+                o['completeness']=='pointer' and o.get('persisted_output_status')=='captured'
+                and store.read_blob(o['persisted_output_ref']).endswith('native-overflow-tail\n') for o in overflow)
+            proof['native_overflow_tail_read'] = any(e['method']=='obs.read' and e['role']=='lead'
+                and store.read_blob(e['arguments_ref']).get('obs_id') in overflow_ids
+                and store.read_blob(e['arguments_ref']).get('field')=='persisted_output'
+                and 'native-overflow-tail' in store.read_blob(e['result_ref'])['text'] for e in events)
             proof['decision_check'] = protocol.check({'answer':2})
             proof['decision_mismatch_rejected'] = not protocol.check({'answer':1})['accepted']
             proof['lead_execution_reads'] = sum(e['method']=='decision.read' and e['role']=='lead' for e in events)
             proof['completed_worker_wait_denied'] = (any(e['method']=='workspace.wait_blocked' for e in events)
                 and not any(o['tool_call_id']=='fixture-lead-completed-wait' and o['status']=='success' for o in observations))
             mechanism_passed = (proof['decision_check']['accepted'] and proof['decision_mismatch_rejected']
-                                and proof['lead_execution_reads']>=2 and proof['completed_worker_wait_denied'])
+                                and proof['lead_execution_reads']>=2 and proof['completed_worker_wait_denied']
+                                and proof['native_overflow_capture'] and proof['native_overflow_tail_read'])
         else:
             proof['role_reads'] = {role:any(e['method']=='obs.read' and e['role']==role for e in events) for role in ('lead','worker')}
             foreign = {o['id'] for o in observations if o['tool_call_id']=='fixture-worker-shell'}

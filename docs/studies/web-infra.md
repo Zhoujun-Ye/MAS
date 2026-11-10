@@ -1,118 +1,158 @@
-# Local-Network Web Pipeline
+# Web And DNS Transport
 
-Web GETs follow this mandatory route:
+## Active Route
 
 ```
-network-none solver -> host credential gateway -> restricted SSH Unix socket
-  -> this Mac's Clash at 127.0.0.1:7897 -> public website
+network-none solver -> host credential gateway -> private SSH Unix sockets
+  GET -> this Mac's Clash mixed proxy -> public website
+  DNS -> restricted local DNS bridge -> Clash DNS Unix API
 ```
 
-DeepSeek search, model and judge APIs remain server-direct. No provider key is
-sent to Clash or a fetched site. The solver receives only an ephemeral gateway
-token, not access to the proxy socket. HDR timeout remains 1800 seconds.
+This is web-v5. Model, search and judge APIs remain server-direct. Provider keys
+stay host-side; the solver receives an ephemeral gateway token, not either proxy
+socket or the Clash control API. Same-UID processes are not authenticated by that
+token. Task timeouts remain owned by `benchmarks/policy.py`.
 
-## Operation
+## Local Service
 
-On the local Mac:
+On the Mac:
 
-```bash
+```sh
 python3 scripts/server/web_tunnel.py install
 python3 scripts/server/web_tunnel.py status
 python3 scripts/server/web_tunnel.py stop
 ```
 
-`install` creates/updates the user launch agent `io.mas.web-tunnel`, starting it
-at login and maintaining the SSH transport. It installs its runner under
-`~/.cache/mas-web/`, because macOS background services cannot reliably read Desktop
-projects. Re-run install after changing its source. No Clash profile, proxy node,
-SSH key or system proxy configuration is modified. `stop` unloads the current
-session; the installed agent starts again at the next login.
+The existing `io.mas.web-tunnel` launch agent installs its runner, VPN connector
+and standalone DNS bridge under `~/.cache/mas-web/`, outside Desktop access
+restrictions. Reinstall after changing their source, only when experiments are
+quiescent. Installation waits for its known old registration to unload before
+bootstrap; genuine failures are not silently accepted.
 
-The Mac, Clash and its existing SSH authentication must remain available. The
-service reconnects SSH only; it never retries a model, search or page request.
-SSH keepalives detect dead connections. Forwarding is confined to
-`/home/zhoujunye/.cache/mas-web/clash.sock`: parent mode 0700, owned socket mode
-0600, no public TCP proxy port. Bootstrap removes only a refused, stale owned
-socket; live listeners, foreign files and symlinks are rejected.
+The campus SSH helper binds the selected active VPN interface and source address;
+it does not trust a route potentially overridden by Clash TUN. Missing/ambiguous
+interfaces fail closed. No route, SSH key, system DNS or Clash profile is changed.
+The SSH session receives a heartbeat every 15 seconds and expires after 60 seconds
+without one or on EOF. Each heartbeat now requires a remote acknowledgment:
+20 seconds for startup, 10 thereafter. A multiplexing master can stay alive after
+its primary session exits while sibling sessions remain; process liveness alone
+previously missed that state. Missing/closed acknowledgment stops only the owned
+SSH child, with bounded termination, so launchd can reconnect instead of leaving
+a misleadingly live master. Lifecycle events have UTC timestamps in `stdout.log`.
+Service reconnects never retry a model/search/page request.
+A loaded service or live master alone does not establish public-site connectivity.
 
-`web-v4` in `cpu8-infra-protocol.json` freezes the transport, socket path, accepted
-fetch content types and helper timeout.
-Web-enabled matrix/standalone execution checks TLS connectivity through this
-route before paid admission. Missing/insecure sockets fail closed. A lost tunnel
-record pauses new paid matrix dispatch while preserving other in-flight work.
-There is no direct/provider-fetch fallback and no implicit `HTTPS_PROXY` handling.
+Server endpoints are `~/.cache/mas-web/clash.sock` and `dns.sock`, in an owned
+mode-0700 directory with mode-0600 sockets. Only refused stale owned sockets may
+be removed; live listeners, foreign files and symlinks are rejected. There is no
+public TCP listener or solver-container networking. Keep the installed service,
+private helpers, control directory and live sockets.
+
+## DNS And Target Validation
+
+The separate bridge accepts only bounded hostname requests and A/AAAA resolution
+through Clash's fixed `/dns/query` Unix API. It does not forward arbitrary paths,
+HTTP destinations or controller access. Request/reply sizes, address counts,
+deadlines and concurrent handlers are bounded. Hostnames and echoed questions
+are checked; private, loopback, multicast, reserved and fake-IP answers fail closed.
+There is no server-resolver, public-DoH or direct-network fallback.
+
+The host validates every returned address, pins a selected public IP for CONNECT
+and verifies the original hostname with TLS SNI/certificate checks. Redirects are
+revalidated. Unsafe schemes/ports, credentials in URLs, private targets, dataset
+mirrors and explicit benchmark-name URLs/queries are denied. GitHub/GitLab,
+GitHub Pages, Hugging Face and Kaggle content are excluded. This is a conservative
+leakage guard, not proof against all third-party leakage or same-UID mutation.
+
+The prior web-v4 path resolved names on the server even though GETs used the Mac.
+A paid SEC fetch failed with `EAI_NODATA`; both the server stub and campus upstream
+returned empty A/AAAA answers with a `user.rpz` SOA. Clash resolved the same domain.
+This matches [RPZ response-policy rewriting](https://bind9.readthedocs.io/en/stable/reference.html#response-policy-zone-rpz-rewriting),
+not a fabricated domain. The [November 10 audit](full-infra-20261110.md) separates
+that defect from TLS failures associated with the user's Clash node/config change.
+After repair SEC resolved and completed TLS, but returned HTTP403: site refusal
+is not a DNS failure or permission to bypass site policy.
 
 ## Fetch And Search
 
-Fetch pins validated public IPs for CONNECT while preserving the original host
-for HTTP Host, TLS SNI and certificate verification. Redirects are revalidated.
-Private/link-local/reserved/multicast destinations, unsafe schemes/ports,
-credentials and repository/dataset mirrors are denied. GitHub/GitLab content,
-GitHub Pages, Hugging Face and Kaggle hosts and explicit benchmark-name queries
-or URLs are blocked. This is a conservative leakage guard, not a security claim
-about all third-party content or same-UID processes.
+GET has one absolute 30-second deadline across DNS/CONNECT/TLS/headers/body,
+a two-MiB body cap and 20,000-character result cap. Accepted types are `text/*`,
+JSON/XML and `+json`/`+xml`; HTML scripts/styles are stripped, other text is
+returned verbatim using its declared charset where valid. PDF/images/archives
+and untyped binary bodies remain unsupported. Truncated bodies are errors.
 
-GET has a total 30-second deadline, two-MiB body cap, HTML/script/style removal
-and 20,000-character text cap. `web-v4` accepts textual responses: `text/*`,
-`application/json`, `application/xml` and `+json`/`+xml` types, decoded with a
-declared text charset. HTML is stripped; JSON, XML, CSV, wikitext and plain text are
-returned verbatim. Binary formats (PDF, images, archives, untyped octet streams)
-remain unsupported. All four retained `hdr2-network` fetch failures were Wikipedia
-API JSON or `action=raw` wikitext rejected by the earlier HTML/plain-text-only rule.
-Failed site access is an error, not an empty successful page. The gateway answers
-every failed GET with a payload-free reason code, plus the original target status
-where one exists: `target_http_error`, `redirect_limit_or_missing_location`,
-`unsupported_content_type`, `unsupported_content_encoding`, `body_size_limit`,
-`truncated_body`, `empty_extracted_text`, `url_policy_rejected`, `non_public_address`,
-`dns_resolution_failed`, `invalid_target`, `tls_certificate_error`, `tls_error`,
-`proxy_unavailable`, `proxy_connect_failed`, `connection_error`, `http_protocol_error`,
-`timeout`, `cancelled`, `transport_error` or `internal_error`. Each releases the success
-reservation, except during gateway shutdown, when reservations are conservatively
-retained; URLs, bodies and exception text are never copied into receipts. The
-solver helper waits 45 seconds, longer than the host deadline, so the host reports
-timeouts and an on-time result is never charged but undelivered. Helper results
-are saved under `/workspace/web` whatever the caller's directory and are still
-printed if saving fails.
+The helper waits 45 seconds so the host can report a timeout. Results save under
+`/workspace/web` regardless of working directory and are printed even if saving
+fails. Search returns ten results with bounded snippets, keeps stdout below
+24 KiB, and writes complete allowed results to uniquely named shared files.
 
-Search requests ten results and prints compact JSON lines;
-full allowed results are shared under `/workspace/web/search-N.json`. Exclusive
-symlink-safe names avoid worker overwrites. Stdout stays below 24 KiB and snippets
-are at most 1500 characters, shorter where byte limits require it. Fetch results
-are also saved to shared files.
+Failures expose payload-free reason codes and original target HTTP status when
+known, never raw URL/query/body/exception text in accounting. DNS, proxy, target
+HTTP, TLS certificate/handshake, timeout, cancellation, framing, body/type/encoding
+and policy failures remain distinct. A denied/failed fetch is not empty success.
+The optional allowlisted `fetch_failure_stage` distinguishes DNS socket checks,
+bridge connect/reply, Clash DNS connect/HTTP/decode and GET socket/connect failures.
+DNS socket timeouts are `dns_timeout` even when the deadline timer has not fired;
+malformed controller JSON/HTTP is `dns_response_invalid`, not proxy unavailability.
+Neither classification change introduces fallback, answer caching or retries.
 
-Each web-enabled DataClaw/HDR task defaults to 20 successful logical web calls
-and at most 40 logical attempts, shared by all roles. A fetch may follow at most
-five redirects within its one deadline. Confirmed failures/empty results release
-success reservations; unknown completions retain them. Atomic host counters are
-authoritative. There is no worker quota, solver-side accounting ledger or automatic
-web retry. `--max-web-requests` is frozen equally for both conditions.
+## Shared Budget And Accounting
 
-Official Search API schema and price source (checked 2026-11-07):
-<https://api-docs.deepseek.com/guides/search/>. The historical Fetch route/schema
-were valid; HTTP 404 can mean unavailable or unextractable content, not necessarily
-a wrong endpoint. The old optional provider-fetch and unused Tavily paths are now
-removed. Search's documented successful-nonempty unit estimate is USD0.00075;
-host tunnel GET has no paid fetch-provider charge. Receipts retain outcome/backend,
-estimate/source and uncertainty. Historical HTTP-only cost estimates stay explicitly
-unverified. Empty text answers receive deterministic zero without a judge; unjudged
-nonempty answers remain pending. No scoring semantics or gold access were relaxed.
+Each web-enabled task defaults to 20 successful logical calls and at most 40
+attempts, shared across every role/process. A fetch may follow five redirects
+within its one deadline. Known failures/empty results release success reservations;
+unknown completions retain them. Host counters are authoritative. No per-worker
+quota, automatic retry, response cache or provider-fetch fallback is added.
 
-## Verification And Retention
+Search's recorded successful-nonempty estimate is USD0.00075 from the
+[provider schema/price reference](https://api-docs.deepseek.com/guides/search/),
+checked November 7; it is not a current tariff guarantee or invoice.
+Host GETs have no paid fetch-provider charge. Unknown accounting is not zero.
 
-Current receipts: `/home/zhoujunye/mas-data/receipts/local-web-pipeline-20261107/`.
-After cleanup, 725 server regression tests passed in 32.22 seconds without skips.
-An intentional termination of the owned SSH master caused a fail-closed fetch;
-the login service automatically recreated the tunnel and TLS readiness passed.
-The real-image `scripts/probes/web_tools.py --execute --public-fetch` exercises
-search fixtures, an actual Wikipedia GET through the complete container/gateway/
-tunnel/Clash chain, a known failure and subsequent successful call. It uses no
-real provider credentials or paid APIs. Standalone real host GET also verified
-the SQLite Wikipedia title and bounded text through this tunnel.
+## Verification
 
-Regression covers reverse-socket permissions/stale cleanup, TLS hostname identity,
-no direct fallback, SSRF guards, atomic quotas, unknown charges, shutdown and
-empty-answer scoring. Later cleanup removes superseded offline fixtures/logs and
-offline-only stages, not paid results, their frozen sources or operational data.
-Exact deleted paths/bytes and retained-output hashes are recorded in `cleanup.json`.
-The tunnel may improve page availability; it does not guarantee every site works
-or accelerate model generation. No new paid benchmark was authorized or launched.
+`scripts/probes/web_tools.py --execute --public-fetch` uses synthetic search,
+real network-none containers, dummy keys and public Wikipedia HTML/JSON through
+the complete route. It verifies failure accounting and shared files outside the
+workspace, with no paid API. DNS bridge tests cover framing, bounds, public-address
+checks, concurrency, deadlines and no fallback.
+
+Current receipts are in `mas-data/receipts/maintenance-20261110/`; the preceding
+deployed DNS/web evidence is in `clash-dns-20261110-01/`. Preserve summaries and
+latest native proofs; superseded synthetic workspaces are not paid evidence.
+Historical manifests retain their recorded web-v4 settings. Generate future
+profiles/manifests from current web-v5 source without rerolling frozen task IDs.
+Mac/VPN/Clash availability and individual site restrictions remain dependencies.
+
+The November 10 recovery repair has separate receipts in
+`mas-data/receipts/tunnel-recovery-20261110/`. All 914 server tests passed.
+A controlled fault terminated only the owned remote heartbeat session while a
+multiplexed sibling remained; the service detected it, stopped its old master
+and regained acknowledged connectivity in 18.82 seconds. This is one recovery
+measurement, not an availability guarantee. Earlier logs contained socket-live
+reconnect rejections and VPN source-address errors, but lacked timestamps; the
+06:58 local-time historical fetch failure cannot be attributed to either with
+certainty from its generic `proxy_unavailable` record alone.
+
+The later continuous check must not be reported as uniformly passing: all 24 DNS
+requests passed, but four of six Wikipedia TLS checks ended with `SSLEOFError`
+while the acknowledged SSH session stayed healthy. A separate Mac-only check
+also saw TLS EOF both with an IP-pinned CONNECT and with a hostname CONNECT,
+without using the server/tunnel. The user confirmed no node/config switch during
+this check. A subsequent six-connection route trace passed and used the same
+Clash selector/VLESS chain for both targets, so routing differences are not
+established. This isolates a residual intermittent failure downstream of the
+SSH path; it does not uniquely identify the proxy node versus its target path.
+Keep these failed checks alongside successes. Do not hide them with automatic
+retries, weaken TLS/public-address validation or declare the network fixed.
+
+The user then authorized one temporary existing-node switch and six free checks,
+followed by restoration. Using the [documented selection API](https://wiki.metacubex.one/en/api/),
+the alternate node passed all six server-side TLS checks; the original selection
+was restored and verified. This was not an interleaved randomized comparison:
+the original route had also recovered in six later Mac curl checks and the
+six-connection trace above. The evidence therefore supports intermittent
+downstream connectivity, not a uniquely proven bad node or a permanent fix by
+switching. No subscription, system DNS, TLS/public-IP policy or retry policy was
+changed. Raw failed checks and the authorized comparison remain in the receipt
+root; private node names are not published.

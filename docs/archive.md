@@ -1,89 +1,98 @@
-# Retention
+# Retention And Cleanup
 
-On 2026-11-07 the user explicitly requested deleting earlier experiment results,
-old records and retired compatibility code, without keeping result backups.
-This supersedes the previous retain-all-experiments policy.
+The user authorized deleting obsolete results, source and offline iterations
+without result backups on November 7, superseding earlier retain-all-history
+instructions. Later run-specific authorizations below remain protected.
 
-## Retained Experiments
+## Paid Evidence
 
-Keep server output entries belonging to
-`krama-cpu8-paired-20261106-03`, including its original 40 attempts, the three
-authorized upstream recoveries, primary effective report/export, frozen settings,
-source and accounting. Original failures are evidence of this retained run;
-replacement results are primary, not best-of selected. Do not change original
-scores or silently discard costs.
+All output prefixes below live under `/home/zhoujunye/mas/outputs/`; frozen
+sources live under `/home/zhoujunye/mas-stages/`.
 
-Subsequent run-specific authorizations added `krama-infra-smoke4-20261107-01`
-and `krama-infra-smoke4-20261107-02`. Keep both batches, their comparisons,
-reports, accounting and frozen paid source stages. They are the before/after
-engineering comparison, not redundant copies of the twenty-question batch.
+| Output Prefix | Frozen Source | Retained Scope |
+| --- | --- | --- |
+| `krama-cpu8-paired-20261106-03` | `20261106-krama-cpu8-paired-repaired-03` | 40 original attempts, original failures and primary effective report/export |
+| `krama-cpu8-paired-20261106-03-upstream-recovery-01` | `20261106-krama-upstream-recovery-01` | Three once-only upstream-503 replacements, original accounting and claims |
+| `krama-infra-smoke4-20261107-01` | `20261107-krama-infra-smoke4` | First eight-attempt comparison, reports and accounting |
+| `krama-infra-smoke4-20261107-02` | `20261107-krama-infra-smoke4-02` | Second eight-attempt comparison, reports and accounting |
+| `threebench2-engineering-20261107-01` | `20261107-threebench2-engineering-01` | Twelve attempts, timeouts, grades and accounting |
+| `hdr2-network-20261107-01` | `20261107-hdr2-network-01` | Four-attempt networking retest and receipts |
+| `threebench2-20261109-01` | `20261109-threebench2-01` | Eighteen attempts; original SQL grading failures and separate deterministic regrades |
+| `full-infra-paid4-20261110-01` | `20261110-full-infra-01` | Four FULL attempts in three benchmark directories, two paid grades, no retries |
 
-The user subsequently authorized `threebench2-engineering-20261107-01` (three
-benchmarks x two frozen tasks x Structured/FULL). Preserve its raw attempts,
-accounting, report and frozen source `20261107-threebench2-engineering-01`.
-This authorization does not permit automatic retries. See
-`studies/threebench2-engineering.md` for scope and engineering verification.
+Preserve raw attempts, submissions, ledgers, incurred costs, frozen settings,
+admission proofs, source and result reports, including failed/incomplete work.
+Use authorized upstream recovery as the same task's primary replacement, never
+best-of selection; retain both attempts' costs. A lifecycle failure alone does
+not authorize a retry. Read-only decision-v3 support exists only for the CPU8 pair.
 
-Keep `hdr2-network-20261107-01`, frozen source `20261107-hdr2-network-01` and its
-export in `mas-data/receipts/hdr2-network-20261107-01`. It is the authorized four-
-solver same-task networking retest, not disposable offline output. No retries
-were authorized. See `studies/hdr2-network.md`.
+Keep current trajectory/diagnostic summaries and the latest native, credential,
+container, resource, manifest and transport verification receipts. The November
+10 paid stage remains on web-v4; later web-v5 DNS/read repairs are not retroactive.
 
-Retain the current trajectory diagnosis and current infra validation receipts.
-Keep latest successful native/baseline/credential proofs, compute and OOM checks,
-full manifests and recovery/admission tests. Superseded offline probe traces and
-duplicate iteration logs may be removed; a concise failure summary is sufficient
-for a superseded synthetic probe, not for a paid failed attempt.
-The only old decision-protocol reader is read-only decision-v3 support necessary
-to analyze this retained run; it is not a launch option. Historical ledger,
-retired adapter readers and old study-specific replay/regrading drivers are not
-active infrastructure.
+## Protected Runtime
 
-## Protected Runtime Inputs
+Datasets/checkouts, the evaluation environment, existing environments and required
+Docker images, mode-0600 credentials, frozen Validation20 IDs/hashes and unrelated
+user work are not cleanup targets. FDABench preparation inputs/receipts stay
+protected. Never touch `/home/zhoujunye/agent-team` or rewrite Git history.
 
-Keep current benchmark datasets/checkouts, environments, credentials, required
-Docker images, the frozen Validation20 ID/hash manifest and unrelated user work.
-Never touch `/home/zhoujunye/agent-team`. Result cleanup does not authorize new
-paid execution, provisioning, package installation or rewriting Git history.
+Keep the local `io.mas.web-tunnel` launch agent, installed private runner/VPN/DNS
+helpers, control directory and owned live server sockets. Runtime caches are
+not interchangeable with disposable project bytecode.
 
 ## Disposable Material
 
-Earlier output batches/reports, retired source trees, obsolete stages and their
-experiment-only receipts are deleted rather than moved into new archives.
-Source bytecode and parsed-output caches are regenerable. Deletion receipts
-record paths/counts/bytes and retained-artifact hashes, not copies of removed
-result payloads. Scoped source sync never uses `--delete`; remote retired files
-require an explicit deletion allowlist.
+- Retired executable workflows/readers and tests solely for those retired formats.
+- Superseded offline source stages, synthetic workspaces, duplicate logs/test XML
+  and regenerable source caches, once current replacements are verified.
+- Duplicate generated metadata outside environments, after checking ownership.
 
-## Maintenance Evidence
+Do not create backups of deleted result payloads. Snapshot overlapping uncommitted
+source before removing it; Git alone does not preserve that work. Keep a bounded
+source snapshot separately, not another copy of old results.
+Source sync uses `scripts/server/sync.sh`, never `--delete`. Remote source removal
+uses an explicit reviewed path list and cannot follow symlinks into protected data.
+Frozen paid stages/outputs are not modified to match current source.
 
-Earlier retirement/deletion receipts remain under
-`/home/zhoujunye/mas-data/receipts/maintenance-20261107/`. Retired grading-recovery,
-score-migration and pre-journal continuation workflows are not restored. Active
-numeric, journal, crash and unknown-accounting regressions remain useful.
+## Maintenance Receipts
 
-The local-network pipeline cleanup removed 1,387 files / 11,464,666 logical bytes:
-three obsolete offline/interrupted stages, superseded synthetic workspaces and
-test logs, source caches and the consolidated external-infra document. The unused
-Tavily/advisory-ledger and direct/provider-fetch alternatives and their dead-only
-tests were removed. The active preflight/cache contract is in `studies/fullscale-infra.md`.
+Receipts under `/home/zhoujunye/mas-data/receipts/` record exact paths, byte counts,
+hashes and scope rather than deleted payload copies.
 
-Current receipt:
-`/home/zhoujunye/mas-data/receipts/local-web-pipeline-20261107/cleanup.json`.
-All 23,450 protected paid/provenance files (1,539,573,641 logical bytes) have the
-same aggregate path/content hash before and after cleanup. No result backup was
-created. Temporary source-only snapshots preserve overlapping uncommitted work.
-The old discarded batch's minimal 97-request audit and input-hash timing remain
-in `dc-hdr-infra-20261107`; no deleted paid calls are described as zero-cost.
+| Maintenance | Evidence |
+| --- | --- |
+| November 7 retirement/infra cleanup | `maintenance-20261107/`, `local-web-pipeline-20261107/cleanup.json` |
+| November 9 deep cleanup | `maintenance-20261109/cleanup.json`, `post-test-caches.json` |
+| November 10 deep cleanup | `maintenance-20261110/` |
+| November 10 FDABench completion/final cleanup | `fdabench-infra-20261110/background-mirror05/final-audit.json`, `maintenance-20261110-final-cleanup/cleanup.json` |
 
-Keep the installed local `io.mas.web-tunnel` launch agent, its private runner and
-control directory, the server's private live proxy socket, and the current
-pipeline/probe receipts. These are runtime resources, not disposable caches.
-Post-cleanup server regression passed 725 tests in 32.22 seconds without skips.
+The November 10 cleanup removed 1,989 server files / 34,929,886 logical bytes:
+retired source, three obsolete offline stages, source caches, generated root
+metadata and superseded zero-paid synthetic payloads/test XML. Proof summaries
+and XML suite/failure metadata remain; fresh raw native proofs replace disposable
+offline workspaces. All 34,355 paid-output/frozen-source files and symlinks
+matched their original path/content hashes afterward. No paid call was made.
+The post-test bytecode sweep removed another 17 files / 126,252 bytes: 2,006
+files / 35,056,138 logical bytes removed in total.
+That source passed 905 server tests; native data/budget, gateway and FULL/OBS
+probes passed. The first free web probe failed closed with `proxy_unavailable`;
+subsequent direct fetch and complete HTML/JSON probe passed without changing
+VPN/Clash/tunnel configuration. This does not establish long-term availability.
 
-The subsequent authorized review closure removed the final retired CooperBench
-upstream checkout (1,323 files / 15,245,931 logical bytes) and both empty source
-parents, without backups or changes to retained paid evidence. The deletion
-receipt, current-source FULL/OBS synthetic proofs and refreshed `web-v4` full
-manifest are under `mas-data/receipts/infra-review-closure-20261107/` on the server.
-See `studies/infra-final-audit.md` for the 756-test regression and scope.
+The November 9 cleanup removed 1,539 files / 17,295,393 bytes; all 31,906 protected
+files had identical path/content hashes afterward. Earlier offline summaries
+remain historical verification, not present-day admission or benchmark gains.
+Current ownership and operational contracts are in
+[Repository Layout](repository-layout.md) and [Active Infra](studies/evidence-infra.md).
+
+The final cleanup followed completed FDABench download/index/catalog audits.
+It removed 7,549 disposable cache/synthetic-test entries / 293,023,135 logical
+bytes, while all 34,581 protected output/frozen-source entries retained identical
+path/content hashes. No paid output, FDABench input/receipt, environment or live
+tunnel was removed. Obsolete downloader argument plumbing and repeated preparation
+history were consolidated; behaviorally distinct tests and retained reports remain.
+The full server suite passed 936 tests. The first invocation's long temporary
+directory caused 23 Unix-socket path-length failures; the corrected short-path
+invocation passed without suppressing tests. Both invocations' logs/XML remain
+in the final cleanup receipts; disposable test workspaces were removed afterward.

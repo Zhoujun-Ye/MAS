@@ -8,8 +8,8 @@ and denies delegation; Subagents permits the native Agent tool, including backgr
 agents that notify the lead on completion (2.1.286 has no TaskOutput tool), with
 Agent Teams disabled. Interactive Agent Teams is retired, including the KramaBench adapter.
 
-The Subagents baseline uses the fixed current lead prompt in
-`harness/runtime_support/runtime.py`. Only native Claude Single and Subagents are active.
+The Subagents baseline uses the frozen lead prompt selected by
+`scripts/common/prompts/conditions.py`. Only native Claude Single and Subagents are active.
 
 Both conditions receive the same shared task rules, ending with a run-limits line:
 the wall-clock timeout and, for web tasks, the request budget shared by every agent
@@ -87,7 +87,7 @@ authorization. Proof validation is shared with KramaBench: `passed=true`,
 `paid_calls=0`, `network="none"` plus backend-specific native observations.
 Single requires delegation denials; Subagents requires observed worker starts
 and no Team events. A supplied backend label must match; old proofs without a
-label are checked through their backend-specific audit. Solver key comes from the existing mode-0600
+label cannot satisfy current runtime-bound admission. Solver key comes from the existing mode-0600
 credential file. Live web runs use `--web-search deepseek` through the host
 credential gateway. Web GETs require the local-Clash SSH socket described in
 `studies/web-infra.md`; there is no direct/provider-fetch or Tavily fallback.
@@ -100,8 +100,9 @@ Each attempt has a fresh workspace/profile/container. Native policies and
 observers are read-only mounts. No permission bypass is added. SQL uses SQLite
 read-only mode, query-only, denied ATTACH/extension loading and an operation cap.
 Data mounts are read-only. Web restrictions on arbitrary shell commands are
-instructions, not an adversarial network sandbox: provider traffic still needs
-network access. The explicit helper provides search/fetch with no hidden fallback.
+instructions, not an adversarial shell sandbox. Live solver containers use
+network=none; the host credential gateway carries authorized provider traffic.
+The explicit helper provides search/fetch with no hidden fallback.
 
 Execution is sequential, one attempt per task, zero adapter retries. A failed
 attempt stops later dispatch; skipped tasks remain in `predictions.jsonl` with

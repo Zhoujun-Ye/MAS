@@ -10,7 +10,7 @@ from harness.evidence_mas.decision import DecisionProtocol, PROTOCOL
 from harness.evidence_mas.hook import collect
 from harness.evidence_mas.measurements import measurement
 from harness.evidence_mas.mcp import Server
-from harness.evidence_mas.sharing import context_reply, MAX_CHARS, MAX_ITEMS
+from harness.evidence_mas.sharing import context_reply, MAX_CHARS, MAX_ITEMS, pure_delay
 from harness.evidence_mas.store import Store, StoreError
 
 TARGET = dict(quantity='distance',statistic='sum',population='routes',period='not_applicable',unit='m',dataset='synthetic')
@@ -313,3 +313,15 @@ def test_wait_guard_requires_explicit_agent_wait_and_observed_shutdown(protocol)
     assert wait_guard(protocol.store,dict(e,agent_id='w')) is None
     collect(protocol.store,dict(hook_event_name='PreToolUse',tool_name='Agent',tool_use_id='pending',session_id='s'))
     assert wait_guard(protocol.store,e) is None
+
+
+@pytest.mark.parametrize('command,expected', [
+    ('sleep 30', True), ('/bin/sleep 0.5;', True),
+    ('sleep 60; echo waited', True), ('sleep 40; echo done', True),
+    ('sleep 30; echo "$SECRET"', False),
+    ('while kill -0 "$pid"; do sleep 1; done', False),
+    ('python compute.py; sleep 1', False), ('echo "sleep 30"', False),
+    ('sleep $(compute)', False), ('sleep infinity', False)])
+def test_wait_advice_does_not_parse_or_rewrite_real_work(command, expected):
+    assert pure_delay(dict(hook_event_name='PostToolUse', tool_name='Bash',
+                           tool_input={'command': command})) is expected

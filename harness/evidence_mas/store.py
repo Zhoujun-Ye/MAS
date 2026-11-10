@@ -289,6 +289,12 @@ class Store:
                 if all(prior[k] == v for k, v in body.items()):
                     return prior
                 raise StoreError('Conflicting terminal tool result',code='terminal_result_conflict')
+        if tool_name == 'Bash':
+            from .native_output import persisted_output
+            overflow, overflow_status = persisted_output(self, tool_output)
+            if overflow_status:
+                body.update(persisted_output_ref=self.blob(overflow) if overflow is not None else None,
+                            persisted_output_status=overflow_status)
         return self.put(db, 'observation', body, actor,
                         prior['id'] if prior else None, prior['revision'] if prior else None)
 
@@ -314,6 +320,8 @@ class Store:
 
     def observation_summary(self, obs):
         return dict({k: obs[k] for k in ('id', 'revision', 'agent_id', 'tool_name', 'status', 'completeness')},
+                    persisted_output_available=bool(obs.get('persisted_output_ref')),
+                    persisted_output_status=obs.get('persisted_output_status'),
                     input_summary=packed(self.read_blob(obs['input_ref']))[:240],
                     preview=self.output_text(obs)[:240])
 
@@ -321,13 +329,22 @@ class Store:
         value = self.read_blob(obs['output_ref']) if obs['output_ref'] else ''
         return value if isinstance(value, str) else packed(value)
 
-    def obs_read(self, db, actor, role, obs_id, start=0, end=None, field='output'):
+    def obs_read(self, db, actor, role, obs_id, start=0, end=None, field='output', limit=None):
         obs = self.get(db, obs_id, kind='observation')
-        if field not in ('input', 'output'):
-            raise StoreError('Observation field must be input or output')
-        value = self.output_text(obs) if field == 'output' else packed(self.read_blob(obs['input_ref']))
+        if field not in ('input', 'output', 'persisted_output'):
+            raise StoreError('Observation field must be input, output or persisted_output')
+        if field == 'persisted_output':
+            if not obs.get('persisted_output_ref'):
+                raise StoreError('Native overflow unavailable: ' + (obs.get('persisted_output_status') or 'not_captured'))
+            value = self.read_blob(obs['persisted_output_ref'])
+        else:
+            value = self.output_text(obs) if field == 'output' else packed(self.read_blob(obs['input_ref']))
         if type(start) is not int or start < 0 or (end is not None and (type(end) is not int or end < start)):
             raise StoreError('Invalid character span')
+        if limit is not None:
+            if type(limit) is not int or not 1 <= limit <= 16000 or end is not None:
+                raise StoreError('Use start/end or start/limit (1..16000), not both end and limit')
+            end = start + limit
         end = min(len(value), start + (8000 if end is None else 16000), len(value) if end is None else end)
         start = min(start, len(value))
         return dict(observation=obs, text=value[start:end], start=start, end=end, total=len(value))

@@ -9,11 +9,14 @@ task limits, not Structured lead organization. Tests pin the exact baseline.
 
 - [Active evidence and infra repair](evidence-infra.md)
 - [Full manifests, crash recovery and resource admission](fullscale-infra.md)
-- [Final infra boundary checks and measured preparation overhead](infra-final-audit.md)
 - [Web transport, shared successful-call budget and empty-answer scoring](web-infra.md)
 - [Typed intermediate and decision contracts](intermediate-full.md)
 - [Retained CPU8 FULL/Structured comparison](krama-cpu8-paired.md)
 - [CPU8 trajectory diagnosis](cpu8-trajectory-analysis.md)
+- [Paired four-task speed checks](infra-smoke4-speed-check.md)
+- [Three-benchmark engineering smoke](threebench2-engineering.md)
+- [Single/Structured/FULL smoke and deterministic regrade](threebench2-20261109.md)
+- [Latest FULL capture, DNS and read-interface audit](full-infra-20261110.md)
 - [Frozen validation questions](validation20.md)
 - [Retention and deletion boundaries](../archive.md)
 

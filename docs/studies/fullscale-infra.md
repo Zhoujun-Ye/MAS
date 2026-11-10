@@ -29,12 +29,11 @@ Then pass that manifest and the same protocol settings to the existing matrix
 with `--all-tasks`, explicit benchmark/conditions and matching resource flags.
 Omitting `--execute` remains a nonexecuting plan. A manifest is not authorization.
 
-The current-source all-benchmark manifest is
-`/home/zhoujunye/mas-data/receipts/infra-review-closure-20261107/all-full-manifest.json`.
-It binds the current `web-v4` CPU8 profile and preserves upstream task order.
-Use the adjacent `proofs/` set for Structured/FULL planning; FULL and OBS were
-regenerated after the MCP exception-isolation repair. Older manifests/proofs
-remain historical provenance, not substitutes for current configuration checks.
+Generate a fresh manifest/profile from current source. The November 7 manifest
+under `infra-review-closure-20261107/` is historical web-v4 provenance, not current
+web-v5 admission. Do not change Validation20 IDs or hashes to refresh settings.
+Current maintenance proofs/manifests are under `receipts/maintenance-20261110/`;
+all mode/configuration, effort, image and CLI bindings still require validation.
 
 ## Crash Recovery And Scoring
 
@@ -51,6 +50,13 @@ are rehashed to avoid timestamp ambiguity. Full hashing remains available withou
 The retained `dc-hdr-infra-20261107/hash-timing.json` measured warm DataClaw planning
 at 0.121 versus 0.468 seconds for full hashing; HDR gain was small. This sub-second
 preparation saving does not establish end-to-end benchmark acceleration.
+
+The November 7 Krama inventory check covered 1,742 files / 666,850,039 bytes.
+Full hashing versus warm cache took 1.89/0.82 seconds in one process and
+2.02/0.98 seconds across eight independent processes; cold cache took 2.48 seconds.
+An eight-thread microbenchmark was slower with caching (14.10 versus 7.42 seconds),
+so no thread-throughput or solver-speed gain is inferred. Inventory fingerprints
+matched. Historical timing receipts remain in `infra-final-audit-20261107/`.
 
 Every new executed batch has a SQLite `journal.sqlite` with synchronous FULL
 transactions. Solver and grading claims commit before their possible paid side
@@ -167,9 +173,12 @@ sorting, environment provisioning or native worker scheduling is introduced.
 ## Verification
 
 Latest regression, tunnel and cleanup receipts live under
-`/home/zhoujunye/mas-data/receipts/infra-review-closure-20261107/`.
+`/home/zhoujunye/mas-data/receipts/maintenance-20261110/`.
 Superseded offline stages/test logs are disposable; paid runs and their frozen
 sources remain protected by `docs/archive.md`.
+
+The following November 7 checks remain historical verification of that source,
+not a current-source admission proof:
 
 - Actual manifest generation verified Krama 104, DataClaw 492 and HDR 380 tasks,
   with upstream order and fingerprints preserved.

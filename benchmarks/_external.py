@@ -1,4 +1,4 @@
-"""Small data contracts shared by the two external research benchmarks."""
+"""Small data contracts shared by external research benchmarks."""
 
 from dataclasses import dataclass, field
 import hashlib
@@ -25,7 +25,10 @@ def digest(path):
 def verify_sources(root, benchmark):
     """Verify loader/evaluator inputs against Git, not just the HEAD label."""
     root = Path(root)
-    scopes = ["dataclaw", "assets/qa_raw"] if benchmark == "dataclawbench" else ["evaluation"]
+    scopes = {"dataclawbench": ["dataclaw", "assets/qa_raw"],
+              "hybriddeepresearch": ["evaluation"],
+              "fdabench": ["FDABench/evaluation", "FDABench/utils/test_utils.py",
+                           "FDABench/utils/database_connection_manager.py"]}[benchmark]
     raw = subprocess.check_output(["git", "-C", str(root), "ls-tree", "-r", "-z", "HEAD", "--", *scopes])
     expected = set()
     for entry in raw.split(b"\0"):
@@ -44,7 +47,8 @@ def verify_sources(root, benchmark):
         actual = hashlib.sha1(f"blob {len(content)}\0".encode() + content).hexdigest()
         if actual != oid:
             raise ValueError("Source differs from pinned Git content: " + relative)
-    actual = {str(p.relative_to(root)) for scope in scopes for p in (root / scope).rglob("*")
+    actual = {str(p.relative_to(root)) for scope in scopes
+              for p in ([root / scope] if (root / scope).is_file() else (root / scope).rglob("*"))
               if p.suffix in {".py", ".txt", ".json"} and (p.is_file() or p.is_symlink())}
     if not expected or actual != expected:
         raise ValueError("Pinned source inventory is incomplete or contains extra inputs")

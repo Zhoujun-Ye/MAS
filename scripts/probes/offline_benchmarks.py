@@ -54,7 +54,7 @@ def main():
             (profile / "home").mkdir(parents=True)
             data = dc_root / "assets/database" if task.benchmark == "dataclawbench" else args.root / "hybriddeepresearch/data"
             inputs = mounts(task, argparse.Namespace(upstream=dc_root, data=data, data_variant="database"))
-            script = code / "scripts/probes" / ("single_agent.py" if mode == "single-agent" else "subagents.py")
+            script = code / 'scripts/probes/native_transport.py'
             inputs += [(script, "/probe.py", True), (code / "harness/runtime_support/tools.py", "/benchmark-tools.py", True)]
             identity = runtime.container(work, profile, data, args.image, network="none", backend=backend,
                                          dataset_mounts=inputs, effort=args.effort)
@@ -72,9 +72,7 @@ def main():
                 if budget:
                     options["max_budget_usd"] = 0.01
                 command = adapter.command(**options)
-                probe_args = ["--argv-json", json.dumps(command), "--output", "/native/probe"]
-                if mode == "subagents":
-                    probe_args += ["--claude", str(runtime.CLAUDE), "--hooks", "/adapter-hooks.py"]
+                probe_args = ['--mode', mode, "--argv-json", json.dumps(command), "--output", "/native/probe"]
                 if budget:
                     probe_args += ["--fake-input-tokens", "1000000"]
                 result = subprocess.run(["docker", "exec", "-i", "--workdir", "/workspace", identity,

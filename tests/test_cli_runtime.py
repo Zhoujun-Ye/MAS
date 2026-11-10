@@ -120,8 +120,9 @@ def test_organization_prompt_rejects_empty_and_nonregular(tmp_path):
     assert organization_override(None, "claude-code-subagents") is None
 
 
-@pytest.mark.parametrize("failure", [None, "container", "adapter", "cleanup"])
-def test_krama_gateway_lifecycle_without_provider(tmp_path, monkeypatch, failure):
+@pytest.mark.parametrize('backend', ['claude-code-single-agent','claude-code-subagents'])
+@pytest.mark.parametrize("failure", [None, "container", "adapter", "cleanup", 'gateway'])
+def test_krama_gateway_lifecycle_without_provider(tmp_path, monkeypatch, failure, backend):
     import threading
     from benchmarks.kramabench.tasks import Task
     from scripts.kramabench import cli_runtime as krama
@@ -136,6 +137,7 @@ def test_krama_gateway_lifecycle_without_provider(tmp_path, monkeypatch, failure
             return self
         def __exit__(self, *args):
             state["closed"] = True
+            if failure=='gateway':raise RuntimeError(key)
 
     def container(*args, **kwargs):
         assert len(args) == 4 and "key" not in kwargs
@@ -160,18 +162,26 @@ def test_krama_gateway_lifecycle_without_provider(tmp_path, monkeypatch, failure
     monkeypatch.setattr(krama, "CredentialGateway", Gateway)
     monkeypatch.setattr(krama, "container", container)
     monkeypatch.setattr(krama, "ClaudeCodeSingleAgentCLI", Adapter)
+    monkeypatch.setattr(krama, "ClaudeCodeSubagentsCLI", Adapter)
     monkeypatch.setattr(krama, "native_single_agent", lambda *a: dict(passed=True))
+    monkeypatch.setattr(krama, "native_subagents", lambda *a:dict(passed=True,native_team_configs=0,teammate_idle_events=0))
     monkeypatch.setattr(krama, "stop_container", cleanup)
-    monkeypatch.setattr(krama.subprocess, "run", lambda *a, **kw: SimpleNamespace(returncode=0))
+    def command(argv, **kwargs):
+        if argv[:2]==['docker','rm']:
+            assert argv==['docker','rm','-f','fake-container'] and kwargs['timeout']==15
+        return SimpleNamespace(returncode=0)
+    monkeypatch.setattr(krama.subprocess, "run", command)
     args = SimpleNamespace(output=tmp_path / "outputs", upstream=tmp_path, image="fake", timeout=30)
     active = set()
     stop = threading.Event()
     result = krama.run_attempt(Task("probe", "astronomy", "Offline fixture"),
-        "claude-code-single-agent", args, key, stop, active, threading.Lock())
+        backend, args, key, stop, active, threading.Lock())
     assert state == dict(open=True, closed=True)
     assert not active
     assert key not in json.dumps(result)
-    assert result["status"] == ("cleanup_failed" if failure == "cleanup" else "launcher_error" if failure else "cli_exited")
+    assert result["status"] == ("cleanup_failed" if failure in {'cleanup','gateway'} else "launcher_error" if failure else "cli_exited")
+    assert 'finished_at' in result
+    assert json.loads((args.output/'probe'/backend/'report.json').read_text())['status']==result['status']
 
 
 def test_krama_fatal_monitor_ignores_transcript_text_and_uses_host_ledger(tmp_path, monkeypatch):

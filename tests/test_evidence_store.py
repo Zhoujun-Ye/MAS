@@ -224,3 +224,47 @@ def test_mcp_does_not_swallow_process_shutdown(store, monkeypatch, exception):
     monkeypatch.setattr(store, 'call', stop)
     with pytest.raises(exception):
         server.handle(dict(jsonrpc='2.0', id=1, method='tools/call', params=dict(name='obs_list')))
+
+
+def capture(store, **kwargs):
+    return store.call('obs.capture', dict(tool_name='Bash',
+        tool_input={'command': 'unique-sql-input'}, tool_output='answer',
+        status='success', completeness='complete', **kwargs), role='collector')
+
+
+def test_input_discovery_and_clamped_reads(store):
+    obs = capture(store)
+    rows = store.call('obs.search', {'query': 'unique-sql-input'})['items']
+    assert rows[0]['id'] == obs['id']
+    assert 'unique-sql-input' in rows[0]['input_summary']
+    assert rows[0]['preview'] == 'answer'
+    assert 'input_ref' not in rows[0]
+    assert 'unique-sql-input' in store.call('obs.read', dict(obs_id=obs['id'], field='input'))['text']
+    assert store.call('obs.read', dict(obs_id=obs['id'], end=90000))['text'] == 'answer'
+    empty = store.call('obs.read', dict(obs_id=obs['id'], start=90000))
+    assert empty['text'] == '' and empty['start'] == empty['end'] == 6
+    for args in ({'start': -1}, {'start': True}, {'start': 3, 'end': 1}, {'field': 'bad'}):
+        with pytest.raises(StoreError):
+            store.call('obs.read', dict(obs_id=obs['id'], **args))
+
+
+def test_capture_does_not_scan_objects_or_check_decision_cycles(store, monkeypatch):
+    def forbidden(*args):
+        raise AssertionError('Unnecessary graph scan')
+    monkeypatch.setattr(store, 'latest', forbidden)
+    obs = capture(store, session_id='s', agent_id='a', tool_call_id='t')
+    assert capture(store, session_id='s', agent_id='a', tool_call_id='t')['id'] == obs['id']
+    assert store.call('obs.read', {'obs_id': obs['id']})['text'] == 'answer'
+
+
+def test_read_does_not_reserve_writer_lock(store, monkeypatch):
+    obs = capture(store)
+    original = store.output_text
+    def read(value):
+        with store.connect() as other:
+            other.execute('PRAGMA busy_timeout=0')
+            other.execute('BEGIN IMMEDIATE')
+            other.rollback()
+        return original(value)
+    monkeypatch.setattr(store, 'output_text', read)
+    assert store.call('obs.read', {'obs_id': obs['id']})['text'] == 'answer'

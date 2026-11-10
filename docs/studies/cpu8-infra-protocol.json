@@ -1,11 +1,14 @@
 {
   "effort": "high",
   "web_policy": {
-    "protocol": "web-v4",
+    "protocol": "web-v5",
     "successful_call_limit": 20,
     "attempt_limit": 40,
     "fetch_backend": "local-clash-unix",
     "fetch_proxy_socket": "/home/zhoujunye/.cache/mas-web/clash.sock",
+    "dns_backend": "local-clash-dns-unix",
+    "dns_socket": "/home/zhoujunye/.cache/mas-web/dns.sock",
+    "dns_failure": "fail closed; no server resolver or public DNS fallback",
     "fetch_proxy_failure": "fail closed; no direct fallback",
     "fetch_timeout_seconds": 30,
     "fetch_character_limit": 20000,

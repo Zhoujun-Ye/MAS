@@ -10,6 +10,8 @@ from benchmarks.kramabench.semantic_judge import judge_once
 def needs_judge(benchmark, task, run, judge_enabled):
     if not judge_enabled:
         return False
+    if benchmark == 'fdabench' and task.category != 'report':
+        return False
     if benchmark == 'kramabench':
         rows = read_json(run / 'summary.json', {}).get('rows', [])
         return bool(rows and rows[0].get('status') in {'cli_exited', 'native_condition_unverified'}
@@ -53,7 +55,7 @@ def grade_attempt(benchmark, task, backend, run, *, data_root, grades_root,
     if not predictions.exists():
         return {**result, "status": "missing_predictions"}
     predicted = jsonl(predictions)
-    text_judge = benchmark == "dataclawbench" or task.category != "search_to_sql"
+    text_judge = task.category == 'report' if benchmark == 'fdabench' else benchmark == "dataclawbench" or task.category != "search_to_sql"
     calls = sum(bool(p["final_answer"].strip()) for p in predicted) if text_judge and judge_enabled else 0
     command = [sys.executable, "-m", "scripts." + benchmark + ".score", "--run", str(run),
                "--upstream", str(data_root / benchmark / "upstream"), "--output", str(target)]
@@ -62,6 +64,8 @@ def grade_attempt(benchmark, task, backend, run, *, data_root, grades_root,
                     "--db-root", str(data_root / "hybriddeepresearch/data")]
         if not text_judge:
             command.append("--execute-sql")
+    if benchmark == "fdabench":
+        command += ["--tasks", str(data_root / "fdabench/release")]
     if calls:
         command += ["--execute-judges", "--judge-limit", str(calls), "--judge-model", "deepseek-flash",
                     "--credentials", str(credentials), "--judge-base-url", "https://api.deepseek.com"]

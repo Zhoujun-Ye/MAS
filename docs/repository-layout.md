@@ -16,7 +16,7 @@ original artifact paths; obsolete study outputs and compatibility source are rem
 | `scripts/server/` | Server/source/data provisioning and operational entrypoints |
 | `tests/` | Behavioral tests, fake runtime fixtures and ownership checks |
 | `docs/` | Current architecture/operations; `docs/studies/` holds study designs and receipts |
-| `outputs/` | Retained CPU8 pair and two authorized smoke comparisons; never active imports |
+| `outputs/` | Protected paid evidence and generated reports listed in retention; never active imports |
 
 ## Dependency Rules
 

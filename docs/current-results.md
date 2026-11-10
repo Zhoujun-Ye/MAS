@@ -1,7 +1,7 @@
 # Retained Results
 
-The completed CPU8 KramaBench Structured/FULL comparison and two subsequently
-authorized four-task engineering checks are retained.
+Paid batches and their exact source/accounting are listed in [retention](archive.md).
+The main paired result remains the completed CPU8 KramaBench comparison.
 Both conditions have 20 effective questions, mean score 0.7453846154 and 14 fully
 correct answers. Scores match question by question. FULL averages 7.7321 CLI
 minutes versus Structured's 7.3662. These are validation results, not a held-out
@@ -31,9 +31,28 @@ The two smoke output prefixes are `krama-infra-smoke4-20261107-01` and `-02`
 under the same server outputs directory. Keep both raw batches: the first is
 the comparison baseline, not a disposable interrupted run.
 
+## Later Engineering Checks
+
+These are repeatedly used validation tasks, not independent final tests or
+controlled mechanism ablations. Do not aggregate scores across benchmarks as one
+accuracy or attribute shared-account deltas as per-condition invoices.
+
+| Batch | Scope | Result And Limitation |
+| --- | --- | --- |
+| `threebench2-engineering-20261107-01` | 12 Structured/FULL attempts | Two HDR timeouts; DataClaw 1.0 and Krama 0.953846 in both conditions |
+| `hdr2-network-20261107-01` | Four Structured/FULL HDR attempts | Both conditions 0/2; old textual-format rejection later diagnosed |
+| `threebench2-20261109-01` | 18 Single/Structured/FULL attempts | DataClaw 1/1/0.75, HDR all 0, Krama all 0.953846; VPN disruption and separate deterministic SQL regrade |
+| `full-infra-paid4-20261110-01` | Four FULL attempts, two paid grades | Both DataClaw tasks and Krama score 1, HDR SQL 0; eight overflow captures verified; later DNS/read repairs were free validation only |
+
+Later raw evidence is server-side; local `outputs/` contains only the small
+retained CPU8/smoke reports. All eight frozen paid stages and original failures
+remain protected. No new paid run follows from an offline cleanup or proof.
+
 - [Retained run configuration and accounting](studies/krama-cpu8-paired.md)
 - [Trajectory diagnosis](studies/cpu8-trajectory-analysis.md)
 - [Active infra](studies/evidence-infra.md)
 - [Latest paid speed check](studies/infra-smoke4-speed-check.md)
 - [Full-scale offline readiness](studies/fullscale-infra.md)
+- [Three-condition smoke](studies/threebench2-20261109.md)
+- [Latest FULL/DNS audit](studies/full-infra-20261110.md)
 - [Retention policy](archive.md)

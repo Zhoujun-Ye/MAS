@@ -4,12 +4,14 @@ TIMEOUT_SECONDS_BY_BENCHMARK = {
     "dataclawbench": 1200,
     "hybriddeepresearch": 1800,
     "kramabench": 3600,
+    "fdabench": 1800,
 }
 
 _SOURCES = {
     "dataclawbench": "Pinned upstream dataclaw/build_tasks.py:187; dataclaw/eval/run_batch.py:429,473,487",
     "hybriddeepresearch": "Engineering provisional default; no official solver timeout identified",
     "kramabench": "Engineering provisional default; no official solver timeout identified",
+    "fdabench": "Engineering provisional default; no official solver timeout identified",
 }
 
 

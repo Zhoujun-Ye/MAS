@@ -70,6 +70,12 @@ coordinator/full modes, capability catalogs, or custom scheduling semantics.
   and its public ID/hash manifest. Do not reroll questions based on results, silently
   replace failures, or describe this repeatedly used set as an independent final test.
 - CooperBench is retired, not an active dependency or retained result source.
+- FDABench is opt-in and local-only: exclude missing/invalid public scoring
+  references and all cloud databases. Never mount gold subtasks, reference reports,
+  rubric answers or frozen search results. Missing assets block preflight, not
+  silently reduce the task pool. Choice scoring is offline; report judges need
+  separate paid authorization. Existing Validation20/default matrix scope stays
+  unchanged. See `docs/fdabench.md` for source pins and adaptation limitations.
 - Preserve unrelated changes and current paired evidence. Snapshot overlapping
   uncommitted source before removing it; Git alone does not preserve that work.
 
@@ -108,7 +114,12 @@ See `docs/cli-adapters.md` for pinned versions, references and limitations.
 - Installs use the Tsinghua PyPI mirror. Do not provision environments, CLIs,
   Docker or cloud resources implicitly. Preserve required current images/assets.
 - Deploy, launch jobs and clean server files only within user authorization.
-- Web GETs require the local-Mac Clash tunnel maintained by
+- HF asset preparation defaults to server-direct `https://hf-mirror.com`, with
+  pinned revisions and hash checks; no automatic official-site fallback. FDABench
+  corpus authentication to that mirror is user-authorized; send the host-only HF
+  token only to its exact host for the gated corpus, never CDN redirects or solvers.
+  This asset-only exception does not change solver web access.
+- Solver web GETs require the local-Mac Clash tunnel maintained by
   `scripts/server/web_tunnel.py` and documented in `docs/studies/web-infra.md`.
   Keep its server Unix socket private; no direct/provider-fetch fallback, public
   proxy listener or solver-container networking. Search/model/judge APIs remain

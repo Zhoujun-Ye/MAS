@@ -11,6 +11,10 @@
 - Datasets: `kramabench/upstream`, `dataclawbench/upstream`,
   `hybriddeepresearch/upstream`, `hybriddeepresearch/release/hybrid_ds_release/hybrid_ds_release.jsonl`,
   and `hybriddeepresearch/data` under the external data root.
+- FDABench (opt-in, local/public-reference scope): `fdabench/upstream`,
+  `fdabench/release`, `fdabench/data`; see [FDABench](fdabench.md) for asset receipts,
+  missing-input admission and local retrieval limitations. Its preparation does
+  not enable cloud databases or add it to the existing Validation20 set.
 - Current results: [current-results.md](current-results.md).
 
 Claude Code is pinned to 2.1.286. The current solver image is
@@ -30,6 +34,15 @@ External `receipts/data-hydration.json`, data verification and
 not disposable cleanup logs. Runtime-bound native offline proofs are needed
 for execution admission; current proof requirements are in [active infra](studies/evidence-infra.md).
 No installation or environment change is implicit in these instructions.
+
+## Offline Tests
+
+Run the suite on the server with the existing evaluation Python. Unix-socket
+fixtures need a short, fresh `--basetemp` under `/tmp/` (for example
+`/tmp/mas-pytest-UNIQUE`), not under the long receipts path. Keep logs/JUnit XML
+under the external receipts root, and clean only the test-owned workspace after
+verification. These offline tests use fake providers and do not authorize paid
+experiments or replace native-runtime admission proofs.
 
 ## Safety
 

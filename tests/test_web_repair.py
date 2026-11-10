@@ -151,8 +151,7 @@ def test_redirect_destination_is_revalidated_before_connect(monkeypatch):
 
 
 def test_mixed_public_private_dns_answers_are_rejected(monkeypatch):
-    monkeypatch.setattr(socket,'getaddrinfo',lambda *a,**kw:[
-        (None,None,None,None,('8.8.8.8',443)),(None,None,None,None,('127.0.0.1',443))])
+    monkeypatch.setattr(web_fetch,'resolve_dns',lambda *a:['8.8.8.8','127.0.0.1'])
     with pytest.raises(ValueError,match='public'):web_fetch.public_address('example.org',443,1)
 
 
@@ -319,8 +318,8 @@ def test_fetch_failure_reasons_do_not_mislabel_tls_protocol_or_dns_errors(monkey
     assert reason(web_fetch.ProxyUnavailable('gone'))=='proxy_unavailable'
     assert reason(TimeoutError('late'))=='timeout'
     assert reason(UnicodeError('idna'))=='invalid_target'
-    def missing(*a,**kw):raise socket.gaierror('synthetic DNS failure')
-    monkeypatch.setattr(socket,'getaddrinfo',missing)
+    def missing(*a,**kw):raise web_fetch.DNSError('dns_resolution_failed')
+    monkeypatch.setattr(web_fetch,'resolve_dns',missing)
     with pytest.raises(web_fetch.FetchFailure) as error:web_fetch.public_address('missing.example',443,1)
     assert error.value.reason=='dns_resolution_failed'
 
@@ -339,6 +338,25 @@ def test_gateway_reports_protocol_and_tls_fetch_failures_as_known_free_failures(
     record=json.loads((tmp_path/'ledger').read_text().splitlines()[-1])
     assert record['fetch_failure_reason']==reason and record['outcome']=='rejected' and record['web_success'] is False
     assert 'example.org' not in (tmp_path/'ledger').read_text()
+
+
+@pytest.mark.parametrize('stage',['clash_dns_connect','PRIVATE_PAYLOAD'])
+def test_gateway_records_only_allowlisted_failure_stages_without_retry(tmp_path,monkeypatch,stage):
+    calls=[]
+    def failed(url,**kw):
+        calls.append(url)
+        raise web_fetch.ProxyUnavailable('PRIVATE_MESSAGE',stage)
+    monkeypatch.setattr(web_fetch,'fetch',failed)
+    ledger=tmp_path/'ledger'
+    with cg.CredentialGateway('synthetic',web_limit=1,ledger_path=ledger) as gateway:
+        with pytest.raises(urllib.error.HTTPError) as error:
+            post(gateway,'/v1/tools/fetch',{'url':'https://example.org'})
+        document=json.loads(error.value.read());error.value.close()
+    record=json.loads(ledger.read_text().splitlines()[-1])
+    assert record['web_proxy_unavailable'] is True and record['web_refunded'] is True
+    expected=stage if stage=='clash_dns_connect' else None
+    assert record.get('fetch_failure_stage')==document['fetch_failure_stage']==expected
+    assert len(calls)==1 and 'PRIVATE' not in ledger.read_text()+json.dumps(document)
 
 
 def test_client_timeout_outlasts_host_fetch_deadline(monkeypatch):

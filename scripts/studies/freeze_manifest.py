@@ -6,14 +6,14 @@ from pathlib import Path
 import sys
 
 sys.path.insert(0,str(Path(__file__).resolve().parents[2]))
-from scripts.studies.benchmark_matrix import BENCHMARKS,task_pools,task_fingerprint
+from scripts.studies.benchmark_matrix import SUPPORTED_BENCHMARKS,task_pools,task_fingerprint
 from common.io import write_json
 
 
 def main(argv=None):
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--root',type=Path,required=True)
-    parser.add_argument('--benchmarks',nargs='+',choices=BENCHMARKS,required=True)
+    parser.add_argument('--benchmarks',nargs='+',choices=SUPPORTED_BENCHMARKS,required=True)
     parser.add_argument('--protocol-settings',type=Path,required=True)
     parser.add_argument('--output',type=Path,required=True)
     args=parser.parse_args(argv)

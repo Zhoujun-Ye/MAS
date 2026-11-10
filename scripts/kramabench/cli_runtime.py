@@ -166,7 +166,7 @@ def run_attempt(task, backend, args, key, stop, active, lock):
                             report['resources']=resources.record_exit()
                     write_json(folder / "frozen-files.json", snapshot(work))
                 finally:
-                    subprocess.run(["docker", "rm", identity], check=True, capture_output=True)
+                    subprocess.run(["docker", "rm", "-f", identity], check=True, capture_output=True, timeout=15)
                     with lock:
                         active.discard(identity)
         except Exception as error:
@@ -174,9 +174,14 @@ def run_attempt(task, backend, args, key, stop, active, lock):
             stop.set()
         finally:
             if gateway is not None:
-                gateway.__exit__(None, None, None)
-                if hasattr(gateway, "summary"):
-                    report["gateway"] = gateway.summary()
+                try:
+                    gateway.__exit__(None, None, None)
+                    if hasattr(gateway, "summary"):
+                        report["gateway"] = gateway.summary()
+                except Exception as error:
+                    report.update(status='cleanup_failed',gateway_cleanup_error=type(error).__name__)
+                    stop.set()
+            report['finished_at']=now()
             report["integrity_audit"] = inspect_run(folder, backend)
             if mode:
                 try:
@@ -355,7 +360,7 @@ def preflight(args):
             try:
                 stop_container(identity)
             finally:
-                subprocess.run(["docker", "rm", identity], check=True, capture_output=True)
+                subprocess.run(["docker", "rm", "-f", identity], check=True, capture_output=True, timeout=15)
     write_json(args.output / "preflight-ok.json", dict(paid_calls=0, plan_sha256=fingerprint(plan)))
     return selected, plan
 

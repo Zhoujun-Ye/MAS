@@ -152,6 +152,7 @@ class CredentialGateway:
                 value=dict(type="error",error=dict(type=kind,message=message))
                 if kind=='host_fetch_failed':
                     value.update(fetch_failure_reason=self.record.get('fetch_failure_reason'),
+                                 fetch_failure_stage=self.record.get('fetch_failure_stage'),
                                  target_http_status=self.record.get('target_http_status'))
                 if self.record.get('web_reserved'):value['web_budget']=gateway.settle_web(self.record)
                 data = json.dumps(value).encode()
@@ -332,6 +333,11 @@ class CredentialGateway:
                         self.record['fetch_error_type']=type(error).__name__
                         reason=web_fetch.failure_reason(error)
                         self.record['fetch_failure_reason']=reason
+                        stage=getattr(error,'stage',None)
+                        if stage in {'dns_socket_check','dns_bridge_connect','dns_bridge_reply',
+                                'clash_dns_connect','clash_dns_http','clash_dns_decode','clash_dns_query',
+                                'fetch_socket_check','fetch_tunnel_connect'}:
+                            self.record['fetch_failure_stage']=stage
                         if isinstance(error,web_fetch.FetchFailure):self.record['target_http_status']=error.http_status
                         if isinstance(error,web_fetch.ProxyUnavailable):self.record['web_proxy_unavailable']=True
                         self.record['web_success']=False

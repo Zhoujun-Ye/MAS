@@ -88,7 +88,7 @@ def prepare(root, endpoint):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--root", type=Path, required=True)
-    parser.add_argument("--hf-endpoint", default="https://huggingface.co")
+    parser.add_argument("--hf-endpoint", default="https://hf-mirror.com")
     parser.add_argument("--execute", action="store_true")
     args = parser.parse_args()
     if not args.execute:

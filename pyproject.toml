@@ -12,6 +12,7 @@ dependencies = []
 
 [project.optional-dependencies]
 test = ["pytest>=8"]
+fdabench = ["pypdf==5.6.0"]
 
 [tool.setuptools.packages.find]
 include = ["common*", "harness*", "benchmarks*", "analysis*"]

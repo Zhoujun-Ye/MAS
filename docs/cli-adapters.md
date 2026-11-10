@@ -27,18 +27,18 @@ Other modes use record-only hooks, never permission grants.
 
 Admission requires native start/end and policy observations, zero workers,
 zero executed delegation and zero worker transcript evidence. Missing evidence
-is not success. Shell/Python can access external services in a network-enabled
-container, so this is not an adversarial sandbox; external agent/model calls are
-also forbidden by the study instruction.
+is not success. CLI tool denial is not an adversarial shell sandbox. Live benchmark
+containers use network=none and the host credential gateway; a same-UID process
+holding its run token is not authenticated as the native model process.
 
 ## Native Subagents
 
 Uses `--print --verbose --output-format stream-json` and
 `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=0` in environment and settings. It does not
 install a roster by default. Native background delegation is supported; print
-transport does **not** imply synchronous subagents. The retained scoped-judge
-pilot's `archeology-easy-8` root transcript line 67 contains
-`Agent(..., run_in_background=true)`.
+transport does **not** imply synchronous subagents. Native background agents notify
+the lead on completion; admission and retained transcripts establish only the
+observed structural behavior, not substantive contribution.
 
 The Subagents baseline uses current orchestrator-worker lead prompt, frozen by the user
 on 2026-11-04 ([prompt versions](studies/README.md)). The lead plans, splits the

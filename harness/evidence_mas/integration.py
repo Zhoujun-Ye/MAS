@@ -98,6 +98,12 @@ def audit(folder, mode):
         characters=sum(d.get('characters',0) for d in deliveries),
         scope='Hook emission, not acknowledgement, comprehension or causal use')
     report['workspace_errors'] = dict(count=len(errors),by_tool=dict(Counter(e.get('tool') for e in errors)))
+    executions = [o for o in observations if o['tool_name']=='Bash' and o['status']!='unknown']
+    overflow = [o for o in executions if o.get('persisted_output_status')]
+    report['execution_capture'] = dict(terminal_executions=len(executions),
+        by_completeness=dict(Counter(o['completeness'] for o in executions)),
+        native_overflow=len(overflow), overflow_snapshots=sum(bool(o.get('persisted_output_ref')) for o in overflow),
+        scope='Capture availability, not semantic coverage; overflow artifacts are not reconstructed stdout')
     report['scope']='Workspace integrity and descriptive usage; not delegation compliance, comprehension, or answer correctness'
     report.update(mode=mode,available=True,degraded=(root/'degraded.jsonl').exists())
     report['complete']=bool(report['complete'] and not report['degraded'] and report['db_integrity']=='ok')

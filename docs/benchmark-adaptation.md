@@ -8,6 +8,7 @@ not authorize paid execution, judge calls, environment installation or provision
 | KramaBench | Pinned 104-task workload | Read-only public data lake | Versioned numeric/string/list metrics, exported pipeline replay; explicit semantic judge when required |
 | DataClawBench | Pinned upstream QA IDs/rubric | Selected read-only database, no QA/gold mount | Adapted tool-free per-part rubric; process metrics remain unavailable |
 | HybridDeepResearch | Encrypted 380-task release decoded host-side | Selected read-only SQLite/optional KB, no reference fields | Pinned official SQL evaluator and text judge contract |
+| FDABench | Pinned Full release, filtered to local databases and public scoring references | Selected SQLite and separately verified raw corpus/index; no gold or frozen search answers | Exact-set choice accuracy; explicitly authorized adapted report rubric |
 
 Each benchmark owns `tasks.py` and `evaluation.py`, with executable
 `scripts/<benchmark>/{catalog,run,score}.py` entrypoints. Shared grading/workflows

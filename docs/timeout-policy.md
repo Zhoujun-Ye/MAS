@@ -8,6 +8,7 @@ frozen plan, extend an active process, or authorize replacement attempts.
 | DataClawBench | 1200 seconds (20 minutes) | Pinned upstream task configuration |
 | HybridDeepResearch | 1800 seconds (30 minutes) | Provisional engineering choice |
 | KramaBench | 3600 seconds (60 minutes) | Provisional engineering choice |
+| FDABench (local-only, opt-in) | 1800 seconds (30 minutes) | Provisional engineering choice |
 
 The DataClawBench read-only source audit found the 1200-second task timeout for
 all 492 released tasks. Relevant pinned-source locations are
@@ -16,8 +17,8 @@ all 492 released tasks. Relevant pinned-source locations are
 DataClaw default, not a claim that the external CLI reproduces every upstream
 timeout or execution behavior.
 
-No official whole-solver timeout was identified for HybridDeepResearch or
-KramaBench in the audited sources. Their defaults are explicitly engineering
+No official whole-solver timeout was identified for HybridDeepResearch,
+KramaBench or FDABench in the audited sources. Their defaults are explicitly engineering
 choices, not benchmark requirements. Database query, replay and paid-judge
 timeouts are separate settings and are not changed by this policy.
 

@@ -107,3 +107,34 @@ def test_sigterm_unwinds_attempt_and_restores_handlers(tmp_path, monkeypatch):
     report = json.loads((tmp_path / task.id / args.backend / "report.json").read_text())
     assert report["status"] == "interrupted"
     assert report["cleanup"]["stopped"] is True
+
+
+@pytest.mark.parametrize('backend', ['claude-code-single-agent','claude-code-subagents'])
+def test_failed_stop_still_force_removes_baseline_container(tmp_path, monkeypatch, backend):
+    events=[]
+    class Gateway:
+        def __init__(self, *a, **kw):pass
+        def __enter__(self):return self
+        def __exit__(self, *a):events.append('gateway-closed')
+    class Adapter:
+        def __init__(self, *a):pass
+        def run(self, *a, **kw):return dict(status='cli_exited')
+    def stop(identity):raise RuntimeError('synthetic stop failure')
+    def remove(command, **kwargs):
+        assert command==['docker','rm','-f','owned-container']
+        assert kwargs['timeout']==15
+        events.append('force-removed')
+    monkeypatch.setattr(run, 'CredentialGateway', Gateway)
+    monkeypatch.setattr(run, 'mounts', lambda *a:[])
+    monkeypatch.setattr(run, 'instructions', lambda *a, **kw:'offline')
+    monkeypatch.setitem(run.BACKENDS, backend, Adapter)
+    monkeypatch.setattr(runtime, 'container', lambda *a, **kw:'owned-container')
+    monkeypatch.setattr(runtime, 'stop_container', stop)
+    monkeypatch.setattr(run.subprocess, 'run', remove)
+    args=SimpleNamespace(output=tmp_path,backend=backend,data=tmp_path,image='fixture',
+                         timeout=60,web_search=None,max_web_requests=None)
+    task=SimpleNamespace(id='fixture',benchmark='dataclawbench',question='offline',web=False)
+    result=run.attempt(task,args,'synthetic')
+    assert result['status']=='cleanup_failed'
+    assert events==['force-removed','gateway-closed']
+    assert json.loads((tmp_path/task.id/backend/'report.json').read_text())['status']=='cleanup_failed'

@@ -20,6 +20,7 @@ from scripts.common.prompts.limits import limit_instructions
 from benchmarks._external import asset_manifest, digest, verify_sources, write_jsonl
 from benchmarks.dataclawbench.tasks import load_tasks as dataclaw_tasks, REVISION as DC_REVISION
 from benchmarks.hybriddeepresearch.tasks import load_tasks as hybrid_tasks, REVISION as HDR_REVISION
+from benchmarks.fdabench import tasks as fda
 from harness import ClaudeCodeSingleAgentCLI, ClaudeCodeSubagentsCLI
 from analysis.run_integrity import inspect_run
 from harness.runtime_support import runtime
@@ -63,7 +64,8 @@ def graceful_signals():
 
 
 def load(args):
-    tasks = dataclaw_tasks(args.upstream) if args.benchmark == "dataclawbench" else hybrid_tasks(args.tasks)
+    tasks = (fda.load_tasks(args.tasks) if args.benchmark == "fdabench" else
+             dataclaw_tasks(args.upstream) if args.benchmark == "dataclawbench" else hybrid_tasks(args.tasks))
     ids = args.task_id
     if not ids or len(ids) != len(set(ids)) or set(ids) - {t.id for t in tasks}:
         raise ValueError("Select explicit unique --task-id values from this dataset")
@@ -82,6 +84,12 @@ def instructions(task, backend, organization_override=None, *, timeout, web_limi
     common = "Do not install packages or seek benchmark questions, gold answers, reference SQL or solutions.\n"
     if task.benchmark == "dataclawbench":
         common += "The supplied database is read-only at /data; ./database points to it. Follow the original output guidelines.\n"
+    elif task.benchmark == "fdabench":
+        common += ("The selected read-only SQLite database is /data/database.sqlite. Discover its schema yourself.\n"
+                   "Use python3 /benchmark-tools.py sql --db /data/database.sqlite --query SQL for read-only queries.\n")
+        if fda.needs_corpus(task):
+            common += "The raw reference corpus is read-only at /corpus. Inspect its documents locally; it contains no task answers.\n"
+            common += "Search its local text index with python3 /document-tools.py --query TEXT. Results include source paths and pages.\n"
     else:
         common += (f"The read-only SQLite database is /data/{task.db}/{task.db}_template.sqlite.\n"
                    "Discover the schema yourself. A supplied *_kb.jsonl is optional domain knowledge, not a solution.\n"
@@ -99,6 +107,12 @@ def instructions(task, backend, organization_override=None, *, timeout, web_limi
 
 
 def mounts(task, args):
+    if task.benchmark == "fdabench":
+        hash_file = DigestCache(args.asset_cache).digest if getattr(args, "asset_cache", None) else digest
+        inputs = fda.mounts(task, args.data, hash_file=hash_file)
+        if fda.needs_corpus(task):
+            inputs.append((Path(__file__).resolve().parents[2] / "harness/runtime_support/documents.py", "/document-tools.py", True))
+        return inputs
     if task.benchmark == "dataclawbench":
         expected = args.upstream / "assets" / args.data_variant
         if args.data.resolve() != expected.resolve():
@@ -118,7 +132,7 @@ def mounts(task, args):
 
 
 def plan(args, tasks):
-    expected = DC_REVISION if args.benchmark == "dataclawbench" else HDR_REVISION
+    expected = fda.REVISION if args.benchmark == "fdabench" else DC_REVISION if args.benchmark == "dataclawbench" else HDR_REVISION
     revision = subprocess.check_output(["git", "-C", str(args.upstream), "rev-parse", "HEAD"], text=True).strip()
     if revision != expected:
         raise ValueError("Upstream checkout does not match the documented source pin")
@@ -162,7 +176,8 @@ def plan(args, tasks):
 
 
 def evaluator_manifest(upstream, benchmark):
-    directory = upstream / ("evaluation" if benchmark == "hybriddeepresearch" else "dataclaw")
+    directory = upstream / ("FDABench/evaluation" if benchmark == "fdabench" else
+                            "evaluation" if benchmark == "hybriddeepresearch" else "dataclaw")
     result = {str(p.relative_to(upstream)): digest(p) for p in sorted(directory.rglob("*"))
               if p.is_file() and p.suffix in {".py", ".txt"}}
     if not result:
@@ -180,11 +195,16 @@ def preflight(args,tasks,frozen):
     for task in tasks:
         folder=checks/task.id;work=folder/'workspace';profile=folder/'native-profile'
         work.mkdir(parents=True);(profile/'home').mkdir(parents=True)
-        if task.benchmark=='hybriddeepresearch':
-            path=f'/data/{task.db}/{task.db}_template.sqlite'
+        if task.benchmark in {'hybriddeepresearch', 'fdabench'}:
+            path='/data/database.sqlite' if task.benchmark == 'fdabench' else f'/data/{task.db}/{task.db}_template.sqlite'
             code=(f'import sqlite3; c=sqlite3.connect("file:"+{path!r}+"?mode=ro",uri=True); '
                   'c.execute("PRAGMA query_only=ON"); c.execute("SELECT name FROM sqlite_master LIMIT 1").fetchall(); '
                   'c.close(); print("read-only database OK")')
+            if task.benchmark == 'fdabench' and fda.needs_corpus(task):
+                code += ('; import subprocess; subprocess.run(["python3", "/document-tools.py", '
+                         '"--query", "data", "--limit", "1"], check=True, timeout=30, stdout=subprocess.DEVNULL); '
+                         'from pathlib import Path; next(p for p in Path("/corpus").rglob("*") if p.is_file()).open("rb").close(); '
+                         'print("read-only corpus and FTS index OK")')
         else:
             code='from pathlib import Path; p=next(p for p in Path("/data").rglob("*") if p.is_file()); f=p.open("rb"); f.read(80); f.close(); print("input mount readable")'
         source_mounts=mounts(task,args)+[(Path(__file__).resolve().parents[2]/'harness/runtime_support/tools.py','/benchmark-tools.py',True)]+evidence.source_mounts(getattr(args,'evidence_mode',None))
@@ -266,13 +286,16 @@ def attempt(task, args, key):
                     if resources is not None:
                         result['resources']=resources.record_exit()
                 finally:
-                    subprocess.run(["docker", "rm", identity], check=True, capture_output=True)
+                    subprocess.run(["docker", "rm", "-f", identity], check=True, capture_output=True, timeout=15)
             except Exception as error:
                 result.update(status="cleanup_failed", cleanup_error=type(error).__name__)
         if gateway is not None:
-            gateway.__exit__(None, None, None)
-            if hasattr(gateway, "summary"):
-                result["gateway"] = gateway.summary()
+            try:
+                gateway.__exit__(None, None, None)
+                if hasattr(gateway, "summary"):
+                    result["gateway"] = gateway.summary()
+            except Exception as error:
+                result.update(status="cleanup_failed", gateway_cleanup_error=type(error).__name__)
         result["finished_at"] = runtime.now()
         if mode:
             try:
@@ -342,11 +365,11 @@ def finalize_attempt(folder,args,result):
 def main(argv=None, *, benchmark=None):
     parser = argparse.ArgumentParser(description=__doc__)
     if benchmark is None:
-        parser.add_argument("--benchmark", choices=("dataclawbench", "hybriddeepresearch"), required=True)
+        parser.add_argument("--benchmark", choices=("dataclawbench", "hybriddeepresearch", "fdabench"), required=True)
     else:
         parser.set_defaults(benchmark=benchmark)
     parser.add_argument("--upstream", type=Path, required=True)
-    parser.add_argument("--tasks", type=Path, help="HybridDeepResearch release JSONL, encrypted or private plaintext")
+    parser.add_argument("--tasks", type=Path, help="HDR release JSONL or FDABench release directory/JSONL")
     parser.add_argument("--data", type=Path, required=True)
     parser.add_argument("--data-variant", choices=("database", "database_clear"), default="database")
     parser.add_argument("--backend", choices=BACKENDS, required=True)
@@ -389,8 +412,8 @@ def main(argv=None, *, benchmark=None):
         parser.error("--max-budget-usd must be positive and finite")
     if args.max_web_requests is not None and args.max_web_requests < 1:
         parser.error("--max-web-requests must be positive")
-    if args.timeout <= 0 or (args.benchmark == "hybriddeepresearch" and args.tasks is None):
-        parser.error("Positive timeout and HybridDeepResearch --tasks are required")
+    if args.timeout <= 0 or (args.benchmark in {"hybriddeepresearch", "fdabench"} and args.tasks is None):
+        parser.error("Positive timeout and HDR/FDABench --tasks are required")
     for name in ("upstream", "data", "output"):
         setattr(args, name, getattr(args, name).resolve())
     for source in (args.upstream, args.data):
@@ -457,6 +480,20 @@ def execute_tasks(tasks, args, key):
             row = dict(instance_id=task.id, final_answer="", status="not_started", cost_usd=None)
         else:
             try:
+                if index and task.web:
+                    from harness.runtime_support.web_fetch import check_ready
+                    try:
+                        receipt = check_ready()
+                    except Exception as error:
+                        row = dict(instance_id=task.id, final_answer="", status="not_started", cost_usd=None,
+                                   dispatch_blocked='web_readiness_failed', error_type=type(error).__name__)
+                        runtime.write_json(args.output/task.id/args.backend/'report.json', row)
+                        rows[index] = row
+                        runtime.write_json(args.output/'progress.json', dict(rows=rows, expected=len(tasks)))
+                        write_jsonl(args.output/'predictions.jsonl', rows, replace=True)
+                        stopped = True
+                        continue
+                    runtime.write_json(args.output/task.id/args.backend/'web-readiness-execution.json', receipt)
                 row = attempt(task, args, key)
             except (KeyboardInterrupt, SystemExit):
                 rows[index].update(status="interrupted")

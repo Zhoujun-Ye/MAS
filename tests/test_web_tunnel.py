@@ -13,12 +13,134 @@ from scripts.server import web_tunnel
 from harness.runtime_support import web_fetch,web_policy
 
 
+def test_launchd_reinstall_tolerates_only_transient_bootout_race(monkeypatch):
+    bootstrap_results=iter([5,0]);sleeps=[]
+    def run(command, **kwargs):
+        code=next(bootstrap_results) if command[1]=='bootstrap' else 113
+        return subprocess.CompletedProcess(command,code)
+    monkeypatch.setattr(web_tunnel.subprocess,'run',run)
+    monkeypatch.setattr(web_tunnel.time,'sleep',sleeps.append)
+    assert web_tunnel.bootstrap_service('gui/fixture/io.mas.web-tunnel')==2
+    assert sleeps==[0.2]
+
+
+@pytest.mark.parametrize('code,loaded', [(1,False),(5,True)])
+def test_launchd_other_errors_and_existing_service_are_not_hidden(monkeypatch,code,loaded):
+    monkeypatch.setattr(web_tunnel.subprocess,'run',lambda command,**kw:
+        subprocess.CompletedProcess(command,code if command[1]=='bootstrap' else (0 if loaded else 113)))
+    monkeypatch.setattr(web_tunnel.time,'sleep',lambda *a:pytest.fail('Do not retry this error'))
+    with pytest.raises(subprocess.CalledProcessError):
+        web_tunnel.bootstrap_service('fixture')
+
+
+def test_launchd_transient_retry_is_bounded(monkeypatch):
+    clock=iter([0,11])
+    monkeypatch.setattr(web_tunnel.time,'monotonic',lambda:next(clock))
+    monkeypatch.setattr(web_tunnel.subprocess,'run',lambda command,**kw:subprocess.CompletedProcess(command,5))
+    with pytest.raises(subprocess.CalledProcessError):web_tunnel.bootstrap_service('fixture')
+
+
+def test_install_waits_for_known_old_registration_to_disappear(monkeypatch):
+    states=iter([0,0,113]);commands=[];sleeps=[]
+    def run(cmd,**kw):
+        commands.append(cmd[1])
+        return subprocess.CompletedProcess(cmd,next(states) if cmd[1]=='print' else 0)
+    monkeypatch.setattr(web_tunnel.subprocess,'run',run)
+    monkeypatch.setattr(web_tunnel.time,'sleep',sleeps.append)
+    web_tunnel.unload_service('fixture')
+    assert commands==['print','bootout','print','print'] and sleeps==[0.2]
+
+
+def test_install_does_not_bootout_an_absent_registration(monkeypatch):
+    commands=[]
+    def run(cmd,**kw):
+        commands.append(cmd[1]);return subprocess.CompletedProcess(cmd,113)
+    monkeypatch.setattr(web_tunnel.subprocess,'run',run)
+    web_tunnel.unload_service('fixture')
+    assert commands==['print']
+
+
+def test_install_does_not_hide_failed_bootout_of_live_service(monkeypatch):
+    monkeypatch.setattr(web_tunnel.subprocess,'run',lambda cmd,**kw:subprocess.CompletedProcess(cmd,5 if cmd[1]=='bootout' else 0))
+    with pytest.raises(subprocess.CalledProcessError):web_tunnel.unload_service('fixture')
+
+
 def test_tunnel_is_reverse_unix_not_a_public_tcp_proxy():
     command=web_tunnel.ssh_command()
     assert command[command.index('-R')+1]==web_tunnel.REMOTE_SOCKET+':127.0.0.1:7897'
     assert 'BatchMode=yes' in command and 'ExitOnForwardFailure=yes' in command
     assert 'StreamLocalBindMask=0177' in command and '-g' not in command
     assert 'ServerAliveInterval=15' in command
+    assert '-NT' not in command and command[-1].endswith(' 60')
+
+
+def test_remote_watchdog_exits_without_heartbeats():
+    child=subprocess.Popen([sys.executable,'-c',web_tunnel.WATCHDOG,'0.1'],stdin=subprocess.PIPE)
+    try:
+        assert child.wait(timeout=3)==0
+    finally:
+        child.stdin.close()
+        if child.poll() is None:child.kill();child.wait()
+
+
+def test_remote_watchdog_accepts_heartbeats_then_exits_on_eof():
+    child=subprocess.Popen([sys.executable,'-c',web_tunnel.WATCHDOG,'2'],stdin=subprocess.PIPE)
+    try:
+        child.stdin.write(b'\n');child.stdin.flush()
+        assert child.poll() is None
+        child.stdin.close()
+        assert child.wait(timeout=3)==0
+    finally:
+        if not child.stdin.closed:child.stdin.close()
+        if child.poll() is None:child.kill();child.wait()
+
+
+def test_round_trip_heartbeat_acknowledges_remote_session():
+    child=subprocess.Popen([sys.executable,'-c',web_tunnel.WATCHDOG,'2'],
+                           stdin=subprocess.PIPE,stdout=subprocess.PIPE)
+    try:
+        web_tunnel.heartbeat(child,timeout=1)
+        assert child.poll() is None
+        child.stdin.close()
+        assert child.wait(timeout=3)==0
+    finally:
+        web_tunnel.stop_child(child)
+        if not child.stdin.closed:child.stdin.close()
+        child.stdout.close()
+
+
+def test_alive_master_with_closed_primary_session_is_stopped():
+    child=subprocess.Popen([sys.executable,'-c','import os,time;os.close(1);time.sleep(30)'],
+                           stdin=subprocess.PIPE,stdout=subprocess.PIPE)
+    try:
+        with pytest.raises(ConnectionError,match='session closed'):
+            web_tunnel.heartbeat(child,timeout=2)
+        assert child.poll() is None
+        web_tunnel.stop_child(child)
+        assert child.poll() is not None
+    finally:
+        web_tunnel.stop_child(child);child.stdin.close();child.stdout.close()
+
+
+def test_heartbeat_is_bounded_even_when_master_process_stays_alive(monkeypatch):
+    from io import BytesIO
+    child=SimpleNamespace(stdin=BytesIO(),stdout=object())
+    seen=[]
+    monkeypatch.setattr(web_tunnel.select,'select',lambda r,w,e,t:seen.append(t) or ([],[],[]))
+    with pytest.raises(TimeoutError):web_tunnel.heartbeat(child,timeout=.1)
+    assert seen==[.1] and child.stdin.getvalue()==b'\n'
+
+
+def test_stubborn_owned_ssh_is_killed_within_launchd_exit_window():
+    calls=[]
+    def wait(timeout):
+        calls.append(('wait',timeout))
+        if len(calls)==2:raise subprocess.TimeoutExpired('synthetic-ssh',timeout)
+        return 0
+    child=SimpleNamespace(poll=lambda:None,terminate=lambda:calls.append('terminate'),
+                          kill=lambda:calls.append('kill'),wait=wait)
+    web_tunnel.stop_child(child)
+    assert calls==['terminate',('wait',2),'kill',('wait',2)]
 
 
 @pytest.mark.parametrize('mode',['absent','stale','live','symlink','open-directory'])
@@ -62,16 +184,20 @@ def test_https_connect_pins_ip_but_verifies_hostname(monkeypatch):
     def connected(value):
         observed['tunnel_host']=value._tunnel_host;value.sock=sock
     monkeypatch.setattr(web_fetch.ProxyHTTPConnection,'connect',connected)
-    connection._context=SimpleNamespace(wrap_socket=lambda value,server_hostname:
-        observed.update(socket=value,server_hostname=server_hostname) or value)
+    secure=SimpleNamespace(do_handshake=lambda:observed.update(handshake=True))
+    connection._context=SimpleNamespace(wrap_socket=lambda value,server_hostname,do_handshake_on_connect:
+        observed.update(socket=value,server_hostname=server_hostname,
+                        automatic_handshake=do_handshake_on_connect) or secure)
     connection.connect()
-    assert observed==dict(tunnel_host='8.8.8.8',socket=sock,server_hostname='en.wikipedia.org')
+    assert observed==dict(tunnel_host='8.8.8.8',socket=sock,server_hostname='en.wikipedia.org',
+                         automatic_handshake=False,handshake=True)
     connection.sock=None
 
 
 def test_frozen_policy_requires_tunnel_without_environment_proxy_fallback():
     policy=web_policy.configuration()
-    assert policy['protocol']=='web-v4' and policy['fetch_backend']=='local-clash-unix'
+    assert policy['protocol']=='web-v5' and policy['fetch_backend']=='local-clash-unix'
+    assert policy['dns_backend']=='local-clash-dns-unix'
     assert policy['fetch_proxy_socket']==str(web_policy.PROXY_SOCKET)
     assert policy['fetch_proxy_failure']=='fail closed; no direct fallback'
 

@@ -37,6 +37,22 @@ Previews include executed structured-result summaries where available; full
 input/output remains accessible through bounded observation reads.
 No extra model calls, scheduler, polling loop or automatic recomputation is added.
 
+Native Bash overflow previews are `pointer`, never `complete`. The raw hook result
+is preserved separately from a bounded snapshot of its native tool-results file.
+`obs_read(field="persisted_output")` pages that snapshot, including its tail;
+summaries and deltas expose availability. Only regular, nonsymlink `.txt` files
+under this run profile's `claude/projects/*/tool-results/` tree are eligible, with
+an exact native byte-size check and a 4-MiB limit. Unavailable, unsafe, changing or
+oversized artifacts remain pointers with a reason, not invented complete output.
+The native file can contain combined streams, so it is not reconstructed stdout
+and does not automatically create final candidates or satisfy complete-execution
+review. Same-UID mutation remains outside an adversarial security boundary.
+Nested native interruption/truncation flags also exclude incomplete results.
+Observation reads accept either `start/end` or `start/limit` (1..16000
+characters), not both `end` and `limit`. This preserves the original absolute-span
+API while matching the count-based pagination used by decision reads. It does
+not change which accesses qualify for decision review.
+
 The data is explicitly untrusted. Hook emission is recorded separately from
 model access and does not prove receipt, understanding or causal reliance.
 If a native context lacks workspace MCP tools, its normal native result can

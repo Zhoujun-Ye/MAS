@@ -18,7 +18,7 @@ METHODS = {
 }
 DESCRIPTIONS = {
     'workspace_trace': 'Trace an observation/object ID with direction both/inbound/outbound and max_nodes 1..200. Metadata is not a semantic verdict.',
-    'obs_read': 'Read field=input/output with bounded start/end offsets, at most 16000 characters.',
+    'obs_read': 'Read field=input/output/persisted_output with start/end offsets or start/limit (1..16000), never both end and limit. Native overflow is a separate raw artifact, not reconstructed stdout; pointer/truncated outputs are not complete decision candidates.',
 }
 
 
@@ -40,9 +40,9 @@ def schema(function):
         if name in ('limit','revision','max_nodes'):
             entry['minimum'] = 1
         if name in ('limit','max_nodes'):
-            entry['maximum'] = 100 if name=='limit' else 200
+            entry['maximum'] = (16000 if function.__name__=='obs_read' else 100) if name=='limit' else 200
         if name=='field':
-            entry['enum'] = ['input','output']
+            entry['enum'] = ['input','output','persisted_output']
         if name=='direction':
             entry['enum'] = ['both','inbound','outbound']
         properties[name] = entry

@@ -24,7 +24,7 @@ def test_temporary_three_question_runners_are_retired():
 
 
 def test_benchmarks_have_matching_public_entry_points():
-    for name in ("kramabench", "dataclawbench", "hybriddeepresearch"):
+    for name in ("kramabench", "dataclawbench", "hybriddeepresearch", "fdabench"):
         for module in ("tasks", "evaluation"):
             assert (ROOT / "benchmarks" / name / (module + ".py")).is_file()
         for command in ("catalog", "run", "score"):

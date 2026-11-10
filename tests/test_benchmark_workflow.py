@@ -11,7 +11,7 @@ from scripts.common import run, score
 from harness.runtime_support.proof import validate
 
 
-@pytest.fixture(params=["dataclawbench", "hybriddeepresearch"])
+@pytest.fixture(params=["dataclawbench", "hybriddeepresearch", "fdabench"])
 def workflow(tmp_path, monkeypatch, request):
     from harness.runtime_support import preflight
     monkeypatch.setattr(preflight,'check',lambda *a,**kw:dict(paid_calls=0))
@@ -53,6 +53,19 @@ def workflow(tmp_path, monkeypatch, request):
             for index, kind in enumerate(("search_to_sql", "sql_to_search"))))
         (upstream / "evaluation").mkdir()
         (upstream / "evaluation/s2sql_eval.py").write_text("# fixture evaluator")
+    if benchmark == "fdabench":
+        import sqlite3
+        data = tmp_path / "databases"
+        folder = data / "bird/retail"
+        folder.mkdir(parents=True)
+        with sqlite3.connect(folder / "retail.sqlite") as db:
+            db.execute("CREATE TABLE x (n INTEGER)")
+        task_file.write_text("\n".join(json.dumps(dict(task_id=f"FDA{index:04d}", instance_id="bird1",
+            db="retail", database_type="bird", question_type="single_choice", query="Compute x",
+            options={"A":"1", "B":"2"}, correct_answer=["A"], tools_available=["execute_sql"],
+            explanation="PRIVATE_GOLD")) for index in range(2)))
+        (upstream / "FDABench/evaluation").mkdir(parents=True)
+        (upstream / "FDABench/evaluation/rubric_evaluator.py").write_text("# fixture evaluator")
     credentials = tmp_path / "credentials.env"
     credentials.write_text("DEEPSEEK_API_KEY=fake-never-sent")
     credentials.chmod(0o600)
@@ -68,7 +81,7 @@ def workflow(tmp_path, monkeypatch, request):
     monkeypatch.setattr(run.runtime, "source_files", lambda: iter([(Path("fake.py"), binary)]))
     def check_output(command, **kwargs):
         if command[0] == "git":
-            return (run.DC_REVISION if benchmark == "dataclawbench" else run.HDR_REVISION) + "\n"
+            return (run.fda.REVISION if benchmark == "fdabench" else run.DC_REVISION if benchmark == "dataclawbench" else run.HDR_REVISION) + "\n"
         if command[:3] == ["docker", "network", "inspect"]:
             return b'[{"IPAM":{"Config":[{"Gateway":"127.0.0.1"}]}}]'
         assert command[:3] == ["docker", "image", "inspect"]
@@ -107,7 +120,10 @@ def workflow(tmp_path, monkeypatch, request):
             "--offline-proof", str(proof), "--authorized-attempts", "2"]
     if benchmark == "hybriddeepresearch":
         argv += ["--tasks", str(task_file), "--web-search", "deepseek"]
-    tasks = run.dataclaw_tasks(upstream) if benchmark == "dataclawbench" else run.hybrid_tasks(task_file)
+    if benchmark == "fdabench":
+        argv += ["--tasks", str(task_file)]
+    tasks = (run.fda.load_tasks(task_file) if benchmark == "fdabench" else
+             run.dataclaw_tasks(upstream) if benchmark == "dataclawbench" else run.hybrid_tasks(task_file))
     for task in tasks:
         argv += ["--task-id", task.id]
     return SimpleNamespace(upstream=upstream, output=output, argv=argv, calls=calls,
@@ -145,6 +161,8 @@ def test_changed_cached_inputs_reject_before_credentials(workflow,monkeypatch):
     assert run.main(argv+['--preflight'],benchmark=workflow.benchmark)==0
     data=Path(argv[argv.index('--data')+1])
     if workflow.benchmark=='dataclawbench':(data/'x.csv').write_text('x\n2\n')
+    elif workflow.benchmark == 'fdabench':
+        with sqlite3.connect(data/'bird/retail/retail.sqlite') as db:db.execute('CREATE TABLE changed (n INTEGER)')
     else:
         with sqlite3.connect(data/'retail/retail_template.sqlite') as db:db.execute('CREATE TABLE changed (n INTEGER)')
     monkeypatch.setattr(run.runtime,'credential',lambda *a:pytest.fail('Changed input read credentials'))
@@ -223,6 +241,15 @@ def test_plan_execute_and_export_keeps_gold_out_of_solver(workflow, tmp_path):
 
 
 def test_cleanup_failure_retained_and_stops_later_tasks(workflow, monkeypatch):
+    removed=[]
+    original=run.subprocess.run
+    def commands(command, **kwargs):
+        if command[:2]==['docker','rm']:
+            removed.append(command)
+            assert command==['docker','rm','-f','fake-container']
+            assert kwargs['timeout']==15
+        return original(command, **kwargs)
+    monkeypatch.setattr(run.subprocess, 'run', commands)
     def fail(identity):
         raise RuntimeError("fake stop failure")
     monkeypatch.setattr(run.runtime, "stop_container", fail)
@@ -230,6 +257,34 @@ def test_cleanup_failure_retained_and_stops_later_tasks(workflow, monkeypatch):
     rows = jsonl(workflow.output / "predictions.jsonl")
     assert [row["status"] for row in rows] == ["cleanup_failed", "not_started"]
     assert all(row["final_answer"] == "" for row in rows) and len(workflow.calls) == 1
+    assert len(removed)==1
+
+
+def test_gateway_cleanup_failure_preserves_terminal_report(workflow, monkeypatch):
+    def fail(*args):raise RuntimeError('untrusted gateway shutdown details')
+    monkeypatch.setattr(run.CredentialGateway, '__exit__', fail)
+    assert run.main(workflow.argv + ['--execute'], benchmark=workflow.benchmark)==1
+    rows=jsonl(workflow.output/'predictions.jsonl')
+    assert [row['status'] for row in rows]==['cleanup_failed','not_started']
+    report=workflow.output/rows[0]['instance_id']/'claude-code-subagents/report.json'
+    value=json.loads(report.read_text())
+    assert value['gateway_cleanup_error']=='RuntimeError'
+    assert 'finished_at' in value and value['cleanup']['stopped']
+    assert 'untrusted gateway shutdown details' not in report.read_text()
+
+
+def test_web_loss_between_standalone_tasks_blocks_next_dispatch(workflow, monkeypatch):
+    if workflow.benchmark!='hybriddeepresearch':return
+    def ready():
+        if workflow.calls:raise TimeoutError('untrusted network details')
+        return dict(tls_verified=True,model_calls=0)
+    monkeypatch.setattr('harness.runtime_support.web_fetch.check_ready', ready)
+    assert run.main(workflow.argv+['--execute'], benchmark=workflow.benchmark)==1
+    assert len(workflow.calls)==1
+    rows=jsonl(workflow.output/'predictions.jsonl')
+    assert [r['status'] for r in rows]==['cli_exited','not_started']
+    assert rows[1]['dispatch_blocked']=='web_readiness_failed'
+    assert 'untrusted network details' not in json.dumps(rows)
 
 
 def test_empty_text_answers_get_zero_without_loading_judge_key(workflow,tmp_path,monkeypatch):

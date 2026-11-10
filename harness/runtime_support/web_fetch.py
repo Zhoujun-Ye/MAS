@@ -3,7 +3,7 @@
 from html.parser import HTMLParser
 import http.client
 import ipaddress
-import queue
+import math
 import os
 import socket
 import ssl
@@ -13,6 +13,7 @@ import time
 import urllib.parse
 
 from harness.runtime_support.web_policy import FETCH_CHARS, FETCH_TIMEOUT_SECONDS, PROXY_SOCKET, allowed_url
+from harness.runtime_support.dns_transport import resolve as resolve_dns, DNSError
 
 HTML_TYPES = {'text/html', 'application/xhtml+xml'}
 ACCEPT = ('text/html,application/xhtml+xml,text/plain;q=0.9,application/json;q=0.9,'
@@ -20,7 +21,9 @@ ACCEPT = ('text/html,application/xhtml+xml,text/plain;q=0.9,application/json;q=0
 
 
 class ProxyUnavailable(OSError):
-    pass
+    def __init__(self, message, stage=None):
+        super().__init__(message)
+        self.stage=stage
 
 
 class FetchCancelled(OSError):
@@ -31,6 +34,48 @@ class FetchFailure(ValueError):
     def __init__(self,reason,http_status=None):
         super().__init__(reason)
         self.reason,self.http_status=reason,http_status
+
+
+class RequestDeadline:
+    """Interrupt slow CONNECT, TLS and header reads, not only body iteration."""
+    def __init__(self, timeout):
+        if not math.isfinite(timeout) or timeout <= 0:
+            raise ValueError('Positive finite fetch timeout required')
+        self.expired = threading.Event()
+        self.lock = threading.Lock()
+        self.resources = []
+        self.timer = threading.Timer(timeout, self.expire)
+        self.timer.daemon = True
+
+    @staticmethod
+    def abort(resource):
+        sock = getattr(resource, 'sock', resource)
+        if sock is not None and hasattr(sock, 'shutdown'):
+            try:sock.shutdown(socket.SHUT_RDWR)
+            except OSError:pass
+
+    def watch(self, resource):
+        with self.lock:
+            self.resources.append(resource)
+            expired = self.expired.is_set()
+        if expired:
+            self.abort(resource)
+            raise TimeoutError('Fetch deadline exceeded')
+
+    def expire(self):
+        with self.lock:
+            self.expired.set()
+            resources = list(self.resources)
+        for resource in resources:
+            self.abort(resource)
+
+    def __enter__(self):
+        self.timer.start()
+        return self
+
+    def __exit__(self, *args):
+        self.timer.cancel()
+        self.timer.join()
 
 
 def failure_reason(error):
@@ -76,11 +121,11 @@ def decode(body,content_type):
 
 def check_proxy(path=PROXY_SOCKET):
     try:parent=path.parent.lstat();value=path.lstat()
-    except OSError:raise ProxyUnavailable('Local Clash tunnel socket unavailable') from None
+    except OSError:raise ProxyUnavailable('Local Clash tunnel socket unavailable','fetch_socket_check') from None
     if (not stat.S_ISDIR(parent.st_mode) or parent.st_uid!=os.getuid()
             or stat.S_IMODE(parent.st_mode)!=0o700 or not stat.S_ISSOCK(value.st_mode)
             or value.st_uid!=os.getuid() or stat.S_IMODE(value.st_mode)!=0o600):
-        raise ProxyUnavailable('Proxy requires owned mode-0700 directory and mode-0600 Unix socket')
+        raise ProxyUnavailable('Proxy requires owned mode-0700 directory and mode-0600 Unix socket','fetch_socket_check')
 
 
 def open_proxy(path,timeout):
@@ -89,7 +134,7 @@ def open_proxy(path,timeout):
     client.settimeout(timeout)
     try:client.connect(str(path))
     except OSError:
-        client.close();raise ProxyUnavailable('Local Clash tunnel connection unavailable') from None
+        client.close();raise ProxyUnavailable('Local Clash tunnel connection unavailable','fetch_tunnel_connect') from None
     return client
 
 
@@ -103,24 +148,47 @@ class ProxyHTTPSConnection(http.client.HTTPSConnection):
     def connect(self):
         ProxyHTTPConnection.connect(self)
         # CONNECT uses a pinned public IP; TLS still verifies the original host.
-        self.sock=self._context.wrap_socket(self.sock,server_hostname=self.host)
+        self.sock=self._context.wrap_socket(self.sock,server_hostname=self.host,do_handshake_on_connect=False)
+        if getattr(self, '_on_socket', None):self._on_socket(self.sock)
+        self.sock.do_handshake()
 
 
-def proxy_connection(host,port,secure,timeout,path):
+def proxy_connection(host,port,secure,timeout,path,on_socket=None):
     cls=ProxyHTTPSConnection if secure else ProxyHTTPConnection
     connection=cls(host,port,timeout=timeout)
-    connection._create_connection=lambda _dest,timeout=None,source_address=None:open_proxy(path,timeout)
+    def connect(_dest,timeout=None,source_address=None):
+        sock=open_proxy(path,timeout)
+        try:
+            if on_socket is not None:on_socket(sock)
+        except BaseException:
+            sock.close()
+            raise
+        return sock
+    connection._create_connection=connect
+    connection._on_socket=on_socket
     return connection
 
 
 def check_ready(timeout=10):
     """TLS-only admission check; no model/search API or page request."""
+    with RequestDeadline(timeout) as deadline:
+        try:
+            result = _check_ready(timeout, deadline)
+            if deadline.expired.is_set():raise TimeoutError('Proxy readiness deadline exceeded')
+            return result
+        except Exception:
+            if deadline.expired.is_set():raise TimeoutError('Proxy readiness deadline exceeded') from None
+            raise
+
+
+def _check_ready(timeout, deadline):
     check_proxy()
     start=time.monotonic()
     address=public_address('en.wikipedia.org',443,timeout)
     remaining=timeout-(time.monotonic()-start)
     if remaining<=0:raise ProxyUnavailable('Proxy readiness deadline exceeded')
-    connection=proxy_connection('en.wikipedia.org',443,True,remaining,PROXY_SOCKET)
+    connection=proxy_connection('en.wikipedia.org',443,True,remaining,PROXY_SOCKET,deadline.watch)
+    deadline.watch(connection)
     connection.set_tunnel(address,443)
     try:connection.connect()
     finally:connection.close()
@@ -152,17 +220,12 @@ class PageText(HTMLParser):
 
 
 def public_address(host,port,timeout):
-    result=queue.Queue(maxsize=1)
-    def resolve():
-        try:result.put(socket.getaddrinfo(host,port,type=socket.SOCK_STREAM))
-        except Exception as error:result.put(error)
-    threading.Thread(target=resolve,daemon=True).start()
-    try:rows=result.get(timeout=timeout)
-    except queue.Empty:raise TimeoutError('DNS deadline exceeded') from None
-    if isinstance(rows,UnicodeError):raise FetchFailure('invalid_target') from None
-    if isinstance(rows,OSError):raise FetchFailure('dns_resolution_failed') from None
-    if isinstance(rows,Exception):raise rows
-    addresses=[row[4][0] for row in rows]
+    try:addresses=resolve_dns(host,timeout)
+    except DNSError as error:
+        if error.reason=='proxy_unavailable':raise ProxyUnavailable('DNS tunnel unavailable',error.stage) from None
+        failure=FetchFailure(error.reason)
+        failure.stage=error.stage
+        raise failure from None
     if not addresses or any(not ipaddress.ip_address(a).is_global or ipaddress.ip_address(a).is_multicast
                             or ipaddress.ip_address(a).is_reserved for a in addresses):
         raise FetchFailure('non_public_address')
@@ -170,6 +233,18 @@ def public_address(host,port,timeout):
 
 
 def fetch(url,*,timeout=FETCH_TIMEOUT_SECONDS,proxy_socket=PROXY_SOCKET,cancel=None,on_open=None,on_close=None):
+    with RequestDeadline(timeout) as guard:
+        try:
+            result = _fetch(url,timeout=timeout,proxy_socket=proxy_socket,cancel=cancel,
+                            on_open=on_open,on_close=on_close,guard=guard)
+            if guard.expired.is_set():raise TimeoutError('Fetch deadline exceeded')
+            return result
+        except Exception:
+            if guard.expired.is_set():raise TimeoutError('Fetch deadline exceeded') from None
+            raise
+
+
+def _fetch(url,*,timeout,proxy_socket,cancel,on_open,on_close,guard):
     deadline=time.monotonic()+timeout
     def remaining():
         if cancel is not None and cancel.is_set():raise FetchCancelled('Fetch cancelled')
@@ -181,10 +256,11 @@ def fetch(url,*,timeout=FETCH_TIMEOUT_SECONDS,proxy_socket=PROXY_SOCKET,cancel=N
         parsed=urllib.parse.urlsplit(url)
         port=parsed.port or (443 if parsed.scheme=='https' else 80)
         address=public_address(parsed.hostname,port,remaining())
-        connection=proxy_connection(parsed.hostname,port,parsed.scheme=='https',remaining(),proxy_socket)
+        connection=proxy_connection(parsed.hostname,port,parsed.scheme=='https',remaining(),proxy_socket,guard.watch)
         connection.set_tunnel(address,port)
         response=None
         try:
+            guard.watch(connection)
             if on_open is not None:on_open(connection)
             remaining()
             path=urllib.parse.urlunsplit(('', '',parsed.path or '/',parsed.query,''))
@@ -192,6 +268,7 @@ def fetch(url,*,timeout=FETCH_TIMEOUT_SECONDS,proxy_socket=PROXY_SOCKET,cancel=N
             connection.request('GET',path,headers={'User-Agent':'MAS-benchmark-research/1.0',
                 'Host':parsed.netloc,'Accept':ACCEPT,'Accept-Encoding':'identity'})
             transport=connection.sock
+            guard.watch(transport)
             transport.settimeout(remaining())
             response=connection.getresponse()
             if on_open is not None:on_open(response)

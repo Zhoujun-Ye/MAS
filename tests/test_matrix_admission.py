@@ -6,6 +6,26 @@ import pytest
 from scripts.studies import benchmark_matrix as matrix
 
 
+def test_sql_evaluator_preflight_uses_current_python_without_scoring(tmp_path, monkeypatch):
+    calls=[]
+    monkeypatch.setattr(matrix.subprocess, 'run', lambda command, **kw: calls.append((command, kw)))
+    result=matrix.sql_evaluator_preflight(tmp_path)
+    command, options=calls[0]
+    assert command == [matrix.sys.executable, str(tmp_path/'hybriddeepresearch/upstream/evaluation/s2sql_eval.py'), '--help']
+    assert options == dict(check=True, capture_output=True, timeout=30)
+    assert result['cli_imports_verified'] and result['paid_calls']==0
+
+
+@pytest.mark.parametrize('error', [OSError('missing interpreter'),
+    matrix.subprocess.CalledProcessError(1, ['fixture']),
+    matrix.subprocess.TimeoutExpired(['fixture'], 30)])
+def test_sql_evaluator_preflight_fails_closed(tmp_path, monkeypatch, error):
+    def fail(*a, **kw):raise error
+    monkeypatch.setattr(matrix.subprocess, 'run', fail)
+    with pytest.raises(ValueError, match='documented evaluation Python'):
+        matrix.runtime_preflight(SimpleNamespace(root=tmp_path, sql_grading_required=True))
+
+
 @pytest.mark.parametrize('requested,verified', [('max', True), ('high', False), (None, None)])
 def test_runtime_preflight_rejects_effort_mismatch(tmp_path, monkeypatch, requested, verified):
     folder = tmp_path / 'claude-code-subagents'
