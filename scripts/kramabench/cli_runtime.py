@@ -86,10 +86,11 @@ def run_attempt(task, backend, args, key, stop, active, lock):
         return report
     try:
         gateway = CredentialGateway(key, unix_path=folder / "gateway.sock", web_limit=0,
-                                    ledger_path=folder / "gateway-requests.jsonl")
+                                    ledger_path=folder / "gateway-requests.jsonl",
+                                    inference_policy=runtime.inference_configuration(getattr(args, 'effort', runtime.DEFAULT_EFFORT)))
         gateway.__enter__()
         identity = container(work, profile, args.upstream / "data", args.image,
-                             gateway=gateway, backend=backend, effort=getattr(args, "effort", "max"),
+                             gateway=gateway, backend=backend, effort=getattr(args, "effort", runtime.DEFAULT_EFFORT),
                              cpus=getattr(args, 'cpus', runtime.DEFAULT_CPUS), compute_threads=getattr(args, 'compute_threads', runtime.DEFAULT_COMPUTE_THREADS))
         if getattr(args, 'record_resources', False):
             resources = ContainerResources(identity, folder, args.cpus).start()
@@ -227,6 +228,8 @@ def collect_attempt(folder, report, args):
                    "--mount", f"type=bind,src={args.upstream / 'data'},dst=/data,readonly"]
         for key in THREADS:
             command += ["--env", key + "=" + str(getattr(args,'compute_threads',runtime.DEFAULT_COMPUTE_THREADS))]
+        for key, value in runtime.REPRODUCIBLE_ENV.items():
+            command += ["--env", key + "=" + value]
         command += [args.image, "python3", data["pipeline_path"]]
         try:
             try:
@@ -274,7 +277,8 @@ def preflight(args):
     inventory = input_inventory(args)
     plan = dict(created_at=now(), tasks=[asdict(t) for t in selected], attempts=len(backends) * len(selected),
                 backends=list(backends), concurrency=args.concurrency, strict_single=strict_single,
-                timeout_seconds=args.timeout, retries=0, model="deepseek-flash", effort=getattr(args, "effort", "max"),
+                timeout_seconds=args.timeout, retries=0, model="deepseek-flash", effort=getattr(args, "effort", runtime.DEFAULT_EFFORT),
+                inference_policy=runtime.inference_configuration(getattr(args, 'effort', runtime.DEFAULT_EFFORT)),
                 provenance=provenance, scoring=scoring, image_id=args.image, network="none",
                 inputs_sha256=fingerprint(inventory), instructions=INSTRUCTIONS,
                 asset_hash_policy='stat-validated-pinned-blob-v1' if getattr(args,'asset_cache',None) else 'full-hash',
@@ -282,7 +286,7 @@ def preflight(args):
                 backend_options={b: options(b) for b in backends},
                 backend_instructions={b: condition_instructions(args, b) for b in backends},
                 organization_override=getattr(args, "organization_override", None),
-                native_environment={b: native_env(b, effort=getattr(args, "effort", "max"),
+                native_environment={b: native_env(b, effort=getattr(args, "effort", runtime.DEFAULT_EFFORT),
                     compute_threads=getattr(args, 'compute_threads', runtime.DEFAULT_COMPUTE_THREADS)) for b in backends},
                 compute_threads=getattr(args, 'compute_threads', runtime.DEFAULT_COMPUTE_THREADS),
                 required_modules=runtime.capability_modules(getattr(args, 'require_module', [])),
@@ -310,7 +314,7 @@ def preflight(args):
     backend = backends[0]
     binary = CLAUDE
     identity = container(work, profile, args.upstream / "data", args.image, backend=backend, network="none",
-                         effort=getattr(args, "effort", "max"), cpus=getattr(args, 'cpus', runtime.DEFAULT_CPUS),
+                         effort=getattr(args, "effort", runtime.DEFAULT_EFFORT), cpus=getattr(args, 'cpus', runtime.DEFAULT_CPUS),
                          compute_threads=getattr(args, 'compute_threads', runtime.DEFAULT_COMPUTE_THREADS))
     resources = None
     try:

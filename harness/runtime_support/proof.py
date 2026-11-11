@@ -1,10 +1,14 @@
 """Validate harness runtime evidence; mocks do not establish benchmark correctness."""
 
+from harness.runtime_support.inference import EFFORTS, configuration
 
 def validate_effort(proof, effort):
-    if (effort not in {'high', 'max'} or proof.get('requested_effort') != effort
+    if (effort not in EFFORTS or proof.get('requested_effort') != effort
             or proof.get('request_effort_verified') is not True):
         raise ValueError(f'Matching offline request-effort proof is required for {effort}')
+    if (proof.get('inference_policy') != configuration(effort)
+            or proof.get('request_configuration_verified') is not True):
+        raise ValueError('Matching native thinking/temperature/effort proof is required')
 
 
 def validate(proof, backend):

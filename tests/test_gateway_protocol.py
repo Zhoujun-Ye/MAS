@@ -35,6 +35,43 @@ def post(gateway, path="/anthropic/v1/messages", payload=None):
     return urllib.request.urlopen(request, timeout=3)
 
 
+@pytest.mark.parametrize('override', [
+    {'temperature': 1}, {'temperature': '0'}, {'temperature': False},
+    {'thinking': {'type': 'adaptive'}}, {'thinking': None},
+    {'output_config': {'effort': 'high'}},
+])
+def test_inference_drift_is_rejected_before_paid_dispatch(tmp_path, monkeypatch, override):
+    from harness.runtime_support.inference import configuration
+    monkeypatch.setattr(credential_gateway, 'open_upstream', lambda *a: pytest.fail('Configuration drift dispatched'))
+    payload = dict(model='deepseek-flash', temperature=0, thinking={'type': 'disabled'}, max_tokens=32000)
+    payload.update(override)
+    with CredentialGateway('synthetic', ledger_path=tmp_path/'ledger', inference_policy=configuration()) as gateway:
+        with pytest.raises(urllib.error.HTTPError) as caught:
+            post(gateway, payload=payload)
+        assert caught.value.code == 400
+    assert gateway.summary()['upstream_attempts'] == 0
+
+
+def test_inference_validation_never_rewrites_native_payload(tmp_path, monkeypatch):
+    from harness.runtime_support.inference import configuration
+    payload = dict(model='deepseek-flash', temperature=0, thinking={'type': 'disabled'}, max_tokens=32000,
+                   messages=[{'role': 'user', 'content': 'private question'}])
+    def upstream(request):
+        assert request.data == json.dumps(payload).encode()
+        response = io.BytesIO(b'{"id":"synthetic","usage":{"input_tokens":1,"output_tokens":1}}')
+        response.status = 200; response.headers = {'Content-Type': 'application/json'}
+        return response
+    monkeypatch.setattr(credential_gateway, 'open_upstream', upstream)
+    with CredentialGateway('synthetic', ledger_path=tmp_path/'ledger', inference_policy=configuration()) as gateway:
+        post(gateway, payload=payload).close()
+    rows = [json.loads(x) for x in (tmp_path/'ledger').read_text().splitlines()]
+    assert rows[-1]['request_parameters']['temperature'] == 0
+    assert rows[-1]['request_parameters']['thinking'] == 'disabled'
+    assert rows[-1]['request_parameters']['max_tokens'] == 32000
+    assert rows[-1]['request_parameters']['effort'] is None
+    assert 'private question' not in (tmp_path/'ledger').read_text()
+
+
 def test_error_preserves_protocol_without_secrets(tmp_path, monkeypatch):
     ledger = tmp_path / "host-ledger.jsonl"
     calls = []

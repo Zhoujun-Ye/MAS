@@ -13,7 +13,7 @@ first two entries in the frozen manifest, without selecting by prior outcomes:
 - KramaBench: `wildfire-easy-9`, `astronomy-easy-1`.
 
 Both conditions use 8 CPUs, four numerical threads, 8 GiB memory, the unchanged
-organization prompts, Claude Code 2.1.286 and current max effort. Keep benchmark
+organization prompts, Claude Code 2.1.286 and the then-recorded max effort. Keep benchmark
 timeouts and web limits unchanged. Planned solver concurrency is four, subject
 to fresh host-capacity and provider admission checks; offline grading concurrency
 is two. Text answers requiring a semantic judge remain ungraded, not incorrect.

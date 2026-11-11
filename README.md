@@ -68,6 +68,12 @@ Directory ownership and dependency rules: [Repository Layout](docs/repository-la
 
 ## Safety And Execution
 
+Current DeepSeek inference defaults are thinking disabled and temperature zero;
+reasoning effort is inapplicable, expressed as `--effort none`. Main and worker
+requests are verified before forwarding, not silently rewritten. Explicit high/max
+study overrides enable thinking; max is never the default. Configuration ownership,
+CPU verification and remaining nondeterminism are in [Reproducibility](docs/reproducibility.md).
+
 Real credentials remain in a mode-0600 host `.env`, outside solver mounts.
 Live solver containers have no external network. A Unix-socket gateway provides
 fixed native model and search routes, without retries or model orchestration.

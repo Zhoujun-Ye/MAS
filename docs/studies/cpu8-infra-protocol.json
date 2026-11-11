@@ -1,5 +1,7 @@
 {
-  "effort": "high",
+  "effort": "none",
+  "inference_policy": {"thinking": "disabled", "temperature": 0.0, "effort": null},
+  "deterministic_environment": {"PYTHONHASHSEED": "0", "TZ": "UTC", "OMP_DYNAMIC": "FALSE", "MKL_DYNAMIC": "FALSE"},
   "web_policy": {
     "protocol": "web-v5",
     "successful_call_limit": 20,

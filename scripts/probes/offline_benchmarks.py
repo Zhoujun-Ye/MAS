@@ -17,6 +17,7 @@ from benchmarks.hybriddeepresearch.tasks import load_tasks as hybrid_tasks
 from harness import ClaudeCodeSingleAgentCLI, ClaudeCodeSubagentsCLI
 from harness._claude_cli import hook_settings
 from harness.runtime_support import runtime
+from harness.runtime_support.inference import proof_requests
 from scripts.common.run import mounts
 
 
@@ -26,7 +27,7 @@ def main():
     parser.add_argument("--image", required=True)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--execute", action="store_true")
-    parser.add_argument('--effort', choices=('high', 'max'), default='max')
+    parser.add_argument('--effort', choices=runtime.EFFORTS, default=runtime.DEFAULT_EFFORT)
     args = parser.parse_args()
     if not args.execute:
         print(json.dumps(dict(status="planned", mode_probes=4, budget_probes=2, paid_calls=0)))
@@ -87,9 +88,7 @@ def main():
             proof = json.loads((profile / "probe/transport.json").read_text())
             proof.update(backend=backend, task_id=task.id, benchmark=task.benchmark)
             requests = json.loads((profile / 'probe/fake-provider-requests.json').read_text())
-            observed = [r.get('output_config', {}).get('effort') for r in requests]
-            proof.update(requested_effort=args.effort, observed_request_efforts=observed,
-                         request_effort_verified=bool(observed) and all(v == args.effort for v in observed))
+            proof.update(proof_requests(requests, args.effort))
             if budget:
                 events = [json.loads(line) for line in (folder / "cli/stdout.log").read_text().splitlines() if line.startswith("{")]
                 native = next((e for e in reversed(events) if e.get("type") == "result"), {})

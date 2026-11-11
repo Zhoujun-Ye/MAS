@@ -73,7 +73,8 @@ def workflow(tmp_path, monkeypatch, request):
     binary.write_text("fake executable, never launched")
     proof = tmp_path / "proof.json"
     proof.write_text(json.dumps(dict(passed=True, paid_calls=0, network="none",
-        requested_effort='max', request_effort_verified=True,
+        requested_effort=run.runtime.DEFAULT_EFFORT, request_effort_verified=True,
+        inference_policy=run.runtime.inference_configuration(), request_configuration_verified=True,
         backend="claude-code-subagents", native_subagents=dict(passed=True, subagent_starts=1,
         native_team_configs=0, teammate_idle_events=0),
         runtime_binding=dict(image_id="sha256:fake", binary_sha256=digest(binary)))))

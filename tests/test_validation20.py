@@ -98,7 +98,7 @@ def protocol_fixture(tmp_path, monkeypatch):
     manifest_path.write_text(json.dumps(manifest))
     args = ['--root', str(tmp_path), '--output', str(tmp_path / 'output'), '--proofs', str(tmp_path),
             '--image', 'fixture', '--task-manifest', str(manifest_path), '--tasks-per-benchmark', '20']
-    settings = matrix.protocol_settings(SimpleNamespace(effort='max', concurrency=8, judge_concurrency=2))
+    settings = matrix.protocol_settings(SimpleNamespace(effort=matrix.runtime.DEFAULT_EFFORT, concurrency=8, judge_concurrency=2))
     protocol = tmp_path / 'protocol.json'
     protocol.write_text(json.dumps(settings))
     return args, settings, protocol, manifest_path

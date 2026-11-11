@@ -29,7 +29,7 @@ def test_committed_random20_protocol_matches_the_three_condition_runtime():
     manifest = json.loads((root / "docs/studies/krama-random20-manifest.json").read_text())
     protocol = json.loads((root / "docs/studies/krama-random20-protocol.json").read_text())
     settings = matrix.protocol_settings(SimpleNamespace(backends=CONDITIONS, benchmarks=["kramabench"],
-        effort="max", concurrency=16, judge_concurrency=2, cpus=8, compute_threads=4, record_resources=True))
+        effort="none", concurrency=16, judge_concurrency=2, cpus=8, compute_threads=4, record_resources=True))
     assert protocol == manifest["baseline_settings"] == settings
     assert manifest["sampling"]["seed"] == 6820760213620092556
     shuffled = list(manifest["sampling"]["population"]["kramabench"])

@@ -54,7 +54,7 @@ def validate_native_proof(args, plan, *, frozen=False):
     if frozen and plan.get("offline_proof_sha256") != proof_digest:
         raise ValueError("Offline proof changed after freeze")
     proof = json.loads(raw)
-    validate_effort(proof, getattr(args, 'effort', 'max'))
+    validate_effort(proof, getattr(args, 'effort', shared.DEFAULT_EFFORT))
     binary = plan["cli_binaries"]["claude"]
     validate_runtime(proof, args.backend, image_id=plan["image_id"],
                      binary_sha256=binary["sha256"])
@@ -82,7 +82,7 @@ def validate(args):
         raise ValueError('Frozen input hashing policy changed')
     if fingerprint(plan) != json.loads((args.output / "preflight-ok.json").read_text())["plan_sha256"]:
         raise ValueError("Plan receipt changed")
-    if plan.get("effort", "max") != getattr(args, "effort", "max"):
+    if plan.get("effort") != getattr(args, "effort", shared.DEFAULT_EFFORT):
         raise ValueError("Frozen effort changed")
     if plan.get("subagents_prompt", "structured") != getattr(args, "subagents_prompt", "structured"):
         raise ValueError("Frozen Subagents prompt preset changed")
@@ -231,7 +231,8 @@ def main(argv=None):
     parser.add_argument('--matrix-balance-managed', action='store_true',
                         help='Parent matrix owns balance admission; child snapshots are informational')
     parser.add_argument("--execute", action="store_true")
-    parser.add_argument("--effort", choices=("high", "max"), default="max")
+    parser.add_argument("--effort", choices=shared.EFFORTS, default=shared.DEFAULT_EFFORT,
+                        help="none disables thinking and fixes temperature=0; high/max explicitly enable thinking")
     args = parser.parse_args(argv)
     args.require_module = shared.capability_modules(args.require_module)
     if args.compute_threads > args.cpus:

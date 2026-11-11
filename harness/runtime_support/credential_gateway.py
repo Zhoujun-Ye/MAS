@@ -18,6 +18,7 @@ import urllib.request
 import uuid
 
 from harness.runtime_support import web_fetch, web_policy
+from harness.runtime_support.inference import matches, request_configuration
 
 
 ROUTES = {"/anthropic/v1/messages", "/anthropic/v1/messages/count_tokens",
@@ -104,12 +105,13 @@ class UsageObserver:
 
 
 class CredentialGateway:
-    def __init__(self, key, *, bind="127.0.0.1", web_limit=0, unix_path=None, ledger_path=None):
+    def __init__(self, key, *, bind="127.0.0.1", web_limit=0, unix_path=None, ledger_path=None, inference_policy=None):
         if not isinstance(key, str) or not key or not key.isascii() or any(c.isspace() for c in key):
             raise ValueError("Invalid provider credential format")
         if web_limit < 0:
             raise ValueError("Web limit must be nonnegative")
         self.key, self.token = key, secrets.token_urlsafe(32)
+        self.inference_policy = dict(inference_policy) if inference_policy is not None else None
         self.web_limit, self.web_calls = web_limit, 0
         self.web_attempts=0
         self.web_attempt_limit=web_limit*2
@@ -212,6 +214,12 @@ class CredentialGateway:
                     except (ValueError, TypeError):
                         self.json_error(400, "invalid_request_error", "Invalid payload or unauthorized model")
                         return
+                    if parsed.path == '/anthropic/v1/messages':
+                        self.record['request_parameters'] = request_configuration(payload)
+                        if gateway.inference_policy is not None and not matches(payload, gateway.inference_policy):
+                            self.json_error(400, 'inference_configuration_mismatch',
+                                            'Native request does not match the frozen inference policy; no provider call sent')
+                            return
                     headers = {"Content-Type": "application/json", "Authorization": "Bearer " + gateway.key,
                                "Accept-Encoding": "identity"}
                     config = payload.get("output_config")

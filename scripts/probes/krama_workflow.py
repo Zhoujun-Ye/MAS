@@ -45,6 +45,7 @@ def main(argv=None):
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--image", default=krama.runtime.DEFAULT_SOLVER_IMAGE)
     parser.add_argument("--execute", action="store_true")
+    parser.add_argument("--effort", choices=krama.runtime.EFFORTS, default=krama.runtime.DEFAULT_EFFORT)
     parser.add_argument("--error-status", type=int, choices=(503,),
                         help="Inject one upstream error to verify native no-retry behavior; not an admission proof")
     args = parser.parse_args(argv)
@@ -69,7 +70,7 @@ def main(argv=None):
         fixtures[key] = fixture
         options = SimpleNamespace(output=args.output / condition, upstream=upstream, image=image,
             subagents_prompt="native" if condition == "native" else "structured",
-            timeout=180, replay_timeout=180, effort="max", cpus=krama.runtime.DEFAULT_CPUS,
+            timeout=180, replay_timeout=180, effort=args.effort, cpus=krama.runtime.DEFAULT_CPUS,
             compute_threads=krama.runtime.DEFAULT_COMPUTE_THREADS, record_resources=True)
         jobs.append((condition, backend, fixture, key, options))
 

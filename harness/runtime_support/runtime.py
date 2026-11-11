@@ -16,10 +16,12 @@ import time
 
 from common.io import write_json
 from harness._claude_hooks import BLOCKED_TOOLS
+from harness.runtime_support.inference import DEFAULT_EFFORT, EFFORTS, configuration as inference_configuration
 
 DEFAULT_CPUS = 8
 DEFAULT_COMPUTE_THREADS = 4
 DEFAULT_SOLVER_IMAGE = 'mas/research-benchmarks:20261111-sqlite-v2'
+REPRODUCIBLE_ENV = dict(PYTHONHASHSEED="0", TZ="UTC", OMP_DYNAMIC="FALSE", MKL_DYNAMIC="FALSE")
 
 CLAUDE = Path("/home/zhoujunye/.local/bin/claude").resolve()
 
@@ -162,22 +164,27 @@ def options(backend):
     return dict(model="deepseek-flash[1m]", allowed_tools=tools,
                 disallowed_tools=("WebSearch", "WebFetch"), isolated_settings=True)
 
-def native_env(backend, *, effort="max", compute_threads=DEFAULT_COMPUTE_THREADS):
+def native_env(backend, *, effort=DEFAULT_EFFORT, compute_threads=DEFAULT_COMPUTE_THREADS):
     options(backend)
     if type(compute_threads) is not int or not 1 <= compute_threads <= 128:
         raise ValueError('Compute threads must be an integer between 1 and 128')
-    if effort not in {"high", "max"}:
-        raise ValueError("Study effort must be high or max")
-    return dict({name: str(compute_threads) for name in THREADS}, HOME="/native/home",
+    policy = inference_configuration(effort)
+    environment = dict({name: str(compute_threads) for name in THREADS}, HOME="/native/home",
                 CLAUDE_CONFIG_DIR="/native/claude", ANTHROPIC_BASE_URL="https://api.deepseek.com/anthropic",
                 ANTHROPIC_MODEL="deepseek-flash[1m]", ANTHROPIC_DEFAULT_OPUS_MODEL="deepseek-flash[1m]",
                 ANTHROPIC_DEFAULT_SONNET_MODEL="deepseek-flash[1m]", ANTHROPIC_DEFAULT_HAIKU_MODEL="deepseek-flash",
-                CLAUDE_CODE_SUBAGENT_MODEL="deepseek-flash[1m]", CLAUDE_CODE_EFFORT_LEVEL=effort,
+                CLAUDE_CODE_SUBAGENT_MODEL="deepseek-flash[1m]",
+                CLAUDE_CODE_EFFORT_LEVEL="auto" if effort == "none" else effort,
+                **REPRODUCIBLE_ENV,
                 CLAUDE_CODE_AUTO_COMPACT_WINDOW="786432",
                 CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS="0",
                 CLAUDE_CODE_MAX_RETRIES="0",
                 DISABLE_AUTOUPDATER="1", CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC="1",
                 LANGSMITH_TRACING="false", LANGCHAIN_TRACING_V2="false")
+    if policy["thinking"] == "disabled":
+        environment.update(MAX_THINKING_TOKENS="0", CLAUDE_CODE_EXTRA_BODY=json.dumps(
+            dict(thinking=dict(type="disabled"), temperature=policy["temperature"]), sort_keys=True, separators=(",", ":")))
+    return environment
 
 class ContainerStartupError(RuntimeError):
     def __init__(self, identity, details):
@@ -187,7 +194,7 @@ class ContainerStartupError(RuntimeError):
 
 
 def container(work, profile, dataset, image, key=None, network="bridge", backend="claude-code-subagents", *,
-              dataset_mounts=None, environment_overrides=None, forwarded_env=(), gateway=None, effort="max", cpus=DEFAULT_CPUS,
+              dataset_mounts=None, environment_overrides=None, forwarded_env=(), gateway=None, effort=DEFAULT_EFFORT, cpus=DEFAULT_CPUS,
               compute_threads=DEFAULT_COMPUTE_THREADS):
     if type(cpus) is not int or not 1 <= cpus <= 128:
         raise ValueError('Container CPUs must be an integer between 1 and 128')

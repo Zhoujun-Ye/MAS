@@ -42,7 +42,7 @@ def _judge_once(*, upstream, task_id, backend, submission_path, question, key, o
     base = grade_answer(upstream, task_id, submission_path)
     if base["answer_type"] != "string_approximate" or base["status"] != "pending_judge":
         raise ValueError("Only pending string_approximate grades may consume a judge call")
-    body = dict(model="deepseek-flash", max_tokens=256, thinking={"type": "disabled"},
+    body = dict(model="deepseek-flash", max_tokens=256, thinking={"type": "disabled"}, temperature=0,
                 system=SYSTEM, messages=[dict(role="user", content=json.dumps(dict(question=question,
                     candidate=base["prediction"], reference=base["target"]), ensure_ascii=False))])
     write_json(output / "request.json", body)

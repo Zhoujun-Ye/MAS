@@ -349,7 +349,7 @@ def solver_command(args, benchmark, task, backend, output, *, execute=False):
                "--offline-proof", str(args.proofs / backend / "proof.json")]
     if condition == "native":
         command += ["--subagents-prompt", "native"]
-    command += ["--effort", getattr(args, "effort", "max")]
+    command += ["--effort", getattr(args, "effort", runtime.DEFAULT_EFFORT)]
     if backend == "claude-code-subagents" and getattr(args, "organization_prompt", None):
         command += ["--organization-prompt", str(args.organization_prompt)]
     if benchmark == "kramabench":
@@ -399,6 +399,8 @@ def protocol_settings(args):
     if override and "claude-code-subagents" in prompts:
         prompts["claude-code-subagents"] = override["text"]
     settings = dict(effort=args.effort,
+                inference_policy=runtime.inference_configuration(args.effort),
+                deterministic_environment=dict(runtime.REPRODUCIBLE_ENV),
                 web_policy=web_policy.configuration(getattr(args,'max_web_requests',web_policy.DEFAULT_WEB_LIMIT)),
                 organization_sha256={k: hashlib.sha256(text.encode()).hexdigest() for k, text in prompts.items()},
                 timeout_seconds_by_benchmark={b: default_timeout(b) for b in (
@@ -475,7 +477,8 @@ def main(argv=None):
     parser.add_argument('--compute-threads', type=int, choices=range(1, 129), default=runtime.DEFAULT_COMPUTE_THREADS)
     parser.add_argument('--require-module', action='append', default=[])
     parser.add_argument('--capability-probe', action='append', default=[])
-    parser.add_argument("--effort", choices=("high", "max"), default="max")
+    parser.add_argument("--effort", choices=runtime.EFFORTS, default=runtime.DEFAULT_EFFORT,
+                        help="none disables thinking and fixes temperature=0; high/max explicitly enable thinking")
     parser.add_argument("--organization-prompt", type=Path)
     parser.add_argument("--backends", nargs="+", choices=BACKENDS, default=BACKENDS,
                         help="Explicit conditions to run; defaults to the matched Single/Subagents pair")

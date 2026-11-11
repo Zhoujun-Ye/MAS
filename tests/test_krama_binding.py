@@ -7,6 +7,7 @@ import pytest
 
 from benchmarks.kramabench.tasks import Task
 from common.io import fingerprint
+from harness.runtime_support.inference import configuration
 from scripts.kramabench import cli_runtime as runtime
 from scripts.kramabench import run
 
@@ -16,6 +17,7 @@ def bound_proof(backend):
     binding = dict(image_id="fixture-image", binary_sha256="fixture-binary-hash")
     proof = dict(backend=backend, passed=True, network="none", paid_calls=0,
                  requested_effort='max', request_effort_verified=True,
+                 inference_policy=configuration('max'), request_configuration_verified=True,
                  runtime_binding=binding, shell_verified=True, tool_exposure_verified=True)
     if single:
         proof["native_single_agent"] = dict(passed=True, subagent_starts=0, executed_delegation_tools=0)
@@ -23,7 +25,7 @@ def bound_proof(backend):
     else:
         proof["native_subagents"] = dict(passed=True, subagent_starts=1, native_team_configs=0, teammate_idle_events=0)
     plan = dict(image_id="fixture-image", cli_binaries={"claude": dict(sha256="fixture-binary-hash")},
-                model_catalogs={})
+                model_catalogs={}, effort='max')
     return proof, plan
 
 
@@ -34,7 +36,7 @@ def test_freeze_requires_runtime_bound_proof(tmp_path, monkeypatch, backend):
     path.write_text(json.dumps(proof))
     task = Task("probe", "astronomy", "Fixture")
     plan["attempts"] = 1
-    args = SimpleNamespace(backend=backend, offline_proof=path, output=tmp_path / "out")
+    args = SimpleNamespace(backend=backend, offline_proof=path, output=tmp_path / "out", effort='max')
     monkeypatch.setattr(runtime, "preflight", lambda args: ([task], dict(plan)))
     tasks, frozen = run.freeze(args)
     assert tasks == [task]
@@ -59,7 +61,7 @@ def test_from_plan_revalidates_proof_binding(tmp_path, monkeypatch, changed_proo
     if changed_proof:
         path.write_text(json.dumps(proof) + "\n")
     monkeypatch.setattr(run, "load_tasks", lambda *a: pytest.fail("Must reject proof before workload access"))
-    args = SimpleNamespace(output=tmp_path, offline_proof=path, backend=backend)
+    args = SimpleNamespace(output=tmp_path, offline_proof=path, backend=backend, effort='max')
     with pytest.raises(ValueError, match="Offline proof changed|Stale native proof"):
         run.validate(args)
 
@@ -79,7 +81,7 @@ def roundtrip_plan(request, tmp_path, monkeypatch):
     proof_path.write_text(json.dumps(proof))
     args = SimpleNamespace(backend=backend, backends=(backend,), output=tmp_path / "out",
         upstream=tmp_path, offline_proof=proof_path, all_tasks=False, selected_task_ids=[task.id],
-        concurrency=1, timeout=3600, judge_limit=1, replay_timeout=180,cpus=2,compute_threads=1,
+        concurrency=1, timeout=3600, judge_limit=1, replay_timeout=180,cpus=2,compute_threads=1,effort='max',
         subagents_prompt="native" if request.param == "native" else "structured")
     plan.update(attempts=1, tasks=[dict(id=task.id, domain=task.domain, query=task.query)],
         organization_override=None, backend_instructions={backend: run.condition_instructions(args, backend)},
@@ -218,3 +220,27 @@ def test_claude_subagents_without_delegation_is_not_admitted(tmp_path, monkeypat
     report = runtime.run_attempt(Task("probe", "astronomy", "Fixture"), "claude-code-subagents", args,
         "synthetic-secret", threading.Event(), set(), threading.Lock())
     assert report["status"] == "native_condition_unverified"
+
+
+def test_replay_inherits_the_same_reproducible_cpu_environment(tmp_path, monkeypatch):
+    folder = tmp_path/'fixture/claude-code-subagents'
+    work = folder/'workspace';work.mkdir(parents=True)
+    (work/'pipeline.py').write_text('print(1)')
+    (work/'submission.json').write_text(json.dumps(dict(answer=1,pipeline_path='pipeline.py',evidence='fixture',unfinished=[])))
+    commands = []
+    def execute(cmd, **kwargs):
+        if cmd[:2] == ['docker','run']:
+            commands.append(cmd)
+            return SimpleNamespace(returncode=0,stdout=b'{"answer":1}\n',stderr=b'')
+        if cmd[:2] == ['docker','rm']:
+            return SimpleNamespace(returncode=0)
+        return SimpleNamespace(returncode=0,stdout='{}')
+    monkeypatch.setattr(runtime.subprocess, 'run', execute)
+    monkeypatch.setattr(runtime, 'grade_answer', lambda *a:dict(score=1))
+    args = SimpleNamespace(upstream=tmp_path,image='fixture',cpus=8,compute_threads=4)
+    report = runtime.collect_attempt(folder,dict(task_id='fixture',backend='claude-code-subagents',status='cli_exited'),args)
+    assert report['pipeline_answer_matches_submission']
+    command, = commands
+    assert command[command.index('--cpus')+1] == '8'
+    assert 'OPENBLAS_NUM_THREADS=4' in command
+    assert all(f'{key}={value}' in command for key,value in runtime.runtime.REPRODUCIBLE_ENV.items())

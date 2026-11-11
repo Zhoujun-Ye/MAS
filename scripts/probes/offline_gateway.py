@@ -22,6 +22,7 @@ from harness import ClaudeCodeSingleAgentCLI, ClaudeCodeSubagentsCLI
 from harness.runtime_support import credential_gateway
 from harness.runtime_support import runtime
 from harness.runtime_support.proof import validate_runtime
+from harness.runtime_support.inference import proof_requests
 
 
 BACKENDS = {"claude-code-single-agent": ClaudeCodeSingleAgentCLI, "claude-code-subagents": ClaudeCodeSubagentsCLI}
@@ -103,7 +104,7 @@ class Fixture:
                     dict(type="message_stop")])
 
 
-def probe(backend, root, image, key, fixture, *, effort="max"):
+def probe(backend, root, image, key, fixture, *, effort=runtime.DEFAULT_EFFORT):
     folder = root / backend
     work, profile = folder / "workspace", folder / "native-profile"
     work.mkdir(parents=True)
@@ -116,7 +117,8 @@ def probe(backend, root, image, key, fixture, *, effort="max"):
     identity = None
     gateway = None
     try:
-        gateway = credential_gateway.CredentialGateway(key, unix_path=folder / "gateway.sock")
+        gateway = credential_gateway.CredentialGateway(key, unix_path=folder / "gateway.sock",
+                                                      inference_policy=runtime.inference_configuration(effort))
         gateway.__enter__()
         identity = runtime.container(work, profile, work, image, network="none", backend=backend,
                                      dataset_mounts=[], gateway=gateway, effort=effort)
@@ -141,12 +143,9 @@ def probe(backend, root, image, key, fixture, *, effort="max"):
         proof["delegation_rejections_observed"] = len(fixture.rejections & {"probe-Agent", "probe-Task"})
         native_ok = proof[name]["passed"] and (not single or proof["delegation_rejections_observed"] >= 2)
         unchanged = digest(binary) == binding["binary_sha256"]
-        observed = [(request.get("output_config") or {}).get("effort") for request in fixture.requests]
-        proof["observed_request_efforts"] = observed
-        proof["observed_request_max_tokens"] = sorted({r["max_tokens"] for r in fixture.requests if "max_tokens" in r})
-        proof["request_effort_verified"] = bool(observed) and all(value == effort for value in observed)
+        proof.update(proof_requests(fixture.requests, effort))
         proof["passed"] = bool(result["status"] == "cli_exited" and proof["shell_verified"] and native_ok and unchanged
-                               and proof["request_effort_verified"])
+                               and proof["request_effort_verified"] and proof['request_configuration_verified'])
         if fixture.error_status is not None:
             proof.update(proof_kind='native_error_injection', injected_http_status=fixture.error_status,
                 retry_count=max(0, len(fixture.requests)-1), passed=bool(result['status']=='cli_error'
@@ -181,7 +180,7 @@ def main(argv=None):
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--image", required=True)
     parser.add_argument("--execute", action="store_true")
-    parser.add_argument("--effort", choices=("high", "max"), default="max")
+    parser.add_argument("--effort", choices=runtime.EFFORTS, default=runtime.DEFAULT_EFFORT)
     parser.add_argument('--error-status', type=int, choices=(401, 402, 429, 503),
                         help='Synthetic native failure/no-retry probe; not a launch-admission proof')
     args = parser.parse_args(argv)

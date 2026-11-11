@@ -78,6 +78,7 @@ def main():
     parser.add_argument('--output',type=Path,required=True)
     parser.add_argument('--image',default=run.runtime.DEFAULT_SOLVER_IMAGE)
     parser.add_argument('--execute',action='store_true')
+    parser.add_argument('--effort',choices=run.runtime.EFFORTS,default=run.runtime.DEFAULT_EFFORT)
     args=parser.parse_args()
     if not args.execute:print(json.dumps(dict(status='planned',paid_calls=0,conditions=6)));return
     args.output.mkdir(parents=True,exist_ok=False)
@@ -115,7 +116,7 @@ def main():
             options=SimpleNamespace(output=args.output/task.benchmark/mode,backend=backend,
                 upstream=args.root/(task.benchmark+'/upstream'),data=data,data_variant='database',
                 image=image,web_search='deepseek',max_web_requests=4,
-                effort='max',cpus=run.runtime.DEFAULT_CPUS,compute_threads=run.runtime.DEFAULT_COMPUTE_THREADS,record_resources=True,timeout=180,max_budget_usd=None,
+                effort=args.effort,cpus=run.runtime.DEFAULT_CPUS,compute_threads=run.runtime.DEFAULT_COMPUTE_THREADS,record_resources=True,timeout=180,max_budget_usd=None,
                 asset_cache=args.output/'asset-digests.sqlite')
             jobs.append((task,options,key,fixture,mode))
     def fake(request):

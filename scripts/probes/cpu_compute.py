@@ -58,6 +58,27 @@ def main():
                 finally: subprocess.run(['docker','rm','-f',identity],check=True,capture_output=True)
     result=dict(image_id=image,results=results,paid_calls=0,network='none',serial_for_measurement=True,
                 scope='Synthetic BLAS capability only; not benchmark task or end-to-end model speedup')
+    root=args.output/'parallel4';work=root/'workspace';profile=root/'native-profile'
+    work.mkdir(parents=True);(profile/'home').mkdir(parents=True)
+    identity=container(work,profile,work,image,network='none',cpus=8,compute_threads=4)
+    monitor=None
+    try:
+        assert int(subprocess.check_output(['docker','inspect','-f','{{.HostConfig.NanoCpus}}',identity]))==8_000_000_000
+        monitor=ContainerResources(identity,root,8,interval=.1).start()
+        parallel=('import subprocess,sys,time,json; start=time.perf_counter(); '
+                  f'jobs=[subprocess.Popen([sys.executable,"-c",{COMPUTE!r}],stdout=subprocess.PIPE,text=True) for _ in range(2)]; '
+                  'outputs=[p.communicate(timeout=180)[0] for p in jobs]; '
+                  'assert all(p.returncode==0 for p in jobs); '
+                  'print(json.dumps(dict(wall_seconds=time.perf_counter()-start,workers=[json.loads(x) for x in outputs])))')
+        observed=json.loads(subprocess.check_output(['docker','exec',identity,'python3','-c',parallel],text=True,timeout=200))
+        assert all(all(p['num_threads']==4 for p in worker['blas']) for worker in observed['workers'])
+        result['parallel_four_thread_workers']=dict(processes=2,cpus=8,**observed)
+    finally:
+        try:
+            if monitor is not None:result['parallel_resources']=monitor.close()
+        finally:
+            try:stop_container(identity)
+            finally:subprocess.run(['docker','rm','-f',identity],check=True,capture_output=True)
     write_json(args.output/'summary.json',result)
     print(json.dumps(result))
 

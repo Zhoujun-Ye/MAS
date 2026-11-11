@@ -81,6 +81,14 @@ See `docs/cli-adapters.md` for pinned versions, references and limitations.
 
 ## Server Operations
 
+- Current DeepSeek reproducibility policy: thinking disabled, temperature zero,
+  effective reasoning effort not applicable (`--effort none`). Configure this
+  through the pinned CLI, not request-body rewriting in the gateway. Native
+  main/worker requests must match the frozen policy before upstream dispatch.
+  If the user explicitly re-enables thinking, use high unless separately
+  authorized otherwise; never silently default to max. Keep historical actual
+  high/max settings unchanged. The latest request is configuration hardening and
+  free verification before paid dispatch, not permission to skip config review.
 - Local `/Users/zhoujun/Desktop/MAS`; server
   `zhoujunye@10.123.4.30:22`, `/home/zhoujunye/mas`.
 - External server data and evaluation environment: `/home/zhoujunye/mas-data`.
@@ -171,8 +179,12 @@ See `docs/cli-adapters.md` for pinned versions, references and limitations.
   zero retries and no paid judges. Native must actually delegate at least once;
   its prompt is the approved minimal prefix, with the same native audit as
   Structured. Preserve the original Validation20 and the independently seeded
-  new ID/hash manifest. The latest request is preparation, cleanup, commit and
-  push, not paid execution. See `docs/studies/krama-random20-20261111.md`.
+  new ID/hash manifest. A subsequent November 11 request explicitly authorizes
+  deployment and one run of these sixty slots at concurrency sixteen, CPU8/thread4,
+  with zero retries and paid semantic judges only where required (two task IDs
+  across three conditions, at most six one-call grades). Preserve all failures
+  and accounting; no replacement solver or judge retry is authorized. See
+  `docs/studies/krama-random20-20261111.md`.
 - The user retired FULL/OBS and authorized one FDABench choice smoke: four fixed
   questions times Single/Structured, eight solver attempts, no retries or paid
   judges. This is not standing authorization for further paid experiments.

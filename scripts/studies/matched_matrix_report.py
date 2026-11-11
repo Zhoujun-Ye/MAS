@@ -122,7 +122,9 @@ def collect(root):
             requests_with_unknown_cost=max(len(dispatched),len(model))-len(known_costs) if dispatched or model else None,
             known_model_usd_offpeak_subtotal=sum(known_costs) if known_costs else None,
             cli_timing=report.get('cli', {}).get('timing'), container_cleanup=report.get('cleanup'),
-            request_efforts=dict(Counter(r.get('request_effort', 'unknown') for r in dispatched)),
+            request_efforts=dict(Counter(r.get('request_effort') or
+                ('not_applicable' if r.get('request_parameters', {}).get('thinking') == 'disabled' else 'unknown')
+                for r in dispatched)),
             model_usd_offpeak=model_cost, web_usd_estimate=web_cost, judge_usd_offpeak=judge_cost,
             web_cost_basis='legacy successful-HTTP estimate; billability unverified' if legacy_web else 'host per-request billability receipts; not an invoice',
             total_usd_offpeak=sum(costs) if all(v is not None for v in costs) else None,

@@ -43,7 +43,8 @@ three biomedical, two astronomy and one environment task, with no archeology.
 It is not a domain-balanced or independent final test, and no performance gain
 can be inferred from preparation or a single matched run.
 
-[`krama-random20-protocol.json`](krama-random20-protocol.json) freezes max effort,
+[`krama-random20-protocol.json`](krama-random20-protocol.json) freezes thinking off,
+temperature zero and effort not applicable (`none`),
 the three organization hashes, existing task/web limits, CPU8/thread4, resource
 recording, sixteen solver slots in total and two offline grading slots. Each
 solver has eight GiB memory. Model, native CLI pin and image are unchanged.
@@ -107,14 +108,14 @@ Planning only, from the source directory with the existing evaluation Python:
 python -m scripts.studies.benchmark_matrix \
   --root /home/zhoujunye/mas-data \
   --output /home/zhoujunye/mas/outputs/krama-random20-20261111-01 \
-  --proofs /home/zhoujunye/mas-data/receipts/krama-random20-preparation-20261111-01/native-proofs-final \
+  --proofs /home/zhoujunye/mas-data/receipts/reproducibility-20261111-01/native-proofs \
   --image mas/research-benchmarks:20261111-sqlite-v2 \
   --benchmarks kramabench \
   --conditions claude-code-single-agent native claude-code-subagents \
   --task-manifest docs/studies/krama-random20-manifest.json \
   --protocol-settings docs/studies/krama-random20-protocol.json \
   --tasks-per-benchmark 20 --concurrency 16 --judge-concurrency 2 \
-  --cpus 8 --compute-threads 4 --record-resources --effort max \
+  --cpus 8 --compute-threads 4 --record-resources --effort none \
   --authorized-attempts 60 --authorized-judges 0 --check-runtime
 ```
 
@@ -124,6 +125,44 @@ Do not regenerate it based on results. Planning loads no credentials and makes
 no paid calls. Actual execution additionally requires `--execute`, an explicit
 cost estimate/reserve admission and run-specific authorization; a plan is not a
 provider-enforced spending cap or permission to retry.
+
+## Authorized Paid Run
+
+After preparation, the user explicitly authorized deployment and one execution
+of all sixty selected task/condition slots: sixteen solver processes in total,
+CPU8/thread4, the same model/image/prompts, zero retries. Two grading
+slots may overlap solving. Only `legal-easy-25` and `wildfire-hard-18` have the
+pinned `string_approximate` type, so at most six one-call semantic grades are
+authorized. Other answers retain their deterministic scoring; failed/unknown
+judges and solvers are not repeated. No best-of selection or replacement is allowed.
+
+The generic driver's conservative `--authorized-judges 60` switch enables grading
+for the sixty slots; its type/status guard and the pinned semantic-judge validator
+admit only those six eligible task/condition pairs. The exact allowed pairs are
+recorded separately in the run receipt, not an authorization for sixty judge calls.
+Balance admission uses a CNY120 remaining-cost estimate, 1.5 safety factor and
+CNY5 reserve. This is neither a hard invoice cap nor attributable accounting.
+
+The user subsequently corrected effort to high, then explicitly selected thinking
+off/temperature zero for greater reproducibility and asked to review configuration
+before starting. Thus high is not an effective reasoning setting for this profile.
+The earlier max preparation/proofs are not admission evidence for the revised run.
+No paid dispatch happened before these corrections. Question IDs, fingerprints
+and the sampling seed are unchanged; only the explicit inference/settings profile
+is revised. See [reproducibility](../reproducibility.md).
+
+The prematurely named `20261111-krama-random20-paid-01` directory contains only
+unpaid source preparation; it must not launch the superseded max profile.
+Current free validation source is
+`/home/zhoujunye/mas-stages/20261111-krama-reproducibility-01`.
+Freeze a new paid source after configuration review; do not mutate any source
+once its paid work starts.
+Output: `/home/zhoujunye/mas/outputs/krama-random20-20261111-01`.
+Run/deployment receipts:
+`/home/zhoujunye/mas-data/receipts/krama-random20-run-20261111-01/`.
+Deployment uses source-only sync and reviewed removal of the six superseded
+source/document files, never touching frozen paid stages or runtime resources.
+The paid source remains frozen while analysis is written outside the raw run.
 
 ## Cleanup Boundaries
 

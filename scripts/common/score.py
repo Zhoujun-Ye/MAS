@@ -52,8 +52,12 @@ def judge_rows(rows, *, benchmark, upstream, model, output, client):
                               'Put every rubric key inside scores, not at the top level.\n' +
                               json.dumps(dict(task=row["task_prompt"], response=row["response"], gold=row["answer"],
                                               rubric=outcome_rubric(row["answer"])), ensure_ascii=False))
+                options = dict(temperature=0, max_tokens=2048)
+                if model.startswith('deepseek-'):
+                    options['extra_body'] = dict(thinking=dict(type='disabled'))
+                result['request_parameters'] = options
                 response = client.chat.completions.create(model=model, messages=[dict(role="user", content=prompt)],
-                                                         temperature=0, max_tokens=2048)
+                                                         **options)
                 raw = response.choices[0].message.content or ""
                 result.update(raw_response=response.model_dump(), prompt=prompt)
                 if official is not None:

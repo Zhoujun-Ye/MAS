@@ -11,7 +11,9 @@ from analysis.native_evidence import read_evidence
 
 def test_scope_and_no_secrets_in_native_plan():
     assert "Agent" not in options("claude-code-single-agent")["allowed_tools"]
-    assert not any("KEY" in key or "TOKEN" in key for key in native_env("claude-code-subagents"))
+    environment = native_env("claude-code-subagents")
+    assert not any("KEY" in key or "TOKEN" in key for key in environment if key != 'MAX_THINKING_TOKENS')
+    assert environment['MAX_THINKING_TOKENS'] == '0'
     with pytest.raises(ValueError, match="Only Claude"):
         options("deepagents")
     assert options("claude-code-subagents")["model"] == "deepseek-flash[1m]"

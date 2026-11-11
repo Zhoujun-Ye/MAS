@@ -162,8 +162,9 @@ def plan(args, tasks):
                 web_search=args.web_search,
                 web_policy=web_policy.configuration(max(run_web_limit(t,args) for t in tasks)) if any(t.web for t in tasks) else None,
                 web_request_limits={t.id: run_web_limit(t, args) for t in tasks},
-                native_environment=runtime.native_env(args.backend, effort=getattr(args, "effort", "max"),compute_threads=getattr(args, 'compute_threads', runtime.DEFAULT_COMPUTE_THREADS)),
-                effort=getattr(args, "effort", "max"),
+                native_environment=runtime.native_env(args.backend, effort=getattr(args, "effort", runtime.DEFAULT_EFFORT),compute_threads=getattr(args, 'compute_threads', runtime.DEFAULT_COMPUTE_THREADS)),
+                effort=getattr(args, "effort", runtime.DEFAULT_EFFORT),
+                inference_policy=runtime.inference_configuration(getattr(args, 'effort', runtime.DEFAULT_EFFORT)),
                 max_budget_usd=getattr(args, "max_budget_usd", None),
                 max_web_requests=getattr(args, "max_web_requests", None),
                 organization_prompt=condition_instructions(args, args.backend),
@@ -242,10 +243,11 @@ def attempt(task, args, key):
                        "MAS_WEB_PROVIDER": args.web_search or "none"}
         environment["MAS_WEB_MAX_REQUESTS"] = str(web_limit)
         gateway = CredentialGateway(key, unix_path=folder / "gateway.sock",
-                                    ledger_path=folder / "gateway-requests.jsonl", web_limit=web_limit)
+                                    ledger_path=folder / "gateway-requests.jsonl", web_limit=web_limit,
+                                    inference_policy=runtime.inference_configuration(getattr(args, 'effort', runtime.DEFAULT_EFFORT)))
         gateway.__enter__()
         identity = runtime.container(work, profile, args.data, args.image, backend=args.backend, gateway=gateway,
-            effort=getattr(args, "effort", "max"),
+            effort=getattr(args, "effort", runtime.DEFAULT_EFFORT),
             cpus=getattr(args, 'cpus', runtime.DEFAULT_CPUS),compute_threads=getattr(args, 'compute_threads', runtime.DEFAULT_COMPUTE_THREADS),
             dataset_mounts=inputs, environment_overrides=environment)
         if getattr(args,'record_resources',False):
@@ -374,7 +376,8 @@ def main(argv=None, *, benchmark=None):
     parser.add_argument('--asset-cache',type=Path,help='Host-only stat-validated input hash cache; never mounted')
     parser.add_argument('--preflight',action='store_true',help='Freeze plan and check actual no-network container without model calls')
     parser.add_argument('--from-plan',action='store_true',help='Execute only after matching the saved preflight plan')
-    parser.add_argument("--effort", choices=("high", "max"), default="max")
+    parser.add_argument("--effort", choices=runtime.EFFORTS, default=runtime.DEFAULT_EFFORT,
+                        help="none disables thinking and fixes temperature=0; high/max explicitly enable thinking")
     parser.add_argument("--organization-prompt", type=Path,
                         help="Explicit lead-only Claude Subagents study prompt override")
     args = parser.parse_args(argv)

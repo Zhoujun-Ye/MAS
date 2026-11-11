@@ -81,6 +81,13 @@ see [active infra](studies/evidence-infra.md). No native Team runtime is active.
 
 ## Execution And Evidence
 
+DeepSeek request policy is configured by the native CLI and validated, not
+rewritten, by the host gateway. Current defaults are thinking disabled and
+temperature zero (`--effort none`); actual reasoning effort is not applicable.
+High/max explicitly enable thinking and are not silent defaults. Main/worker
+request fields and remaining nondeterminism are documented in
+[Reproducibility](reproducibility.md).
+
 All adapters expose `command(model, ...)` and `run(..., execute=False)`.
 Default planning starts no subprocess and writes no output. Execution needs an
 existing workspace, a fresh non-overlapping output directory and run-specific

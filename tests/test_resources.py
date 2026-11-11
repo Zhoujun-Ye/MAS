@@ -157,7 +157,7 @@ def test_solver_command_records_resource_options(tmp_path):
 
 
 def test_canonical_infra_profile_matches_live_protocol_without_task_ids():
-    settings=matrix.protocol_settings(SimpleNamespace(effort='high',backends=['claude-code-subagents','claude-code-single-agent'],
+    settings=matrix.protocol_settings(SimpleNamespace(effort=matrix.runtime.DEFAULT_EFFORT,backends=['claude-code-subagents','claude-code-single-agent'],
         concurrency=8,judge_concurrency=2,cpus=8,compute_threads=4,record_resources=True))
     profile=Path(__file__).resolve().parents[1]/'docs/studies/cpu8-infra-protocol.json'
     assert json.loads(profile.read_text())==settings

@@ -137,3 +137,21 @@ def test_external_fatal_judge_error_is_redacted_and_stops_queue(tmp_path):
     assert results[0]['fatal_provider_error'] is True and results[0]['http_status'] == 401
     assert results[1]['status'] == 'not_started'
     assert 'synthetic-private-key' not in json.dumps(results)
+
+
+@pytest.mark.parametrize('model', ['deepseek-flash', 'other-provider-model'])
+def test_judge_temperature_is_effective_for_deepseek_without_changing_other_providers(tmp_path, model):
+    from scripts.common.score import judge_rows
+    calls = []
+    def create(**kwargs):
+        calls.append(kwargs)
+        raise ValueError('Synthetic request capture only')
+    client = SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(create=create)))
+    rows = [dict(task_id='fixture', task_prompt='public', response='candidate', answer='reference')]
+    results = judge_rows(rows, benchmark='dataclawbench', upstream=tmp_path, model=model, output=tmp_path, client=client)
+    request, = calls
+    assert request['temperature'] == 0
+    assert ('extra_body' in request) is model.startswith('deepseek-')
+    if model.startswith('deepseek-'):
+        assert request['extra_body'] == {'thinking': {'type': 'disabled'}}
+    assert results[0]['request_parameters']['temperature'] == 0
