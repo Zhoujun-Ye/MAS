@@ -67,6 +67,7 @@ def freeze(args):
         raise ValueError("Expected one attempt per selected task")
     proof_digest = validate_native_proof(args, plan)
     plan.update(kind="native_cli_benchmark", backend=args.backend,
+                subagents_prompt=getattr(args, "subagents_prompt", "structured"),
                 offline_proof_sha256=proof_digest,
                 admission_task=tasks[0].id,
                 evaluation="Versioned answer metrics and separate no-network replay; no extra pipeline judge")
@@ -83,6 +84,8 @@ def validate(args):
         raise ValueError("Plan receipt changed")
     if plan.get("effort", "max") != getattr(args, "effort", "max"):
         raise ValueError("Frozen effort changed")
+    if plan.get("subagents_prompt", "structured") != getattr(args, "subagents_prompt", "structured"):
+        raise ValueError("Frozen Subagents prompt preset changed")
     validate_native_proof(args, plan, frozen=True)
     if (plan.get('cpu_per_attempt', 2), plan.get('record_resources', False)) != (
             getattr(args, 'cpus', shared.DEFAULT_CPUS), getattr(args, 'record_resources', False)):
@@ -208,6 +211,8 @@ def main(argv=None):
     parser.add_argument("--offline-proof", type=Path, required=True)
     parser.add_argument("--organization-prompt", type=Path,
                         help="Explicit Subagents study instruction override; frozen with its SHA-256")
+    parser.add_argument("--subagents-prompt", choices=("structured", "native"), default="structured",
+                        help="Opt-in minimal Native prompt; Structured remains the unchanged default")
     parser.add_argument("--credentials", type=Path, default=Path("/home/zhoujunye/mas/.env"))
     parser.add_argument("--image", default=shared.DEFAULT_SOLVER_IMAGE)
     parser.add_argument("--concurrency", type=int, default=12)
@@ -239,6 +244,7 @@ def main(argv=None):
         if args.asset_cache.is_relative_to(args.upstream) or args.asset_cache.is_relative_to(args.output):
             raise ValueError('Digest cache must remain outside inputs and attempt output')
     args.organization_override = organization_override(args.organization_prompt, args.backend)
+    condition_instructions(args, args.backend)
     tasks, _ = load_tasks(args.upstream)
     if len(args.task_id) != len(set(args.task_id)) or set(args.task_id) - {t.id for t in tasks}:
         parser.error("Task IDs must be unique members of the pinned workload")

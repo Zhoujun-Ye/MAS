@@ -1,0 +1,555 @@
+{
+  "kind": "matched-study-v1",
+  "order_policy": "seeded-random-shuffle",
+  "baseline_settings": {
+    "effort": "max",
+    "web_policy": {
+      "protocol": "web-v5",
+      "successful_call_limit": 20,
+      "attempt_limit": 40,
+      "fetch_backend": "local-clash-unix",
+      "fetch_proxy_socket": "/home/zhoujunye/.cache/mas-web/clash.sock",
+      "dns_backend": "local-clash-dns-unix",
+      "dns_socket": "/home/zhoujunye/.cache/mas-web/dns.sock",
+      "dns_failure": "fail closed; no server resolver or public DNS fallback",
+      "fetch_proxy_failure": "fail closed; no direct fallback",
+      "fetch_timeout_seconds": 30,
+      "fetch_character_limit": 20000,
+      "fetch_content_types": "text/*, application/json|xml and +json|+xml; HTML stripped, other text verbatim",
+      "fetch_failure_reporting": "payload-free reason code and original target HTTP status",
+      "client_timeout_seconds": 45,
+      "search_results": 10,
+      "search_snippet_characters": 1500,
+      "failed_call_policy": "known failures release success reservation; no automatic retries",
+      "cost_policy": "successful nonempty provider responses only; unknown completion stays unknown",
+      "provider_unit_price_usd": 0.00075,
+      "price_source": "https://api-docs.deepseek.com/guides/search/"
+    },
+    "organization_sha256": {
+      "claude-code-single-agent": "ff771193df12b53fc2aa3593355b07847f3993728d3f850c148bb825c77c5ce6",
+      "native": "263822c47e6a931630000ae87d9a6060d9b2a396e12991f53f983efa07e5d7cf",
+      "claude-code-subagents": "31ff6e4176a25d961866f644adb4d7b97cb4b00228e696c0e4e38a52b9485a95"
+    },
+    "timeout_seconds_by_benchmark": {
+      "dataclawbench": 1200,
+      "hybriddeepresearch": 1800,
+      "kramabench": 3600
+    },
+    "solver_concurrency": 16,
+    "judge_concurrency": 2,
+    "cpu_per_attempt": 8,
+    "compute_threads": 4,
+    "record_resources": true
+  },
+  "benchmarks": {
+    "kramabench": [
+      {
+        "task_id": "wildfire-hard-21",
+        "task_sha256": "f2e197133d86034f2026ab5ab4c3797ad3ff7837d88c9948b0a7c0941d223737"
+      },
+      {
+        "task_id": "legal-easy-25",
+        "task_sha256": "d860558cd04500d3cfe76ac97541fbd424aefe74bc54da41d285bfb6c603417c"
+      },
+      {
+        "task_id": "legal-easy-5",
+        "task_sha256": "efc4790c6418c0f834026c861a57f4769f28812e9feef78b9a2d79503c9be4bf"
+      },
+      {
+        "task_id": "legal-hard-24",
+        "task_sha256": "566f235fb7a8987b4e649fecd3fe55543b8471147991af82c36911d7e0fe2c55"
+      },
+      {
+        "task_id": "legal-hard-7",
+        "task_sha256": "0fc8536027c94efc6f9268a412f516e1c98de5faab29dd778b42d79430f126f9"
+      },
+      {
+        "task_id": "legal-easy-13",
+        "task_sha256": "f12b10b9b6990a1cf424ec28b04caff414d242c32027a539bfa175c7e686cef7"
+      },
+      {
+        "task_id": "wildfire-easy-3",
+        "task_sha256": "7a470cb4ca67d9259f85f0402504468eb11d73874526e65678af8a49f54289d5"
+      },
+      {
+        "task_id": "environment-hard-19",
+        "task_sha256": "b4177b497e79c78a83fe48ce69cabd6a5a790d0516156e828cde0109bc30aa27"
+      },
+      {
+        "task_id": "astronomy-easy-1",
+        "task_sha256": "877dd40ef1c9e834de444402915af4d934382cf8e471476f0acae61a6e3217d2"
+      },
+      {
+        "task_id": "biomedical-hard-7",
+        "task_sha256": "99ed7d71d001184198b94325781f2fb15277c0c1bb56a6524315a428d7121e0b"
+      },
+      {
+        "task_id": "biomedical-hard-8",
+        "task_sha256": "056632a1baae9aaa78390e9c9a522c7906a29bf020959d006bbf3a4b4a56d53a"
+      },
+      {
+        "task_id": "wildfire-easy-2",
+        "task_sha256": "21755e8f4a865a1c52706846bd6eb1f4c790c101200d6aa356ef97bcec881c8a"
+      },
+      {
+        "task_id": "biomedical-hard-3",
+        "task_sha256": "39a1f56c5250e1587581d2715e98876b667b3fe7182881e2d80ac97ade813f9e"
+      },
+      {
+        "task_id": "wildfire-hard-10",
+        "task_sha256": "e13ebf4baf55eb7d24a3991893434ab57c2509a71798ace914904fa103cc53d0"
+      },
+      {
+        "task_id": "legal-easy-4",
+        "task_sha256": "40c7181661b60ccb448ffc551c3b8e0acaf96f620c305ada0a42e390bcb96da3"
+      },
+      {
+        "task_id": "legal-easy-11",
+        "task_sha256": "18f61105924345550ab60090b94a362bd069515399dec0d237f5c25e70c018e4"
+      },
+      {
+        "task_id": "legal-hard-16",
+        "task_sha256": "0df97153e1510cca01201815c904a2bb597b07fe02261cba68891684ee62fd8c"
+      },
+      {
+        "task_id": "astronomy-easy-5",
+        "task_sha256": "5d4d4323439dfeabad94ef951ee33d60389afaf8cb369d1f134d5bad588177c0"
+      },
+      {
+        "task_id": "legal-easy-26",
+        "task_sha256": "524106abc1ca4271e0b0d308e07853232a2b8b706adf433b9cbff47941d76630"
+      },
+      {
+        "task_id": "wildfire-hard-18",
+        "task_sha256": "0684b0c6ba3a8a3eb3d2384a3c7dfa1392024ffcb73be76344b017cde5af18c7"
+      }
+    ]
+  },
+  "sampling": {
+    "method": "python-random-shuffle-v1",
+    "seed": 6820760213620092556,
+    "python_version": "3.12.15",
+    "size": 20,
+    "prior_scores_used": false,
+    "population": {
+      "kramabench": [
+        {
+          "task_id": "archeology-hard-1",
+          "task_sha256": "4db3236164df1eea983f50f7af96901d770e5bb48361ad167d75005e0d15202e"
+        },
+        {
+          "task_id": "archeology-hard-2",
+          "task_sha256": "4ae1ff34ef6c5e6c82a02cdf262621d989ac7b129af14be51e3331159e0533a3"
+        },
+        {
+          "task_id": "archeology-easy-3",
+          "task_sha256": "28b1ca9fa028e05120151ca876bff111b7c9d1abaafd571a249381175b80e2e6"
+        },
+        {
+          "task_id": "archeology-easy-4",
+          "task_sha256": "5ce9c91ec141be08aaca65c4ff8c9247f6001f2d96e0752ee06507fdc83977ca"
+        },
+        {
+          "task_id": "archeology-hard-5",
+          "task_sha256": "3754bd49bca96390d506d5c32e537a27957028800cd51dfd9429857c43159322"
+        },
+        {
+          "task_id": "archeology-easy-6",
+          "task_sha256": "725d2ba7347a883a80e2be59871d1e2408aefba1feb86d78c5a18544670eb3ae"
+        },
+        {
+          "task_id": "archeology-hard-7",
+          "task_sha256": "7dfb394e3fffca81f5302f6eebea595053e306303eebbf888237caea3cfebc8d"
+        },
+        {
+          "task_id": "archeology-easy-8",
+          "task_sha256": "1095df8f25fe37c09e7c6d6e05030841e80de4367879f7a90f4c386326f9bcf4"
+        },
+        {
+          "task_id": "archeology-hard-9",
+          "task_sha256": "d69778538b1c1ca37af3474e5335518f2bbdd5fe9dc1933f32c4107813a29cbe"
+        },
+        {
+          "task_id": "archeology-easy-10",
+          "task_sha256": "9f7f08410e550f0779226a468abef3e74b2d977df5778c7c63fb7b15e31aaa47"
+        },
+        {
+          "task_id": "archeology-easy-11",
+          "task_sha256": "a6084e9875e460dbae25c8b717b29625a31b2ce215459e8b29392c0a57014bf0"
+        },
+        {
+          "task_id": "archeology-hard-12",
+          "task_sha256": "eab7556aae5c986ffe08eab95db444fef8a61b47c676030a24917e8c07842274"
+        },
+        {
+          "task_id": "astronomy-easy-1",
+          "task_sha256": "877dd40ef1c9e834de444402915af4d934382cf8e471476f0acae61a6e3217d2"
+        },
+        {
+          "task_id": "astronomy-easy-2",
+          "task_sha256": "e8a5f0a4063b71f4365ac8b7e81ca6d9ed3158620dcaf3d90ebc963a2e85e400"
+        },
+        {
+          "task_id": "astronomy-easy-3",
+          "task_sha256": "cb4493ce80a09aee62004917e78cc45fa725b45ad2f3043fec550de41240a39d"
+        },
+        {
+          "task_id": "astronomy-easy-4",
+          "task_sha256": "d33d0e0483a950a29a30385ef5c7be532e9682e2354df37f9283c5aa89fcfbdc"
+        },
+        {
+          "task_id": "astronomy-easy-5",
+          "task_sha256": "5d4d4323439dfeabad94ef951ee33d60389afaf8cb369d1f134d5bad588177c0"
+        },
+        {
+          "task_id": "astronomy-easy-6",
+          "task_sha256": "28298888b6f81bbe7aeab5948504e2229f0a6815c59538421c9e2f35f1609dee"
+        },
+        {
+          "task_id": "astronomy-hard-7",
+          "task_sha256": "e92171715aae9796ba2e71e49844c7770aba10e0b855df2c44434f204fcbb874"
+        },
+        {
+          "task_id": "astronomy-hard-8",
+          "task_sha256": "2b363a4a682b5909c7cd09d8e8b6f381d86223c3ef24139195d1a81afd0a1376"
+        },
+        {
+          "task_id": "astronomy-hard-9",
+          "task_sha256": "3791d88048b1ca82082c0661f767a1abd8caf9b863d74c31a420107627e62f0a"
+        },
+        {
+          "task_id": "astronomy-hard-10",
+          "task_sha256": "187a54253555447095386fe607467eb122fc6f8a5f73db5b70e20cf053d3aa3d"
+        },
+        {
+          "task_id": "astronomy-hard-11",
+          "task_sha256": "a2c4a1b9529c7bd488bed14bf45bcb290c6068424e464db0cead77e06b11a1b0"
+        },
+        {
+          "task_id": "astronomy-hard-12",
+          "task_sha256": "c1cff561287219ae2d048f1f5560a06c2015da51676361c69c4fe2225f93f7ec"
+        },
+        {
+          "task_id": "biomedical-hard-1",
+          "task_sha256": "a9188ee6c4a84cb5e2460e56f6f2edc584c4b46e829a7a39d09faa89ca19db11"
+        },
+        {
+          "task_id": "biomedical-easy-2",
+          "task_sha256": "80e747a9f33b42cb3af68e69092fcc254ffbfda8414014384cabaaa0188032a8"
+        },
+        {
+          "task_id": "biomedical-hard-3",
+          "task_sha256": "39a1f56c5250e1587581d2715e98876b667b3fe7182881e2d80ac97ade813f9e"
+        },
+        {
+          "task_id": "biomedical-hard-4",
+          "task_sha256": "dff6303cec0595f120c25957286b2677eb129f84d08ab2d45c193eae797de0b2"
+        },
+        {
+          "task_id": "biomedical-hard-5",
+          "task_sha256": "290506e4e68b7a6a7f88dd5818d2b04fb89bb23bf84f8c46b594ab8b549245fe"
+        },
+        {
+          "task_id": "biomedical-easy-6",
+          "task_sha256": "9156243a9ec9a34fc75f3883605db667260487b1d46ec7f83329e90b7051577f"
+        },
+        {
+          "task_id": "biomedical-hard-7",
+          "task_sha256": "99ed7d71d001184198b94325781f2fb15277c0c1bb56a6524315a428d7121e0b"
+        },
+        {
+          "task_id": "biomedical-hard-8",
+          "task_sha256": "056632a1baae9aaa78390e9c9a522c7906a29bf020959d006bbf3a4b4a56d53a"
+        },
+        {
+          "task_id": "biomedical-easy-9",
+          "task_sha256": "3a88ff83c4ce4a4ed9b7439e3d7e6a6948f95133db4f02189b3c9e3095da7a4e"
+        },
+        {
+          "task_id": "environment-easy-1",
+          "task_sha256": "4aa1d27e65570f7bb1671d23174bc29841d413a8e1309a702a6ceca712c3c352"
+        },
+        {
+          "task_id": "environment-easy-2",
+          "task_sha256": "5663918ae9d01d9d12367a3ea1b64f1a476c6b19aede9d9422df5ec88ad019b2"
+        },
+        {
+          "task_id": "environment-easy-3",
+          "task_sha256": "196732ec5745a782b6560ac04d71aac4a59d5a52d3f6aa5e7f32c631326ed928"
+        },
+        {
+          "task_id": "environment-easy-4",
+          "task_sha256": "569ff63ef71cdf1dd17ef3181c4af984daf9280b457749937dc7cb0d81566b2e"
+        },
+        {
+          "task_id": "environment-easy-5",
+          "task_sha256": "2ad08103926a50532262a064b16ccd387bf27a1b1cd849862355f22460b8f7e4"
+        },
+        {
+          "task_id": "environment-easy-6",
+          "task_sha256": "9b5e596fedcf7d1c555bb41eba3f59de622e0c4e38085ec503b8fb5ff3a300ac"
+        },
+        {
+          "task_id": "environment-hard-7",
+          "task_sha256": "d16735d951f56838b8bca5640b3f279b1cc7ae4b9ddb635887812a84b1e57c32"
+        },
+        {
+          "task_id": "environment-hard-8",
+          "task_sha256": "a61bf6a0d68747b7c54ca82643be671feade46f91647a6df4829d88cec2fd240"
+        },
+        {
+          "task_id": "environment-hard-9",
+          "task_sha256": "6c49e1541b8c35ec8527b6a70260ea6f34e753a6ba2c39c2fa816c2d87343156"
+        },
+        {
+          "task_id": "environment-hard-10",
+          "task_sha256": "a066635330125d04b89ddd8dc9c700e8635c97abd825414be61fc7c7eb766b02"
+        },
+        {
+          "task_id": "environment-hard-11",
+          "task_sha256": "e5ee758e83b09a37937f74e0b1baac68c9c49e0d3387cdf3c50c80c3ef582adf"
+        },
+        {
+          "task_id": "environment-hard-12",
+          "task_sha256": "47443a0b4216843af6b492e5d471a0dcc62d8224e6eda56b8c2825f2e3d3460e"
+        },
+        {
+          "task_id": "environment-hard-13",
+          "task_sha256": "ee4e462e2422ae3639b67c11251c4723aef4ac14fec4d7c23693942797b7a06d"
+        },
+        {
+          "task_id": "environment-hard-14",
+          "task_sha256": "865cf2a34f2beea6ca56362a3887f0cb3337a7680519a5963e73637140db2b69"
+        },
+        {
+          "task_id": "environment-hard-15",
+          "task_sha256": "e222e04a085626fe286aa6c75bde17b543b82a2d44a89bd0fca9579bdb4135d6"
+        },
+        {
+          "task_id": "environment-hard-16",
+          "task_sha256": "b3d4e115eb8d7a3a009e32d712b7c8a5335e4fe0fa5b3641244f25e03e9de301"
+        },
+        {
+          "task_id": "environment-hard-17",
+          "task_sha256": "f0181c1032efd6dfa0fab09802c396681306218bfbaea28b0610f1496e5ae67b"
+        },
+        {
+          "task_id": "environment-hard-18",
+          "task_sha256": "d000eb31d672fce6c4b24a4764bd957676dc12c78aaf540f018e40e7322d51fb"
+        },
+        {
+          "task_id": "environment-hard-19",
+          "task_sha256": "b4177b497e79c78a83fe48ce69cabd6a5a790d0516156e828cde0109bc30aa27"
+        },
+        {
+          "task_id": "environment-hard-20",
+          "task_sha256": "e2dc6324282592386ca0cd85fe2a24f3a8dfbd95b8544925d3db74adc51b7119"
+        },
+        {
+          "task_id": "legal-hard-1",
+          "task_sha256": "c46e2c865c50be5b933ee3aee06622b5087a407a211272c2088eeb261de0f000"
+        },
+        {
+          "task_id": "legal-hard-2",
+          "task_sha256": "8d0f665bac479b23c24665a593aae0e09140ebb7e58e068224d669c37b3d9361"
+        },
+        {
+          "task_id": "legal-easy-3",
+          "task_sha256": "cf34e42a3357a47c848aa2385263582792220400c1613d6b5d6bdd3bb3aad509"
+        },
+        {
+          "task_id": "legal-easy-4",
+          "task_sha256": "40c7181661b60ccb448ffc551c3b8e0acaf96f620c305ada0a42e390bcb96da3"
+        },
+        {
+          "task_id": "legal-easy-5",
+          "task_sha256": "efc4790c6418c0f834026c861a57f4769f28812e9feef78b9a2d79503c9be4bf"
+        },
+        {
+          "task_id": "legal-hard-6",
+          "task_sha256": "1b0c1d62c0838bb4fd7244c5c8d4822a68998218d86a906327266d32228ba010"
+        },
+        {
+          "task_id": "legal-hard-7",
+          "task_sha256": "0fc8536027c94efc6f9268a412f516e1c98de5faab29dd778b42d79430f126f9"
+        },
+        {
+          "task_id": "legal-hard-8",
+          "task_sha256": "df819532982b18669bd451588ee69beed2693b7510c2aa26e80039ddfe2d4245"
+        },
+        {
+          "task_id": "legal-easy-9",
+          "task_sha256": "fce0b2ec6526ae22405c59008f817cd5969f4176724929b15813ad4a83e46188"
+        },
+        {
+          "task_id": "legal-easy-10",
+          "task_sha256": "fccda7b2deaa9f237fc34e642ad54de1426f67bb8a552ff8d37cc8d26b3c59b6"
+        },
+        {
+          "task_id": "legal-easy-11",
+          "task_sha256": "18f61105924345550ab60090b94a362bd069515399dec0d237f5c25e70c018e4"
+        },
+        {
+          "task_id": "legal-easy-12",
+          "task_sha256": "f6ddc6b6c0e0ddab5ebc2afcea2cbd6bcaecc61ee7aac9f8762a1a22317473b8"
+        },
+        {
+          "task_id": "legal-easy-13",
+          "task_sha256": "f12b10b9b6990a1cf424ec28b04caff414d242c32027a539bfa175c7e686cef7"
+        },
+        {
+          "task_id": "legal-hard-14",
+          "task_sha256": "a63b233b8ce9280ce5f1dd4468b9434f65dd3804d6d8d2a914be8dd52d88e78c"
+        },
+        {
+          "task_id": "legal-hard-15",
+          "task_sha256": "2421c3a85978b9cdeb6a18b8f90e9109211748c7ff07f8762290e256c4aa5e55"
+        },
+        {
+          "task_id": "legal-hard-16",
+          "task_sha256": "0df97153e1510cca01201815c904a2bb597b07fe02261cba68891684ee62fd8c"
+        },
+        {
+          "task_id": "legal-hard-17",
+          "task_sha256": "6bddd1b95283ee93c70533ca568e1d18a4338882c70b8d4cea8233ef79346637"
+        },
+        {
+          "task_id": "legal-hard-18",
+          "task_sha256": "9fde80c30189541b2512e93c3011db5b74511ece92d7100bd27d4f89bd89f538"
+        },
+        {
+          "task_id": "legal-easy-19",
+          "task_sha256": "9df455f014e8f8b545aa58591ec019bbcd93834eadcd819f0478d304d1f935e7"
+        },
+        {
+          "task_id": "legal-easy-20",
+          "task_sha256": "8df82bac91cc6b003267351853da389bee9b8962050456ded859d6ed2838c997"
+        },
+        {
+          "task_id": "legal-easy-21",
+          "task_sha256": "b1ef205f53ded69676880a72fcd67a8795135c1513e5a75fac050dd52b064d46"
+        },
+        {
+          "task_id": "legal-hard-22",
+          "task_sha256": "c61391b74e7c8031e71e58a32071fb3ea7989ec809b806a2fe0f33f8584c3322"
+        },
+        {
+          "task_id": "legal-hard-23",
+          "task_sha256": "7bf0548f1bdf1e703450dbd5029edbf93a752789f2e4953c11b06b7a7e7cfa43"
+        },
+        {
+          "task_id": "legal-hard-24",
+          "task_sha256": "566f235fb7a8987b4e649fecd3fe55543b8471147991af82c36911d7e0fe2c55"
+        },
+        {
+          "task_id": "legal-easy-25",
+          "task_sha256": "d860558cd04500d3cfe76ac97541fbd424aefe74bc54da41d285bfb6c603417c"
+        },
+        {
+          "task_id": "legal-easy-26",
+          "task_sha256": "524106abc1ca4271e0b0d308e07853232a2b8b706adf433b9cbff47941d76630"
+        },
+        {
+          "task_id": "legal-easy-27",
+          "task_sha256": "ee3b23af6fadc81576c5b5ec04f1d59bfa4a86ddb9939074af8283d65386d01c"
+        },
+        {
+          "task_id": "legal-hard-28",
+          "task_sha256": "7e2c488d9c1928a587617be896587954f38161919415e0c2fc9178fdad79c1bf"
+        },
+        {
+          "task_id": "legal-hard-29",
+          "task_sha256": "3d350a0e7328b359d4fc4ac9c2f13d33ee40e1cf513f114781b32f51bc52d0b5"
+        },
+        {
+          "task_id": "legal-hard-30",
+          "task_sha256": "adbfd7096f31ef424cd158d0cefa4b76457171c24a2c914868bc2ea6162cdcaa"
+        },
+        {
+          "task_id": "wildfire-easy-1",
+          "task_sha256": "ba2ea3385af850b5209dd6a49265a5e9aef6cf4ad51e11767d2686ebadab53d1"
+        },
+        {
+          "task_id": "wildfire-easy-2",
+          "task_sha256": "21755e8f4a865a1c52706846bd6eb1f4c790c101200d6aa356ef97bcec881c8a"
+        },
+        {
+          "task_id": "wildfire-easy-3",
+          "task_sha256": "7a470cb4ca67d9259f85f0402504468eb11d73874526e65678af8a49f54289d5"
+        },
+        {
+          "task_id": "wildfire-hard-4",
+          "task_sha256": "2fa33ac5c793f5393e756d978e72ad4d961ce0e68debc341e26a12c58cff4a73"
+        },
+        {
+          "task_id": "wildfire-hard-5",
+          "task_sha256": "7e6a567bae2ef3ffb03cefc75aab5f913206157e825284d5b9c4758361637d7b"
+        },
+        {
+          "task_id": "wildfire-hard-6",
+          "task_sha256": "d4cd77c73c9f3c80f156af68413e4a613ffdc72a9f8827d7b1596e31678dffc6"
+        },
+        {
+          "task_id": "wildfire-hard-7",
+          "task_sha256": "efef407a92b8a2541159429f172714aa3e0800af9646f6651dec2a3723544d33"
+        },
+        {
+          "task_id": "wildfire-easy-8",
+          "task_sha256": "ab7dbf7a7ee6c7efb8c30393374c935280e05c9711d674daa029c8796fabe46d"
+        },
+        {
+          "task_id": "wildfire-easy-9",
+          "task_sha256": "a69e448c07f278d76bc7e0307ef44a9c7977888bdcf2bc0426d4ade30ecd91d6"
+        },
+        {
+          "task_id": "wildfire-hard-10",
+          "task_sha256": "e13ebf4baf55eb7d24a3991893434ab57c2509a71798ace914904fa103cc53d0"
+        },
+        {
+          "task_id": "wildfire-hard-11",
+          "task_sha256": "e2a3b4a72d43cc7371ac9d452c48941a11cc9b19ac5a72b4953dd53c5ae14435"
+        },
+        {
+          "task_id": "wildfire-hard-12",
+          "task_sha256": "497cb19f52f0ba8d5217b97724f92f61348faa2001b93c84df7f14a853f516e1"
+        },
+        {
+          "task_id": "wildfire-easy-13",
+          "task_sha256": "1c49be07dd7ab440fe17de4c9218fec2db5d1889b0d6ec623bd5f354abeba287"
+        },
+        {
+          "task_id": "wildfire-hard-14",
+          "task_sha256": "394e234fc801634ace57f63441341c7951f6e18138b2591959204105bca0193a"
+        },
+        {
+          "task_id": "wildfire-easy-15",
+          "task_sha256": "2177fdb1c8a38112ce5acb49733cbff3af476a724134ab0538eebd87e033892b"
+        },
+        {
+          "task_id": "wildfire-hard-16",
+          "task_sha256": "85eb172b9bce57179fc23c2076481d891d87d924df1f786204acf435e9e72fab"
+        },
+        {
+          "task_id": "wildfire-hard-17",
+          "task_sha256": "3983bc50d8868cab125c08fbc6e8fcb848949fe3bafe420280fe1f711201d5ae"
+        },
+        {
+          "task_id": "wildfire-hard-18",
+          "task_sha256": "0684b0c6ba3a8a3eb3d2384a3c7dfa1392024ffcb73be76344b017cde5af18c7"
+        },
+        {
+          "task_id": "wildfire-hard-19",
+          "task_sha256": "e0c126578f4b68b47d358d5000a129d3190adb1521cae7662f571d3bc7cc68c8"
+        },
+        {
+          "task_id": "wildfire-hard-20",
+          "task_sha256": "a4fd09315d6ce745371cf0b079b0b13aef7e7252961ec2b0082b6de8397e8a43"
+        },
+        {
+          "task_id": "wildfire-hard-21",
+          "task_sha256": "f2e197133d86034f2026ab5ab4c3797ad3ff7837d88c9948b0a7c0941d223737"
+        }
+      ]
+    }
+  }
+}

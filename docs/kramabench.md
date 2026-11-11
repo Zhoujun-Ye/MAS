@@ -2,8 +2,10 @@
 
 ## Current Conditions
 
-Use native Claude Single or Subagents; the current comparison uses the frozen
-Validation20 manifest. Strict Single requires native delegation denial and audit.
+Use native Claude Single or Subagents. Default comparisons retain the frozen
+Validation20 manifest; the separately prepared [random20 study](studies/krama-random20-20261111.md)
+uses its own public ID/hash manifest and does not replace Validation20.
+Strict Single requires native delegation denial and audit.
 The lead prompt is unchanged; retired mixed-condition publications are not active.
 
 Pinned upstream: `mitdbg/Kramabench` at
@@ -54,6 +56,14 @@ Agent Teams and its historical result readers are retired.
 disables Agent Teams. Native SubagentStart/Stop and root SessionEnd, no Team
 configs/TeammateIdle events, actual delegation counts and artifact replay are
 recorded separately. Enabled tools are not evidence that delegation occurred.
+
+The opt-in `--subagents-prompt native` selects the user-approved minimal delegation
+prompt, not Structured's seven-point organization. Both require at least one
+observed native subagent and the same lifecycle audit. The matrix condition
+`native` maps to this preset on the existing `claude-code-subagents` adapter,
+with separate output, journal, prompt hash and grading namespaces. Without this
+option, Structured remains the exact frozen default. Native is currently scoped
+to KramaBench, not silently enabled for other benchmarks.
 
 Plans bind source/data/scoring/CLI hashes, native arguments, timeout and concurrency.
 Each task has an independent profile/workspace and disposable existing-image

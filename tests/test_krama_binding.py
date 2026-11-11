@@ -64,9 +64,9 @@ def test_from_plan_revalidates_proof_binding(tmp_path, monkeypatch, changed_proo
         run.validate(args)
 
 
-@pytest.fixture(params=["claude-code-single-agent", "claude-code-subagents"])
+@pytest.fixture(params=["claude-code-single-agent", "claude-code-subagents", "native"])
 def roundtrip_plan(request, tmp_path, monkeypatch):
-    backend = request.param
+    backend = "claude-code-subagents" if request.param == "native" else request.param
     task = Task("probe", "astronomy", "Fixture")
     proof, plan = bound_proof(backend)
     binary = tmp_path / "native-cli"
@@ -79,7 +79,8 @@ def roundtrip_plan(request, tmp_path, monkeypatch):
     proof_path.write_text(json.dumps(proof))
     args = SimpleNamespace(backend=backend, backends=(backend,), output=tmp_path / "out",
         upstream=tmp_path, offline_proof=proof_path, all_tasks=False, selected_task_ids=[task.id],
-        concurrency=1, timeout=3600, judge_limit=1, replay_timeout=180,cpus=2,compute_threads=1)
+        concurrency=1, timeout=3600, judge_limit=1, replay_timeout=180,cpus=2,compute_threads=1,
+        subagents_prompt="native" if request.param == "native" else "structured")
     plan.update(attempts=1, tasks=[dict(id=task.id, domain=task.domain, query=task.query)],
         organization_override=None, backend_instructions={backend: run.condition_instructions(args, backend)},
         limit_instructions=run.limit_instructions(3600),
@@ -130,6 +131,13 @@ def test_frozen_effort_cannot_change(roundtrip_plan):
     args, _ = roundtrip_plan
     args.effort = "high"
     with pytest.raises(ValueError, match="Frozen effort changed"):
+        run.validate(args)
+
+
+def test_frozen_subagents_preset_cannot_change(roundtrip_plan):
+    args, _ = roundtrip_plan
+    args.subagents_prompt = "native" if args.subagents_prompt == "structured" else "structured"
+    with pytest.raises(ValueError, match="Frozen Subagents prompt preset changed"):
         run.validate(args)
 
 
@@ -185,7 +193,8 @@ def test_startup_failure_preserves_owned_container(tmp_path, monkeypatch, remove
     assert stop.is_set() is (not removed)
 
 
-def test_claude_subagents_without_delegation_is_not_admitted(tmp_path, monkeypatch):
+@pytest.mark.parametrize('preset', ['structured', 'native'])
+def test_claude_subagents_without_delegation_is_not_admitted(tmp_path, monkeypatch, preset):
     class Gateway:
         def __init__(self, *args, **kwargs):
             pass
@@ -204,7 +213,8 @@ def test_claude_subagents_without_delegation_is_not_admitted(tmp_path, monkeypat
     monkeypatch.setattr(runtime, "stop_container", lambda *a: dict(stopped=True))
     monkeypatch.setattr(runtime.subprocess, "run", lambda *a, **kw: SimpleNamespace(returncode=0))
     monkeypatch.setattr(runtime, "native_subagents", lambda *a: dict(passed=False, native_team_configs=0, teammate_idle_events=0))
-    args = SimpleNamespace(output=tmp_path / "out", upstream=tmp_path, image="fixture", timeout=900)
+    args = SimpleNamespace(output=tmp_path / "out", upstream=tmp_path, image="fixture", timeout=900,
+                           subagents_prompt=preset)
     report = runtime.run_attempt(Task("probe", "astronomy", "Fixture"), "claude-code-subagents", args,
         "synthetic-secret", threading.Event(), set(), threading.Lock())
     assert report["status"] == "native_condition_unverified"

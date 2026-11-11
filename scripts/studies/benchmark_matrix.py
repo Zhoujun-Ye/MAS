@@ -14,7 +14,7 @@ import threading
 import time
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
-from scripts.common.prompts.conditions import organization_override, backend_instructions
+from scripts.common.prompts.conditions import organization_override, backend_instructions, NATIVE_SUBAGENTS_PROMPT, runtime_backend
 from common.io import write_json
 from benchmarks.dataclawbench.tasks import load_tasks as dc_tasks
 from benchmarks.fdabench.tasks import load_tasks as fda_tasks
@@ -32,6 +32,7 @@ from common.journal import Journal, exclusive
 from harness.runtime_support.admission import admit_balance, amount, BalanceWatch, fatal_provider_record, unavailable_web_proxy
 
 BACKENDS = ("claude-code-single-agent", "claude-code-subagents",)
+CONDITIONS = (*BACKENDS, "native")
 BENCHMARKS = ("dataclawbench", "hybriddeepresearch", "kramabench")
 SUPPORTED_BENCHMARKS = BENCHMARKS + ("fdabench",)
 
@@ -107,12 +108,6 @@ def selections(root, count=2, seed=42, benchmarks=BENCHMARKS):
     return [(bench, task) for bench, tasks in pools.items()
             for task in balanced_sample(tasks, count,
                 (lambda t: t.domain) if bench == 'kramabench' else (lambda t: t.category), seed)]
-
-
-def runtime_backend(condition):
-    if condition not in BACKENDS:
-        raise ValueError('Only Single and Structured conditions are active')
-    return condition
 
 
 def solver_dispatch_status(folder):
@@ -346,10 +341,14 @@ def upstream_recovery(path, jobs, settings, manifest_sha):
 def solver_command(args, benchmark, task, backend, output, *, execute=False):
     condition=backend
     backend=runtime_backend(condition)
+    if condition == "native" and benchmark != "kramabench":
+        raise ValueError("The Native study is currently scoped to KramaBench")
     command = [sys.executable, "-m", "scripts." + benchmark + ".run", "--upstream", str(args.root / benchmark / "upstream"),
                "--backend", backend, "--task-id", task.id, "--image", args.image, "--output", str(output),
                "--credentials", str(args.credentials), "--timeout", str(default_timeout(benchmark)),
-               "--offline-proof", str(args.proofs / condition / "proof.json")]
+               "--offline-proof", str(args.proofs / backend / "proof.json")]
+    if condition == "native":
+        command += ["--subagents-prompt", "native"]
     command += ["--effort", getattr(args, "effort", "max")]
     if backend == "claude-code-subagents" and getattr(args, "organization_prompt", None):
         command += ["--organization-prompt", str(args.organization_prompt)]
@@ -396,11 +395,12 @@ def solver_command(args, benchmark, task, backend, output, *, execute=False):
 def protocol_settings(args):
     backends = getattr(args, "backends", BACKENDS)
     override = organization_override(getattr(args, "organization_prompt", None), "claude-code-subagents")
+    prompts = {k: NATIVE_SUBAGENTS_PROMPT if k == "native" else backend_instructions(k) for k in backends}
+    if override and "claude-code-subagents" in prompts:
+        prompts["claude-code-subagents"] = override["text"]
     settings = dict(effort=args.effort,
                 web_policy=web_policy.configuration(getattr(args,'max_web_requests',web_policy.DEFAULT_WEB_LIMIT)),
-                organization_sha256={k: hashlib.sha256(
-                    (override["text"] if override and k == "claude-code-subagents"
-                     else backend_instructions(k)).encode()).hexdigest() for k in backends},
+                organization_sha256={k: hashlib.sha256(text.encode()).hexdigest() for k, text in prompts.items()},
                 timeout_seconds_by_benchmark={b: default_timeout(b) for b in (
                     SUPPORTED_BENCHMARKS if 'fdabench' in getattr(args, 'benchmarks', ()) else BENCHMARKS)},
                 solver_concurrency=args.concurrency, judge_concurrency=args.judge_concurrency)
@@ -441,7 +441,7 @@ def runtime_preflight(args):
     binary = digest(runtime.CLAUDE)
     proofs = {}
     for condition in args.backends:
-        path = args.proofs / condition / 'proof.json'
+        path = args.proofs / runtime_backend(condition) / 'proof.json'
         raw = path.read_bytes()
         proof = json.loads(raw)
         validate_runtime(proof, runtime_backend(condition), image_id=image, binary_sha256=binary)
@@ -479,8 +479,8 @@ def main(argv=None):
     parser.add_argument("--organization-prompt", type=Path)
     parser.add_argument("--backends", nargs="+", choices=BACKENDS, default=BACKENDS,
                         help="Explicit conditions to run; defaults to the matched Single/Subagents pair")
-    parser.add_argument('--conditions', nargs='+', choices=BACKENDS,
-                        help='Explicit Single/Structured conditions for an authorized matched study')
+    parser.add_argument('--conditions', nargs='+', choices=CONDITIONS,
+                        help='Explicit Single/Structured and opt-in Krama Native study conditions')
     parser.add_argument('--retain-started-from',type=Path,help='Never rerun started attempts; dispatch only previously not_started slots')
     parser.add_argument('--recover-upstream-from', type=Path,
                         help='Explicitly authorized one-time recovery of terminal upstream-5xx failures')
@@ -520,6 +520,8 @@ def main(argv=None):
         if args.organization_prompt or args.backends != BACKENDS:
             raise ValueError('Explicit conditions cannot be combined with backend or prompt overrides')
         args.backends = args.conditions
+    if "native" in args.backends and args.benchmarks != ["kramabench"]:
+        raise ValueError("The Native study is currently scoped to KramaBench")
     args.root, args.output, args.proofs = args.root.resolve(), args.output.resolve(), args.proofs.resolve()
     if args.retain_started_from:
         args.retain_started_from=args.retain_started_from.resolve()
@@ -800,7 +802,8 @@ def main(argv=None):
                                args.output / "logs" / (b + "-" + t.id + "-" + k + "-solver"))
             actual_backend=runtime_backend(k)
             report = out / t.id / actual_backend / "report.json"
-            row = dict(benchmark=b, task_id=t.id, backend=k, returncode=code, run=str(out), status="not_started")
+            row = dict(benchmark=b, task_id=t.id, backend=k, runtime_backend=actual_backend,
+                       returncode=code, run=str(out), status="not_started")
             if report.exists():
                 record = json.loads(report.read_text())
                 row["status"] = record["status"]
@@ -821,6 +824,8 @@ def main(argv=None):
                 return dict(benchmark=b,task_id=t.id,backend=k,judge_calls=None,status='solver_outcome_unknown')
             actual_backend=runtime_backend(k)
             grades_root=args.output/'grades'
+            if k == 'native':
+                grades_root=grades_root/k
             binding=grade_binding(b,t,k,out,authorization['source_manifest'])
             identity=(b,t.id,k)
             paid_grade=needs_judge(b,t,out,bool(args.authorized_judges))
@@ -864,6 +869,7 @@ def main(argv=None):
             result=grade_attempt(b, t, actual_backend, out, data_root=args.root, grades_root=grades_root,
                 credentials=args.credentials, judge_enabled=bool(args.authorized_judges), key=key,
                 command_run=command_run, log=args.output / "logs" / (b + "-" + t.id + "-" + k + "-grade"))
+            result.update(backend=k, runtime_backend=actual_backend)
             if result.get('fatal_provider_error'):
                 stop.set()
             result['grading_artifact']=str(grades_root/b/t.id/actual_backend)

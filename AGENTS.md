@@ -18,10 +18,14 @@ coordinator/full modes, capability catalogs, or custom scheduling semantics.
 - `harness/_claude_cli.py` and `_claude_hooks.py`: shared native arguments/observations and opt-in Single permission policy.
 - `harness/_cli.py`: CLI preflight, process lifetime, stdin and raw evidence only.
 - FULL, OBS and their prompt-only ablations were retired on 2026-11-10.
-  Active conditions are only strict Single and frozen Structured Subagents.
   Do not restore their runtime, tools, hooks, prompts or launch choices. Preserve
   paid historical evidence and frozen sources; analysis may read recorded artifacts
   without reconstructing or executing the retired decision engine.
+  Default conditions are strict Single and frozen Structured Subagents. On
+  November 11 the user approved an opt-in KramaBench Native prompt condition:
+  Structured's opening paragraph plus "Always deploy at least one subagent."
+  This is minimally prompted native delegation, not unprompted CLI behavior.
+  Keep it separate from Structured; do not change the frozen default.
 - `harness/runtime_support/`: reusable SQL/web tools, credential transport and
   native proof validation shared across conditions. Keep these libraries out of
   `scripts/`; scripts own executable workflows, not reusable harness mechanisms.
@@ -50,8 +54,9 @@ coordinator/full modes, capability catalogs, or custom scheduling semantics.
 - On 2026-11-04 the user froze the current orchestrator-worker lead prompt
   (`scripts/common/prompts/structured_subagents.py`, selected through
   `scripts/common/prompts/conditions.py`)
-  as the only Subagents default. Superseded lead
-  prompt files are removed; do not restore or version-label them. Preserve the exact
+  as the only Subagents default. The explicitly selected Native study uses
+  `scripts/common/prompts/native_subagents.py`, not a replacement default.
+  Superseded lead prompt files are removed; do not restore or version-label them. Preserve the exact
   default; there is no backup prompt. Changes and study overrides require user authorization.
   This is a prompted native baseline, not untouched default CLI behavior. Do not
   add our specialist roles, fixed roster, judge mechanism or cost-reduction policy.
@@ -83,7 +88,7 @@ See `docs/cli-adapters.md` for pinned versions, references and limitations.
   provisioning receipts and source-stage location are in `docs/server-preparation.md`.
 - Run tests and experiments on the server, not locally. Inspect live processes and
   CPU ownership first. Never modify `/home/zhoujunye/agent-team` or its resources.
-- All four benchmarks and both active conditions default to 8 CPUs and 4 numerical
+- All four benchmarks and all supported conditions default to 8 CPUs and 4 numerical
   threads per solver. Use the shared defaults in `harness/runtime_support/runtime.py`
   and explicit child flags; never silently fall back to 2 CPUs. Freeze CPU/thread
   settings and capture resources in paid infra studies. Historical frozen runs
@@ -128,7 +133,7 @@ See `docs/cli-adapters.md` for pinned versions, references and limitations.
 - The completed CPU8 paired run and its authorized upstream recovery are retained.
   Earlier interrupted batches were deleted by user request. Do not launch another
   paid comparison without renewed run-specific authorization. See
-  `docs/studies/krama-cpu8-paired.md` and `docs/studies/evidence-infra.md`.
+  `docs/studies/krama-history.md` and `docs/studies/evidence-infra.md`.
 - No paid agents, judges, simulators or retries without run-specific authorization
   and size. Offline tests use fake CLIs and must not invoke a paid provider.
 - For user-authorized reruns of attempts terminated by confirmed upstream HTTP
@@ -161,6 +166,13 @@ See `docs/cli-adapters.md` for pinned versions, references and limitations.
 
 ## Current Infra And Retention Override (2026-11-10)
 
+- On November 11 the user requested preparing a fresh random twenty-task
+  KramaBench comparison for Single, Native and Structured: sixty solver slots,
+  zero retries and no paid judges. Native must actually delegate at least once;
+  its prompt is the approved minimal prefix, with the same native audit as
+  Structured. Preserve the original Validation20 and the independently seeded
+  new ID/hash manifest. The latest request is preparation, cleanup, commit and
+  push, not paid execution. See `docs/studies/krama-random20-20261111.md`.
 - The user retired FULL/OBS and authorized one FDABench choice smoke: four fixed
   questions times Single/Structured, eight solver attempts, no retries or paid
   judges. This is not standing authorization for further paid experiments.

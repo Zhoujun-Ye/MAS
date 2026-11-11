@@ -16,7 +16,6 @@ def test_scope_and_no_secrets_in_native_plan():
         options("deepagents")
     assert options("claude-code-subagents")["model"] == "deepseek-flash[1m]"
     assert native_env("claude-code-subagents")["CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS"] == "0"
-    assert native_env("claude-code-subagents")["CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS"] == "0"
 
 
 @pytest.mark.parametrize("backend", ["claude-code-single-agent", "claude-code-subagents"])

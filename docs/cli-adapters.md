@@ -47,7 +47,11 @@ no specialist roster, judge role or cost-reduction policy.
 
 For inspection, `scripts/common/prompts/structured_subagents.py` holds this unchanged
 default as `PROMPT`. FULL/OBS, their Native alternative prompt and prompt-only
-ablations were retired on 2026-11-10. Only Single and Structured are active. The Python
+ablations were retired on 2026-11-10. Single and Structured remain the defaults.
+The explicitly approved Krama Native study uses `native_subagents.py`: only the
+Structured opening paragraph plus "Always deploy at least one subagent."
+It uses this same adapter and audit, not a third runtime or unprompted CLI policy.
+The Python
 files are not raw-text inputs for `--organization-prompt`.
 
 Native facts this relies on, observed on 2.1.286:

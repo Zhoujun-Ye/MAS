@@ -12,8 +12,10 @@ management or scheduling. Agent Teams and retired adapters remain retired.
 
 Outside this package:
 
-FULL/OBS and their prompt-only modes are retired. Only Single and Structured
-are active; retained paid artifacts are read by `analysis/`, never launched here.
+FULL/OBS and their prompt-only modes are retired. Single and Structured remain
+the defaults; the opt-in Krama Native prompt study reuses the Subagents adapter
+without adding a harness runtime. Retained paid artifacts are read by `analysis/`,
+never launched here.
 
 - `benchmarks/`: task data, reference protection and evaluation contracts.
 - `scripts/<benchmark>/`: catalog/run/score workflows and benchmark-specific replay.

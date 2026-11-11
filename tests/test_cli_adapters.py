@@ -126,6 +126,8 @@ def test_native_process_receipts_and_private_environment(backend, stub, workspac
     assert len(version["launcher_sha256"]) == 64
     assert record["team"] == "0" and record["retries"] == "0"
     assert report["native_result"]["result"] == "native reply"
+    assert all(value is not None and value >= 0 for value in report['timing'].values())
+    assert sum(report['timing'].values()) <= report['elapsed_seconds']
     before = {p.name: p.read_bytes() for p in output.iterdir()}
     with pytest.raises(FileExistsError):
         stub(backend).run("new", model="model", workspace=workspace, output=output, execute=True)
@@ -191,6 +193,9 @@ def test_timeout_stops_process_group_and_preserves_partial_output(stub, workspac
     report = stub("claude", delay=60, child=True).run(
         "task", model="model", workspace=workspace, output=tmp_path / "out", timeout=0.5, execute=True)
     assert report["status"] == "timed_out" and report["returncode"] < 0
+    assert report['timing']['native_process_seconds'] >= .5
+    assert report['timing']['process_cleanup_seconds'] >= 0
+    assert report['timing']['result_parse_seconds'] is None
     assert "native reply" in (tmp_path / "out/stdout.log").read_text()
     pid = json.loads((workspace / "invocation.json").read_text())["child_pid"]
     deadline = time.monotonic() + 2

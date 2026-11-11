@@ -155,8 +155,9 @@ native internal retry behavior remains a separate pinned-CLI verification bounda
 ## Resource Evidence And Concurrency
 
 All four benchmarks use the same shared default: 8 CPUs and 4 numerical threads
-per solver, for both Single and Structured. Child commands always pass these
-settings explicitly; plans record both even when using defaults. Explicit study
+per solver, including the opt-in Krama Native study alongside Single and Structured.
+Child commands always pass these settings explicitly; plans record both even when
+using defaults. Explicit study
 overrides must be frozen, never inferred from a benchmark or applied mid-run.
 
 With `--record-resources`, all four benchmark runners capture CPU plus memory

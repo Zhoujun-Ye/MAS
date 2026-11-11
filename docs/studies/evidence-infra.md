@@ -1,6 +1,9 @@
 # Baseline Execution Infrastructure
 
-Active conditions are only Single and Structured. FULL, OBS and their prompt-only
+Default conditions are Single and Structured. KramaBench also supports the
+explicitly selected [minimal Native study](krama-random20-20261111.md) on the same
+Subagents adapter; delegation is mandatory in both Subagents conditions.
+FULL, OBS and their prompt-only
 ablations were retired on 2026-11-10, including their runtime, hooks, tools and
 launch choices. Their paid evidence and frozen sources remain under
 [retention](../archive.md). The frozen Structured baseline is unchanged.
@@ -21,7 +24,7 @@ References, gold SQL, rubric answers and frozen search results are never mounted
 
 ## Tools And Resources
 
-SQL and corpus readers share the same implementations across both conditions.
+SQL and corpus readers share the same implementations across supported conditions.
 Web-enabled tasks use [web transport](web-infra.md): GET and DNS both use the
 private Mac/Clash route, with no direct/provider-fetch or server-DNS fallback.
 Model/search/judge APIs remain server-direct. FDABench choice scoring is offline;
@@ -32,7 +35,7 @@ resource telemetry, recovery and manifest rules. Full-scale means task coverage,
 not the retired FULL condition. CPU quota and numerical thread limits are frozen
 per run, and bounded concurrency counts total solver jobs across conditions.
 The shared defaults are 8 CPUs and 4 numerical threads for every benchmark and
-both conditions. Plans and child commands record the values explicitly.
+every supported condition. Plans and child commands record the values explicitly.
 
 The shared image includes Poppler to eliminate the observed missing-renderer
 failure in native PDF reads. SQLite helper failures return a compact typed error,

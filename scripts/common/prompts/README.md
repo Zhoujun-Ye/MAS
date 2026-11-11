@@ -6,9 +6,10 @@ top-level package.
 | File | Responsibility | Active |
 | --- | --- | --- |
 | `structured_subagents.py` | Frozen seven-point Subagents lead prompt | Subagents default |
+| `native_subagents.py` | Approved opening paragraph plus mandatory delegation | Opt-in Krama Native study |
 | `single_agent.py` | Strict Single condition text | Single default |
 | `conditions.py` | Backend selection and explicit raw-text study overrides | Yes |
-| `limits.py` | Identical wall-clock and web-limit wording for both conditions | Yes |
+| `limits.py` | Identical wall-clock and web-limit wording for every condition | Yes |
 
 Structured refers to ordinary native Claude Code subagents, not
 Agent Teams. FULL/OBS and their prompt-only study prompts are retired.
@@ -32,3 +33,9 @@ do not pass one of these Python modules as its input.
 
 Lead-only organization text must not be copied into worker-visible rule files.
 Run limits remain shared task rules, not a Subagents-only policy.
+
+Krama's `--subagents-prompt native` selects the minimal prompt without a raw-file
+override. The matrix exposes it as `--conditions ... native ...`, retaining
+independent task/condition outputs and grades while using the existing Subagents
+runtime/proof. Native and Structured both require actual native delegation;
+neither condition is an unprompted CLI default. Structured remains the default.

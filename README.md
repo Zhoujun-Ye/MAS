@@ -15,10 +15,14 @@ This is a prompted native baseline, not an unmodified default CLI policy. It add
 no specialist roster or cost-reduction method. Both conditions receive the same task
 rules, including the run's wall-clock and web request limits. Structural worker
 completion does not prove substantive contribution; that remains a separate
-evidence-review question.
+evidence-review question. KramaBench additionally supports the explicitly selected
+`native` study condition: the approved opening paragraph and a requirement to
+deploy at least one subagent, without Structured's seven detailed constraints.
+It reuses the same adapter and audit; it is not an unprompted CLI default.
 
 FULL, OBS and prompt-only ablations were retired on 2026-11-10. Active launch
-conditions are only Single and Structured; historical results below are not launch choices.
+defaults remain Single and Structured; the opt-in Native study does not restore
+any retired condition. Historical results below are not launch choices.
 Deep Agents, Claude Code Agent Teams and Codex adapters are retired. Do not restore
 their active adapters or launch choices. Codex results were removed at the user's
 request. Paid comparisons and their frozen source/accounting are retained under
@@ -36,7 +40,7 @@ This is not an overall speedup or an isolated causal CPU experiment. See
 [the original diagnostic](docs/studies/fdabench-smoke4-20261110.md).
 
 Current defaults are 8 CPUs and 4 numerical threads across all four benchmarks
-and both conditions. The shared image includes native PDF rendering. These
+and all supported conditions. The shared image includes native PDF rendering. These
 repairs have free runtime verification and the bounded paid rerun above. The
 original paid diagnostic remains unchanged, including its actual 2-CPU profile.
 
@@ -87,6 +91,7 @@ environments, outputs or `--delete`. Do not touch the unrelated Agent-Team proje
 
 ## Documentation
 
+- [Prepared Single/Native/Structured random20 comparison](docs/studies/krama-random20-20261111.md)
 - [Claude CLI contracts](docs/cli-adapters.md)
 - [Benchmark structure](docs/benchmark-adaptation.md)
 - [KramaBench](docs/kramabench.md) and [DataClaw/HDR](docs/research-benchmarks.md)

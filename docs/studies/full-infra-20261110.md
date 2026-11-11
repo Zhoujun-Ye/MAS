@@ -31,7 +31,8 @@ The paid HDR check also made four `obs_read(limit=16000)` calls rejected because
 only absolute `end` was supported, unlike `decision_read`. A later bounded
 `start/limit` compatibility parameter preserves `start/end`, rejects ambiguous
 `end+limit` and does not bypass decision review or retry old calls.
-The [canonical contract](intermediate-full.md) owns these APIs.
+The [recorded-format guide](krama-history.md#recorded-formats) explains these retired artifacts;
+their exact historical APIs remain in the frozen paid sources, not active launch options.
 
 ## Authorized Paid Check
 

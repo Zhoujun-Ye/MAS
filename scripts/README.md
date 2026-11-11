@@ -23,3 +23,5 @@ native modes; `offline_benchmarks.py` adds mounted-data/native-budget checks usi
 the shared standalone `native_transport.py` fixture. `external_workflow.py`
 exercises the complete benchmark runner. These complementary checks are synthetic,
 not paid solver launch options or evidence of benchmark quality.
+`krama_workflow.py` reuses that fixture for Single/Native/Structured prompt binding,
+mandatory delegation, mounted data, submission and credential-free pipeline replay.

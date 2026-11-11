@@ -6,9 +6,9 @@ original artifact paths; obsolete study outputs and compatibility source are rem
 | Owner | Contents |
 | --- | --- |
 | `common/` | Domain-independent persistence, fingerprints and durable phase claims |
-| `harness/` | Single/Structured native adapters, hooks, containers, tools, credential transport and execution provenance |
+| `harness/` | Single/Subagents native adapters, hooks, containers, tools, credential transport and execution provenance |
 | `benchmarks/` | Task loading, references, grading contracts and benchmark policy |
-| `analysis/` | Read-only evidence interpretation and aggregate statistics |
+| `analysis/` | Read-only native/host request accounting, timing, recorded evidence and statistics |
 | `scripts/<benchmark>/` | Benchmark execution entrypoints and workflows |
 | `scripts/common/` | Shared experiment workflows and frozen prompt composition |
 | `scripts/studies/` | Research experiment protocols and matrices |
@@ -31,6 +31,12 @@ original artifact paths; obsolete study outputs and compatibility source are rem
 
 `tests/test_benchmark_layout.py` checks these import boundaries and checks that
 relocated modules have one owner, with no obsolete forwarding copies.
+
+Generic timing unions and host request-pair/token accounting have single owners
+in `analysis/timing.py` and `analysis/request_accounting.py`. Historical workspace
+analysis consumes these helpers, not the reverse. The unused old host request
+reservation/price-cap implementation was removed; active balance admission,
+native explicit budget flags and shared web limits retain their existing owners.
 
 ## Active Deployment
 

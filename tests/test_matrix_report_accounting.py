@@ -68,6 +68,39 @@ def test_incomplete_or_unmatched_usage_remains_unknown(tmp_path, change):
     assert row['total_usd_offpeak'] is None
 
 
+def test_partial_run_keeps_known_request_cost_without_fabricating_a_total(tmp_path):
+    sent, done = request_pair()
+    second = dict(sent, request_id='cancelled')
+    cancelled = dict(done, request_id='cancelled', event='shutdown', outcome='shutdown_inflight', usage_status='partial')
+    row = report_for(tmp_path, [sent, done, second, cancelled])
+    assert row['model_usd_offpeak'] is None and row['total_usd_offpeak'] is None
+    assert row['known_model_usd_offpeak_subtotal'] == price(done['usage'])
+    assert row['requests_with_known_cost'] == row['requests_with_unknown_cost'] == 1
+    assert row['model_request_outcomes'] == {'response_complete': 1, 'shutdown_inflight': 1}
+
+
+def test_duplicate_terminal_usage_is_not_included_in_known_subtotals(tmp_path):
+    sent, done = request_pair()
+    row = report_for(tmp_path, [sent, done, dict(done)])
+    assert row['known_model_usd_offpeak_subtotal'] is None
+    assert row['requests_with_unknown_cost'] > 0
+
+
+def test_absent_request_evidence_does_not_imply_zero_unknown_cost(tmp_path):
+    row = report_for(tmp_path, [])
+    assert row['total_usd_offpeak'] is None
+    assert row['requests_with_unknown_cost'] is None
+    assert row['model_tokens']['requests_with_unknown_tokens'] is None
+
+
+@pytest.mark.parametrize('usage', [None, [], {'input_tokens': None, 'output_tokens': 1},
+    {'input_tokens': 1, 'output_tokens': float('nan')},
+    {'prompt_tokens': 1, 'prompt_cache_hit_tokens': 2, 'completion_tokens': 1},
+    {'input_tokens': True, 'output_tokens': 1}])
+def test_malformed_usage_is_unknown_not_a_report_crash(usage):
+    assert price(usage) is None
+
+
 def test_summary_has_no_empty_conditions_and_distinguishes_partial_costs():
     row = dict(benchmark='dataclawbench', backend='claude-code-subagents', score=1,
                seconds=60, total_usd_offpeak=0.1, status='cli_exited', model_requests=1,

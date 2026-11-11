@@ -84,15 +84,19 @@ def run_cli(*, backend, argv, version, version_pattern, environment, prompt,
     env = dict(os.environ, **environment)
     report = dict(backend=backend, status="preflight_error", returncode=None,
                   usage=None, cost_usd=None, team_created=None,
-                  correctness="not_evaluated", model_calls_started=False)
+                  correctness="not_evaluated", model_calls_started=False,
+                  timing=dict(version_preflight_seconds=None, native_process_seconds=None,
+                              process_cleanup_seconds=None, result_parse_seconds=None))
     started, process = time.monotonic(), None
     try:
         verified = verify_cli(argv[0], version, version_pattern, env, workspace, command_prefix)
+        report["timing"]["version_preflight_seconds"] = time.monotonic() - started
         write_json(output / "cli-version.json", verified)
         command = [*command_prefix, verified["executable"], *argv[1:]]
         with (output / "prompt.txt").open("rb") as stdin, \
                 (output / "stdout.log").open("xb") as stdout, \
                 (output / "stderr.log").open("xb") as stderr:
+            process_started = time.monotonic()
             process = subprocess.Popen(command, cwd=workspace, env=env, stdin=stdin,
                                        stdout=stdout, stderr=stderr, start_new_session=True)
             # Dispatch does not establish that the provider accepted any calls.
@@ -103,10 +107,15 @@ def run_cli(*, backend, argv, version, version_pattern, environment, prompt,
             except subprocess.TimeoutExpired:
                 report["status"] = "timed_out"
             finally:
+                cleanup_started = time.monotonic()
+                report["timing"]["native_process_seconds"] = cleanup_started - process_started
                 stop_process_group(process)
+                report["timing"]["process_cleanup_seconds"] = time.monotonic() - cleanup_started
                 report["returncode"] = process.returncode
         if report["status"] == "cli_exited" and parse_result is not None:
+            parsing_started = time.monotonic()
             report.update(parse_result(output / "stdout.log"))
+            report["timing"]["result_parse_seconds"] = time.monotonic() - parsing_started
     except (KeyboardInterrupt, SystemExit):
         report["status"] = "interrupted"
         raise

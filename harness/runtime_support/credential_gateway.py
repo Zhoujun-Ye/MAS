@@ -104,13 +104,12 @@ class UsageObserver:
 
 
 class CredentialGateway:
-    def __init__(self, key, *, bind="127.0.0.1", web_limit=0, unix_path=None, ledger_path=None, budget=None):
+    def __init__(self, key, *, bind="127.0.0.1", web_limit=0, unix_path=None, ledger_path=None):
         if not isinstance(key, str) or not key or not key.isascii() or any(c.isspace() for c in key):
             raise ValueError("Invalid provider credential format")
         if web_limit < 0:
             raise ValueError("Web limit must be nonnegative")
         self.key, self.token = key, secrets.token_urlsafe(32)
-        self.budget = budget
         self.web_limit, self.web_calls = web_limit, 0
         self.web_attempts=0
         self.web_attempt_limit=web_limit*2
@@ -238,12 +237,6 @@ class CredentialGateway:
                                 gateway.web_calls += 1
                                 gateway.web_attempts += 1
                                 self.record.update(web_reserved=True, web_reservation=gateway.web_calls)
-                        if gateway.budget is not None:
-                            try:
-                                gateway.budget.reserve(request_id, payload, parsed.path)
-                            except ValueError:
-                                self.json_error(402, "run_budget_rejected", "Budget admission rejected; no provider request sent; do not retry")
-                                return
                         self.record.update(upstream_attempted=True, dispatched_at=now())
                         if parsed.path.startswith('/v1/tools/'):
                             fetching=parsed.path.endswith('/fetch')
@@ -309,8 +302,6 @@ class CredentialGateway:
                         if observer.response_id:
                             self.record["provider_response_id"] = gateway.redact(observer.response_id)
                     self.record["finished_at"] = now()
-                    if gateway.budget is not None:
-                        gateway.budget.settle(self.record)
                     gateway.settle_web(self.record)
                     gateway.receipt(dict(self.record, event="finished"))
 

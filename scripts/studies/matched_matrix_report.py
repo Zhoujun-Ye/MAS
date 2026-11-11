@@ -6,11 +6,14 @@ from decimal import Decimal
 from pathlib import Path
 import argparse
 import copy
+import math
 import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from benchmarks._external import jsonl
 from common.io import read_json as read
+from analysis.request_accounting import model_receipts, gateway_tokens
+from scripts.common.prompts.conditions import runtime_backend
 
 
 def lines(path):
@@ -18,7 +21,7 @@ def lines(path):
 
 
 def price(usage):
-    if not usage:
+    if not isinstance(usage, dict) or not usage:
         return None
     if 'prompt_tokens' in usage:
         if 'completion_tokens' not in usage:
@@ -30,8 +33,14 @@ def price(usage):
         if 'input_tokens' not in usage or 'output_tokens' not in usage:
             return None
         hit = usage.get('cache_read_input_tokens', 0)
-        total = usage.get('input_tokens', 0) + hit + usage.get('cache_creation_input_tokens', 0)
+        parts = [usage['input_tokens'], hit, usage.get('cache_creation_input_tokens', 0)]
+        if any(type(v) not in (int, float) or not math.isfinite(v) or v < 0 for v in parts):
+            return None
+        total = sum(parts)
         output = usage.get('output_tokens', 0)
+    if (any(type(v) not in (int, float) or not math.isfinite(v) or v < 0 for v in (total, hit, output))
+            or hit > total):
+        return None
     return ((total - hit) * .15 + hit * .003 + output * .6) / 1e6
 
 
@@ -44,7 +53,7 @@ def collect(root):
     for item in summary['rows']:
         b, t, k = item['benchmark'], item['task_id'], item['backend']
         out = Path(item['run'])
-        actual_backend=item.get('runtime_backend',k)
+        actual_backend=item.get('runtime_backend',runtime_backend(k) if k == 'native' else k)
         folder = out / t / actual_backend
         report = read(folder / 'report.json', {})
         grade = grade_by_id.get((b, t, k), {})
@@ -80,10 +89,8 @@ def collect(root):
                 accounting = native_row.get('accounting', accounting)
                 audit = native_row.get('single_agent_audit', native_row.get('subagents_audit', audit))
         ledger = lines(folder / 'gateway-requests.jsonl')
-        finished = [r for r in ledger if r.get('event') == 'finished']
-        model = [r for r in finished if r.get('route') == '/anthropic/v1/messages'
-                 and r.get('upstream_attempted') is True]
-        dispatched = [r for r in ledger if r.get('event') == 'dispatched' and r.get('route') == '/anthropic/v1/messages']
+        receipts = model_receipts(ledger)
+        model, dispatched = receipts['terminal'], receipts['dispatched']
         web = [r for r in ledger if r.get('event') in {'finished','shutdown'}
                and r.get('route') in ('/v1/tools/search', '/v1/tools/fetch') and r.get('upstream_attempted') is True]
         # Old receipts lack nonempty-result/billability evidence. Keep their
@@ -98,25 +105,23 @@ def collect(root):
         if web_sent and ({r.get('request_id') for r in web_sent}!={r.get('request_id') for r in web}
                          or len(web_sent)!=len(web)):
             web_cost=None
-        model_costs = [price(r.get('usage')) for r in model]
-        # Local rejections are not provider responses; partial streams cannot establish charges.
-        dispatched_ids = {r.get('request_id') for r in dispatched}
-        finished_ids = {r.get('request_id') for r in model}
-        complete = (bool(dispatched) and None not in dispatched_ids
-                    and len(dispatched_ids) == len(dispatched) == len(model) == len(finished_ids)
-                    and dispatched_ids == finished_ids
-                    and all(r.get('outcome') == 'response_complete' and r.get('usage_status') == 'observed'
-                            for r in model))
-        model_cost = sum(model_costs) if complete and all(v is not None for v in model_costs) else None
+        model_costs = [price(r.get('usage')) for r in receipts['observed']]
+        model_cost = sum(model_costs) if receipts['complete'] and all(v is not None for v in model_costs) else None
+        known_costs = [v for v in model_costs if v is not None]
         plan = read(out / 'plan.json', {})
         prompt = (plan.get('prompts') or {}).get(t)
         if prompt is None and plan.get('backend_instructions'):
-            prompt = dict(organization_characters=len(plan['backend_instructions'].get(k, '')))
+            prompt = dict(organization_characters=len(plan['backend_instructions'].get(actual_backend, '')))
         costs = [model_cost, web_cost, judge_cost]
-        result.append(dict(benchmark=b, task_id=t, backend=k, status=item['status'], score=score,
+        result.append(dict(benchmark=b, task_id=t, backend=k, runtime_backend=actual_backend, status=item['status'], score=score,
             resources=report.get('resources'),
             grade_status=grade_status, seconds=report.get('cli', {}).get('elapsed_seconds'),
-            model_requests=len(dispatched), model_responses=len(model),
+            model_requests=len(dispatched), model_responses=sum(r.get('event') == 'finished' for r in model),
+            model_tokens=gateway_tokens(ledger), model_request_outcomes=receipts['outcomes'],
+            requests_with_known_cost=len(known_costs),
+            requests_with_unknown_cost=max(len(dispatched),len(model))-len(known_costs) if dispatched or model else None,
+            known_model_usd_offpeak_subtotal=sum(known_costs) if known_costs else None,
+            cli_timing=report.get('cli', {}).get('timing'), container_cleanup=report.get('cleanup'),
             request_efforts=dict(Counter(r.get('request_effort', 'unknown') for r in dispatched)),
             model_usd_offpeak=model_cost, web_usd_estimate=web_cost, judge_usd_offpeak=judge_cost,
             web_cost_basis='legacy successful-HTTP estimate; billability unverified' if legacy_web else 'host per-request billability receipts; not an invoice',
@@ -145,7 +150,7 @@ def collect(root):
 def summarize(result):
     groups = []
     for b in ('dataclawbench', 'hybriddeepresearch', 'kramabench', 'fdabench', 'all'):
-        for k in ('claude-code-single-agent', 'claude-code-subagents','observations','full'):
+        for k in ('claude-code-single-agent', 'native', 'claude-code-subagents','observations','full'):
             selected = [r for r in result if r['backend'] == k and (b == 'all' or r['benchmark'] == b)]
             if not selected:
                 continue
@@ -166,6 +171,10 @@ def summarize(result):
                 known_usd_offpeak_subtotal=sum(c for c in costs if c is not None),
                 total_usd_offpeak=sum(costs) if all(c is not None for c in costs) else None,
                 model_requests=sum(r['model_requests'] for r in selected),
+                known_model_usd_offpeak_subtotal=sum(r.get('known_model_usd_offpeak_subtotal') or 0 for r in selected)
+                    if any(r.get('known_model_usd_offpeak_subtotal') is not None for r in selected) else None,
+                requests_with_unknown_cost=sum(r['requests_with_unknown_cost'] for r in selected)
+                    if all(type(r.get('requests_with_unknown_cost')) is int for r in selected) else None,
                 native_audit_passes=sum(r['native_audit_passed'] is True for r in selected)))
     return groups
 
@@ -252,7 +261,8 @@ def write_report(report, output):
             continue
         count = group['attempts']
         condition = (report.get('condition_labels', {}).get(group['backend']) or
-                     {'observations':'Observation','full':'Full'}.get(group['backend']) or
+                     {'native':'Native', 'claude-code-subagents':report.get('condition_label', 'Structured'),
+                      'observations':'Observation','full':'Full'}.get(group['backend']) or
                      ('Single' if group['backend'].endswith('single-agent') else report.get('condition_label', 'Subagents')))
         text.append(f"| {group['benchmark']} | {condition} | {group['graded']}/{count} | {fmt(group['mean_score'])} | "
                     f"{group['full_score']}/{count} | {fmt(group['mean_minutes'], '.2f')} | "

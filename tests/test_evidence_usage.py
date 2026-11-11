@@ -1,4 +1,4 @@
-from analysis.evidence_usage import merged, duration
+from analysis.timing import merged, duration
 
 
 def test_overlapping_agent_intervals_are_not_added_as_wall_time():

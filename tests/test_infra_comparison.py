@@ -3,7 +3,8 @@ import json
 
 import pytest
 
-from scripts.studies.compare_infra import change,complete_sum,gateway_tokens
+from scripts.studies.compare_infra import change,complete_sum
+from analysis.request_accounting import gateway_tokens
 from scripts.studies import compare_infra
 
 
@@ -19,6 +20,15 @@ def test_gateway_tokens_distinguish_cached_and_uncached_inputs():
     assert result['complete']
     assert result['input_tokens']==112 and result['uncached_input_tokens']==12
     assert result['cache_hit_tokens']==100 and result['output_tokens']==8
+
+
+def test_partial_tokens_retain_only_unambiguous_completed_request_subtotals():
+    rows = records()
+    rows.append(dict(rows[0], request_id='inflight'))
+    result = gateway_tokens(rows)
+    assert not result['complete'] and result['output_tokens'] is None
+    assert result['known_request_subtotal']['output_tokens'] == 8
+    assert result['requests_with_known_tokens'] == result['requests_with_unknown_tokens'] == 1
 
 
 @pytest.mark.parametrize('fault',('duplicate','missing','partial','failed','missing-cache','wrong-id'))

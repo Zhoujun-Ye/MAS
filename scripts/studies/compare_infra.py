@@ -8,7 +8,8 @@ from pathlib import Path
 import sys
 
 sys.path.insert(0,str(Path(__file__).resolve().parents[2]))
-from analysis.evidence_usage import timing
+from analysis.timing import timing
+from analysis.request_accounting import gateway_tokens
 from analysis.native_evidence import tool_errors
 from scripts.studies.matched_matrix_report import collect
 
@@ -27,27 +28,6 @@ def change(before,after):
                 percent=100*(after-before)/before if before else None)
 
 
-def gateway_tokens(records):
-    sent=[r for r in records if r.get('event')=='dispatched' and r.get('route')=='/anthropic/v1/messages']
-    done=[r for r in records if r.get('event') in {'finished','shutdown'}
-          and r.get('route')=='/anthropic/v1/messages' and r.get('upstream_attempted') is True]
-    ids=[r.get('request_id') for r in sent]; finished=[r.get('request_id') for r in done]
-    complete=(bool(ids) and None not in ids and len(ids)==len(set(ids))==len(done)==len(set(finished))
-              and set(ids)==set(finished) and all(r.get('outcome')=='response_complete'
-              and r.get('usage_status')=='observed' and r.get('http_status')==200 for r in done))
-    result=dict(input_tokens=None,cache_hit_tokens=None,uncached_input_tokens=None,output_tokens=None)
-    values=[]
-    for row in done:
-        usage=row.get('usage') or {}
-        fields=('input_tokens','cache_creation_input_tokens','cache_read_input_tokens','output_tokens')
-        if not all(type(usage.get(k)) is int and usage[k]>=0 for k in fields):complete=False;continue
-        miss=usage['input_tokens']+usage['cache_creation_input_tokens'];hit=usage['cache_read_input_tokens']
-        values.append(dict(input_tokens=miss+hit,cache_hit_tokens=hit,uncached_input_tokens=miss,
-                           output_tokens=usage['output_tokens']))
-    if complete:result={k:sum(v[k] for v in values) for k in result}
-    return dict(result,complete=complete,model_requests=len(sent),model_completions=len(done))
-
-
 def snapshot(row,pricing):
     folder=Path(row['evidence']);report=read(folder/'report.json')
     ledger=folder/'gateway-requests.jsonl'
@@ -57,7 +37,7 @@ def snapshot(row,pricing):
     timing_ready=(ledger.is_file() and (folder/'native-profile/observer/events.jsonl').is_file()
                   and all(k in report for k in ('started_at','finished_at')))
     intervals=timing(folder,report)[0] if timing_ready else dict(available=False,reason='Missing timing evidence')
-    errors=tool_errors(folder/'native-profile',row['backend'],folder/'cli/stdout.log')
+    errors=tool_errors(folder/'native-profile',row.get('runtime_backend',row['backend']),folder/'cli/stdout.log')
     errors.pop('native_state_write_commands',None)
     pdf_errors=set()
     for path in (folder/'native-profile').rglob('*.jsonl'):
