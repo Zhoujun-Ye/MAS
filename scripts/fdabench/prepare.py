@@ -33,6 +33,13 @@ CORPUS = ("FDAbench2026/FDABench-File", "9c88acf42f37a65c6aef8d06e1f6b6a1c24b7ca
 BIRD = ("prem-research/birdbench", "4d033eb86e648b20a6cad11fe1c51b46cc0e185d")
 SPIDER1 = ("HAL-9001/spider-databases", "4a01bbac6520cd35b216db9e1724e5e1ada60aa4")
 SPIDER2 = ("xlangai/spider2-localdb", "c700cf8fe4064c745274870ba1c295f33610736a")
+SPIDER2_COMPLETE = dict(
+    filename="local_sqlite.zip", bytes=456643204,
+    sha256="d56acf7c9d89be4bdf1f4f1281f4a03d91735f1858f6d6d0cfe0f9d562e3a94f",
+    source_url="https://drive.usercontent.google.com/download?id=1coEVsCZq-Xvj9p2TnhBFoFTsY-UoYGmG&export=download&confirm=t",
+    source_reference="https://github.com/xlang-ai/Spider2/blob/cafb867313aab4e674652054198f383cf4018943/spider2-lite/README.md",
+    published_upstream_checksum=False,
+)
 TRANSFER_SLOTS = threading.BoundedSemaphore(4)
 HF_TOKEN = None
 DNS_CHECKS = {}
@@ -356,6 +363,20 @@ def extract_databases(archive, tasks, data, family):
     return receipts
 
 
+def supplement_spider2(root, tasks, receipts):
+    """Use the separately acquired official pack only for gaps in the HF snapshot."""
+    archive = root / "downloads" / SPIDER2_COMPLETE["filename"]
+    if not archive.exists() and not archive.is_symlink():
+        return {}
+    if (archive.is_symlink() or not archive.is_file()
+            or archive.stat().st_size != SPIDER2_COMPLETE["bytes"]
+            or digest(archive) != SPIDER2_COMPLETE["sha256"]):
+        raise ValueError("Complete Spider2 archive differs from its frozen acquisition pin")
+    remaining = [task for task in tasks if str(database_path(task, root / "data")) not in receipts]
+    extracted = extract_databases(archive, remaining, root / "data", "spider2-lite")
+    return {path: {**value, "source": dict(SPIDER2_COMPLETE)} for path, value in extracted.items()}
+
+
 def main(argv=None):
     global TRANSFER_SLOTS, HF_TOKEN, CDN_PROXY_SOCKET
     parser = argparse.ArgumentParser(description=__doc__)
@@ -415,6 +436,7 @@ def main(argv=None):
             fetched = fetch(repo, revision, item, archive, args.hf_endpoint)
             extracted = extract_databases(archive, tasks, data, family)
             receipts.update({p: {**v, "source": fetched} for p, v in extracted.items()})
+        receipts.update(supplement_spider2(root, tasks, receipts))
         for path in receipts:
             with sqlite3.connect(Path(path).as_uri() + "?mode=ro", uri=True) as db:
                 if db.execute("PRAGMA quick_check").fetchone()[0] != "ok":

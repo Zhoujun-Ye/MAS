@@ -49,8 +49,16 @@ Missing required assets reject planning/preflight before model calls. No task
 reference, rubric, gold subtask, gold SQL, explanation, frozen web/vector search
 result or task-specific option evidence enters the prompt or solver mounts.
 
-Database preparation uses the pinned official Spider2-localdb archive and pinned
-BIRD/Spider1 mirrors listed in `prepare.py`. Receipts record mirror provenance,
+Database preparation uses the pinned HF Spider2 snapshot and pinned BIRD/Spider1
+mirrors listed in `prepare.py`. The HF Spider2 snapshot is incomplete; the
+[official Spider2 local pack](https://github.com/xlang-ai/Spider2/blob/cafb867313aab4e674652054198f383cf4018943/spider2-lite/README.md)
+supplies four additional databases. A separately acquired `downloads/local_sqlite.zip`
+is accepted only if its size and SHA256 match `SPIDER2_COMPLETE` in `prepare.py`.
+Preparation fills exact-name gaps only, without replacing inputs already supplied
+by the HF snapshot. The acquisition checksum freezes the downloaded official pack;
+it is not a publisher-provided checksum or an independent byte-authentication claim.
+There is no automatic Google Drive download or alternate-site fallback.
+Receipts record provenance,
 Git blob/LFS hashes, extracted archive members and resulting SHA256 values. This
 does not assert independent byte verification against the original BIRD/Spider1
 distribution. Unavailable databases remain explicitly missing; the adapter does
@@ -164,8 +172,10 @@ throughput and excludes failed/unfinished traffic and reused complete files.
 
 On 2026-11-10, `mas-fdabench-prepare-20261110-mirror05.service` completed download,
 index and catalog with four transfer slots, a two-CPU quota and 4 GiB memory limit.
-The final continuation used server-direct mirror/CDN access; no Mac dependency
-remains for these prepared files. Its final status is **partial**, not fully ready:
+That continuation used server-direct mirror/CDN access. A subsequent authorized
+official-pack acquisition used the existing private Mac tunnel because Google
+Drive was not reachable directly. These prepared files have no ongoing Mac
+dependency. The current state remains **partial**, not fully ready:
 
 - Corpus: all **2,097 files**, **11,462,362,473 bytes**; independent rehash found no
   missing/extra files, receipt mismatches or source-hash mismatches.
@@ -173,25 +183,32 @@ remains for these prepared files. Its final status is **partial**, not fully rea
   hash binding and an actual read-only search passed.
 - Extraction limitations: **11 parser exceptions**, **2 empty documents**, no OCR.
   These are not missing downloads. Individual paths remain in the index receipt.
-- Databases: **20 of 25 required paths** passed read-only SQLite quick-check.
-  **5 paths remain absent**, affecting **133 of 407 tasks**; **274 inputs are ready**.
+- Databases: **24 of 25 required paths** passed read-only SQLite quick-check.
+  **1 path remains absent**, affecting **22 of 407 tasks**; **385 inputs are ready**.
 
 | Missing File (Relative To `data/`) | Affected Tasks | Pinned-Source Limitation |
 | --- | ---: | --- |
-| `dabstep/dabstep/dabstep.sqlite` | 22 | Custom database not prepared; never reconstruct it from reference answers |
-| `spider2-lite/California_Traffic_Collision/California_Traffic_Collision.sqlite` | 2 | Not in the pinned Spider2 archive |
-| `spider2-lite/bank_sales_trading/bank_sales_trading.sqlite` | 103 | Not in the pinned Spider2 archive |
-| `spider2-lite/education_business/education_business.sqlite` | 5 | Not in the pinned Spider2 archive |
-| `spider2-lite/sqlite-sakila/sqlite-sakila.sqlite` | 1 | Not in the pinned Spider2 archive |
+| `dabstep/dabstep/dabstep.sqlite` | 22 | Upstream requires `merchant_data.db`, but the pinned FDABench release/repository provides neither that file nor a construction workflow; never reconstruct it from reference answers |
 
-Case-insensitive archive inspection did not find alternate spellings of these
-Spider2 files. Missing assets still reject preflight; no tasks were silently
-removed and no paid run was performed. File readiness is not retrieval quality
+The complete pack supplied exact files for `California_Traffic_Collision`,
+`bank_sales_trading`, `education_business` and `sqlite-sakila`, resolving 111 tasks.
+Their absence from the HF snapshot was an acquisition gap, not proof of absence
+from the benchmark's official sources. The original 20 databases and corpus/index
+receipts/hashes were unchanged. ZIP member checks, source/archive hashes, read-only
+SQLite checks and catalog validation passed; 940 server tests passed. No task
+selection, scoring reference, frozen Validation20 set or paid-run scope changed.
+Missing assets still reject preflight. File readiness is not retrieval quality
 or solver accuracy.
 
-Canonical server evidence is under
+Original full-preparation evidence is under
 `/home/zhoujunye/mas-data/receipts/fdabench-infra-20261110/background-mirror05/`:
 `status.json`, stage logs, `catalog.json`, `raw-asset-audit.json`, `final-audit.json`.
+Its original 274-ready/133-missing result is preserved, not rewritten.
+The current supplemental acquisition/import/catalog audit is under
+`/home/zhoujunye/mas-data/receipts/fdabench-spider2-supplement-20261110/`, including
+`acquisition.json`, `database-receipt-before.json`, `catalog.json`, `final-audit.json`
+and full test receipts. The official archive was 456,643,204 bytes; its frozen
+SHA256 and pinned guide revision have one source owner in `SPIDER2_COMPLETE`.
 The data root owns `corpus-receipt.json` and `corpus-index-receipt.json` under
 `data/`, plus the database/source receipts. Preserve these and the earlier failure
 receipts rather than duplicating their logs in source documentation.

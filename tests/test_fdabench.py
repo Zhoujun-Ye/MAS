@@ -238,6 +238,59 @@ def test_spider1_uses_upstream_test_database_not_equal_named_train_database(tmp_
     assert tasks.database_path(task, tmp_path/'data').read_bytes() == b'test'
 
 
+def test_complete_spider2_pack_fills_exact_gaps_without_replacing_hf_inputs(tmp_path, monkeypatch):
+    import zipfile
+    from scripts.fdabench import prepare
+    from benchmarks._external import digest
+    values, _ = load(tmp_path, [example(database_type='Spider2-lite', instance_id='local1'),
+                              example(task_id='FDA0002', db='existing', database_type='Spider2-lite', instance_id='local2')])
+    root = tmp_path/'external'
+    archive = root/'downloads/local_sqlite.zip'
+    archive.parent.mkdir(parents=True)
+    with zipfile.ZipFile(archive, 'w') as bundle:
+        bundle.writestr('retail.sqlite', b'needed')
+        bundle.writestr('__MACOSX/retail.sqlite', b'metadata')
+        bundle.writestr('existing.sqlite', b'different')
+        bundle.writestr('unrelated.sqlite', b'not needed')
+    monkeypatch.setattr(prepare, 'SPIDER2_COMPLETE', {**prepare.SPIDER2_COMPLETE,
+                        'bytes': archive.stat().st_size, 'sha256': digest(archive)})
+    existing = tasks.database_path(values[1], root/'data')
+    existing.parent.mkdir(parents=True)
+    existing.write_bytes(b'keep')
+    receipts = {str(existing): {'source': 'HF snapshot'}}
+    added = prepare.supplement_spider2(root, values, receipts)
+    needed = tasks.database_path(values[0], root/'data')
+    assert set(added) == {str(needed)} and needed.read_bytes() == b'needed'
+    assert existing.read_bytes() == b'keep' and receipts[str(existing)]['source'] == 'HF snapshot'
+    assert added[str(needed)]['source']['sha256'] == digest(archive)
+    assert not list((root/'data').rglob('unrelated.sqlite'))
+
+
+@pytest.mark.parametrize('unsafe', ['hash', 'symlink'])
+def test_complete_spider2_archive_pin_is_checked_before_extraction(tmp_path, monkeypatch, unsafe):
+    from scripts.fdabench import prepare
+    root = tmp_path/'external'
+    archive = root/'downloads/local_sqlite.zip'
+    archive.parent.mkdir(parents=True)
+    source = tmp_path/'archive'
+    source.write_bytes(b'not the pinned pack')
+    if unsafe == 'symlink':
+        archive.symlink_to(source)
+    else:
+        archive.write_bytes(source.read_bytes())
+    monkeypatch.setattr(prepare, 'extract_databases', lambda *a: pytest.fail('Unverified archive was extracted'))
+    with pytest.raises(ValueError, match='frozen acquisition pin'):
+        prepare.supplement_spider2(root, [], {})
+
+
+def test_absent_complete_spider2_pack_does_not_download_or_create_files(tmp_path, monkeypatch):
+    from scripts.fdabench import prepare
+    monkeypatch.setattr(prepare, 'extract_databases', lambda *a: pytest.fail('Missing archive was extracted'))
+    root = tmp_path/'external'
+    assert prepare.supplement_spider2(root, [], {}) == {}
+    assert not root.exists()
+
+
 def test_hf_token_is_scoped_to_gated_corpus_and_never_forwarded_to_cdn(monkeypatch):
     from scripts.fdabench import prepare
     monkeypatch.setattr(prepare, 'HF_TOKEN', 'fake-test-token')
