@@ -151,7 +151,7 @@ def test_changed_frozen_resources_reject_before_credentials(workflow,monkeypatch
     assert run.main(workflow.argv+['--preflight'],benchmark=workflow.benchmark)==0
     monkeypatch.setattr(run.runtime,'credential',lambda *a:pytest.fail('Changed plan read credentials'))
     with pytest.raises(ValueError,match='Frozen plan'):
-        run.main(workflow.argv+['--from-plan','--execute','--cpus','8'],benchmark=workflow.benchmark)
+        run.main(workflow.argv+['--from-plan','--execute','--cpus','4'],benchmark=workflow.benchmark)
 
 
 def test_changed_cached_inputs_reject_before_credentials(workflow,monkeypatch):
@@ -178,44 +178,12 @@ def test_saved_attempt_cannot_be_dispatched_twice(workflow,monkeypatch):
         run.main(workflow.argv+['--from-plan','--execute'],benchmark=workflow.benchmark)
 
 
-@pytest.mark.parametrize('mode',('observations','full'))
-@pytest.mark.parametrize('gate_allowed',(True,False))
-def test_evidence_modes_use_existing_protected_workflow(workflow,monkeypatch,mode,gate_allowed):
-    proof_path=Path(workflow.argv[workflow.argv.index('--offline-proof')+1])
-    proof=json.loads(proof_path.read_text())
-    proof.update(mode=mode,evidence_configuration=run.evidence.configuration(mode))
-    proof_path.write_text(json.dumps(proof))
-    mounted=[]
-    monkeypatch.setattr(run.runtime,'container',lambda *a,**kw: mounted.extend(kw['dataset_mounts']) or 'fake-container')
-    def launch(mode,executable,prompt,rules,work,folder,identity,**kwargs):
-        assert 'PRIVATE_GOLD' not in prompt+rules
-        assert 'You are the orchestrator' not in rules
-        assert kwargs['max_budget_usd'] is None
-        if mode == 'full':
-            from harness.evidence_mas.decision import DecisionProtocol
-            from harness.evidence_mas.store import Store
-            from harness.evidence_mas.hook import collect
-            protocol = DecisionProtocol(Store(folder/'native-profile/evidence', 'benchmark-evidence'))
-            protocol.initialize(prompt)
-            collect(protocol.store, dict(hook_event_name='PostToolUse', tool_name='Bash',
-                tool_response={'stdout':'{"final_answer":"1"}'}))
-            view = protocol.view()
-            protocol.read(view['candidates'][0]['id'])
-            protocol.select(view['snapshot'], view['candidates'][0]['id'],
-                {'task_quote':prompt, 'criterion':'Synthetic fixture'}, {})
-        return run.BACKENDS['claude-code-subagents'](executable).run(prompt+'\n'+rules,workspace=work,output=folder/'cli')
-    monkeypatch.setattr(run.evidence,'launch',launch)
-    if mode == 'full':
-        monkeypatch.setattr(run.evidence,'host_check',lambda *args:dict(accepted=gate_allowed,reason='fixture'))
-    assert run.main(workflow.argv+['--evidence-mode',mode,'--execute'],benchmark=workflow.benchmark)==0
-    assert len(workflow.calls)==2
-    assert any(target=='/source/harness' and readonly for _,target,readonly in mounted)
-    assert not any('qa_raw' in str(source) or 'release.jsonl' in str(source) for source,_,_ in mounted)
-    predicted = jsonl(workflow.output/'predictions.jsonl')
-    assert all(row['final_answer']=='1' and row.get('submission_sha256') for row in predicted)
-    if mode == 'full':
-        assert all(row['decision_gate']['accepted'] is gate_allowed for row in predicted)
-        assert all(row['protocol_status']==('complete' if gate_allowed else 'incomplete') for row in predicted)
+@pytest.mark.parametrize('mode',('observations','full','full-prompt-only'))
+def test_retired_modes_reject_before_credentials(workflow,monkeypatch,mode):
+    monkeypatch.setattr(run.runtime,'credential',lambda *a:pytest.fail('Retired mode read credentials'))
+    with pytest.raises(SystemExit):
+        run.main(workflow.argv+['--evidence-mode',mode,'--execute'],benchmark=workflow.benchmark)
+    assert not workflow.calls
 
 
 def test_plan_execute_and_export_keeps_gold_out_of_solver(workflow, tmp_path):

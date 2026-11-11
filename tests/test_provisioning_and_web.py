@@ -32,6 +32,17 @@ def test_hydration_checks_content_and_reuses_verified_assets(tmp_path, monkeypat
     assert path.read_bytes() == content
 
 
+def test_sql_errors_are_compact_and_not_tracebacks(tmp_path,capsys):
+    import sqlite3
+    path=tmp_path/'fixture.sqlite'
+    with sqlite3.connect(path) as db:db.execute('CREATE TABLE x(n INTEGER)')
+    assert tools.main(['sql','--db',str(path),'--query','SELECT * FROM missing'])==2
+    captured=capsys.readouterr()
+    assert not captured.out and 'Traceback' not in captured.err
+    assert json.loads(captured.err)['error']=='OperationalError'
+    assert len(captured.err)<600
+
+
 def test_deepseek_search_and_fetch_share_request_budget(tmp_path, monkeypatch):
     monkeypatch.setenv("ANTHROPIC_AUTH_TOKEN", "private-fixture")
     monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)

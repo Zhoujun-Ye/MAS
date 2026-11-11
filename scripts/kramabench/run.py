@@ -25,7 +25,6 @@ from harness.runtime_support import runtime as shared
 from harness.runtime_support.runtime import (monitor, safe_balance)
 from analysis.native_evidence import native_single_agent, native_subagents
 from harness.runtime_support.proof import validate_runtime, validate_effort
-from scripts.common import evidence
 
 
 
@@ -55,7 +54,6 @@ def validate_native_proof(args, plan, *, frozen=False):
     if frozen and plan.get("offline_proof_sha256") != proof_digest:
         raise ValueError("Offline proof changed after freeze")
     proof = json.loads(raw)
-    evidence.validate_proof(proof,getattr(args,'evidence_mode',None))
     validate_effort(proof, getattr(args, 'effort', 'max'))
     binary = plan["cli_binaries"]["claude"]
     validate_runtime(proof, args.backend, image_id=plan["image_id"],
@@ -87,16 +85,16 @@ def validate(args):
         raise ValueError("Frozen effort changed")
     validate_native_proof(args, plan, frozen=True)
     if (plan.get('cpu_per_attempt', 2), plan.get('record_resources', False)) != (
-            getattr(args, 'cpus', 2), getattr(args, 'record_resources', False)):
+            getattr(args, 'cpus', shared.DEFAULT_CPUS), getattr(args, 'record_resources', False)):
         raise ValueError('Frozen CPU resource settings changed')
-    if plan.get('compute_threads', 1) != getattr(args, 'compute_threads', 1):
+    if plan.get('compute_threads', 1) != getattr(args, 'compute_threads', shared.DEFAULT_COMPUTE_THREADS):
         raise ValueError('Frozen compute thread setting changed')
     if plan.get('required_modules', []) != shared.capability_modules(getattr(args, 'require_module', [])):
         raise ValueError('Frozen required modules changed')
     if plan.get('capability_probes', []) != shared.capability_probes(getattr(args, 'capability_probe', [])):
         raise ValueError('Frozen capability probes changed')
-    if plan.get('evidence')!=evidence.configuration(getattr(args,'evidence_mode',None)):
-        raise ValueError('Frozen evidence configuration changed')
+    if plan.get('evidence'):
+        raise ValueError('Retired FULL/OBS plans cannot be resumed')
     tasks, _ = load_tasks(args.upstream)
     selected = tasks if args.all_tasks else [next(t for t in tasks if t.id == i) for i in args.selected_task_ids]
     if (plan["kind"] != "native_cli_benchmark" or plan["backend"] != args.backend or [asdict(t) for t in selected] != plan["tasks"]
@@ -213,9 +211,9 @@ def main(argv=None):
     parser.add_argument("--credentials", type=Path, default=Path("/home/zhoujunye/mas/.env"))
     parser.add_argument("--image", default="mas/kramabench:20261101-v1")
     parser.add_argument("--concurrency", type=int, default=12)
-    parser.add_argument('--cpus', type=int, choices=range(1, 129), default=2)
+    parser.add_argument('--cpus', type=int, choices=range(1, 129), default=shared.DEFAULT_CPUS)
     parser.add_argument('--record-resources', action='store_true')
-    parser.add_argument('--compute-threads', type=int, choices=range(1, 129), default=1)
+    parser.add_argument('--compute-threads', type=int, choices=range(1, 129), default=shared.DEFAULT_COMPUTE_THREADS)
     parser.add_argument('--capability-probe', action='append', default=[],
                         help='Explicit offline Python functional check; runs in network-disabled preflight')
     parser.add_argument('--require-module', action='append', default=[],
@@ -229,7 +227,6 @@ def main(argv=None):
                         help='Parent matrix owns balance admission; child snapshots are informational')
     parser.add_argument("--execute", action="store_true")
     parser.add_argument("--effort", choices=("high", "max"), default="max")
-    parser.add_argument('--evidence-mode',choices=evidence.MODES)
     args = parser.parse_args(argv)
     args.require_module = shared.capability_modules(args.require_module)
     if args.compute_threads > args.cpus:
@@ -242,7 +239,6 @@ def main(argv=None):
         if args.asset_cache.is_relative_to(args.upstream) or args.asset_cache.is_relative_to(args.output):
             raise ValueError('Digest cache must remain outside inputs and attempt output')
     args.organization_override = organization_override(args.organization_prompt, args.backend)
-    evidence.validate_condition(args)
     tasks, _ = load_tasks(args.upstream)
     if len(args.task_id) != len(set(args.task_id)) or set(args.task_id) - {t.id for t in tasks}:
         parser.error("Task IDs must be unique members of the pinned workload")

@@ -1,7 +1,19 @@
 # Retained Results
 
+FULL/OBS and their prompt-only ablations were retired on 2026-11-10. Results
+below are historical evidence, not active launch choices. Current conditions
+are only strict Single and frozen Structured.
+
 Paid batches and their exact source/accounting are listed in [retention](archive.md).
-The main paired result remains the completed CPU8 KramaBench comparison.
+The latest FDABench diagnostic used four fixed public local choices, once per
+Single/Structured condition. Both scored 4/4, all eight native audits passed,
+offline judge calls and retries were zero. Mean CLI times were 4.19/3.67 minutes.
+Its actual profile was mistakenly 2 CPUs/thread1, not CPU8/thread4, so it cannot
+validate the corrected resource defaults. Shared-account interval delta was
+CNY 4.29, not an attributable per-condition invoice. See
+[the full scope and repairs](studies/fdabench-smoke4-20261110.md).
+
+The main historical paired result remains the completed CPU8 KramaBench comparison.
 Both conditions have 20 effective questions, mean score 0.7453846154 and 14 fully
 correct answers. Scores match question by question. FULL averages 7.7321 CLI
 minutes versus Structured's 7.3662. These are validation results, not a held-out

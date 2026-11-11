@@ -29,7 +29,7 @@ print(json.dumps(dict(seconds=elapsed,cpu_seconds=cpu,checksum=float(out[0,0]),
 def main():
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--output',type=Path,required=True)
-    parser.add_argument('--image',default='mas/research-benchmarks:20261103-v1')
+    parser.add_argument('--image',default='mas/research-benchmarks:20261111-pdf-v1')
     parser.add_argument('--execute',action='store_true')
     args=parser.parse_args()
     if not args.execute:

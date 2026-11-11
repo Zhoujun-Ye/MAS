@@ -39,7 +39,7 @@ def test_full_cli_plans_all_104_with_16_slots_without_loading_credentials(tmp_pa
     path=tmp_path/'manifest.json';path.write_text(json.dumps(manifest))
     assert 'private' not in path.read_text()
     assert matrix.main(['--root',str(tmp_path),'--output',str(tmp_path/'out'),'--proofs',str(tmp_path),
-        '--image','fixture','--benchmarks','kramabench','--conditions','claude-code-subagents','full',
+        '--image','fixture','--benchmarks','kramabench','--conditions','claude-code-subagents','claude-code-single-agent',
         '--task-manifest',str(path),'--all-tasks','--concurrency','16','--judge-concurrency','4'])==0
     plan=json.loads(capsys.readouterr().out)
     assert plan['attempts']==208 and plan['solver_concurrency']==16 and plan['judge_concurrency']==4
@@ -340,12 +340,12 @@ def test_resume_reconciles_failed_report_with_host_dispatch_evidence(tmp_path,mo
     root=tmp_path/'old';root.mkdir()
     (root/'authorization.json').write_text(json.dumps(dict(protocol_settings={},task_manifest_sha256=None,
         source_manifest={'fixture.py':'same'})))
-    job=('kramabench',SimpleNamespace(id='fixture-0'),'full',tmp_path/'new')
-    run=root/'solvers/kramabench/fixture-0/full'
+    job=('kramabench',SimpleNamespace(id='fixture-0'),'claude-code-subagents',tmp_path/'new')
+    run=root/'solvers/kramabench/fixture-0/claude-code-subagents'
     folder=run/'fixture-0/claude-code-subagents';folder.mkdir(parents=True)
     (folder/'report.json').write_text(json.dumps(dict(status=status)))
-    journal=Journal(root/'journal.sqlite');identity=('kramabench','fixture-0','full')
-    body=dict(benchmark='kramabench',task_id='fixture-0',backend='full',run=str(run),status=status)
+    journal=Journal(root/'journal.sqlite');identity=('kramabench','fixture-0','claude-code-subagents')
+    body=dict(benchmark='kramabench',task_id='fixture-0',backend='claude-code-subagents',run=str(run),status=status)
     journal.claim('solver',identity,'frozen',body)
     if state=='complete':journal.finish('solver',identity,'frozen',body)
     assert matrix.retained_attempts(root,[job],{},None)=={}
@@ -472,17 +472,17 @@ def test_resume_chain_inherits_started_claims_even_before_copying_rows(tmp_path,
     old.mkdir();middle.mkdir()
     auth=dict(protocol_settings=settings,task_manifest_sha256='manifest',source_manifest={'fixture.py':'same'})
     (old/'authorization.json').write_text(json.dumps(auth))
-    j=Journal(old/'journal.sqlite');body=dict(benchmark='kramabench',task_id=task.id,backend='full',
-        status='dispatch_unknown',run=str(old/'solvers/kramabench'/task.id/'full'))
-    j.claim('solver',('kramabench',task.id,'full'),'frozen',body)
+    j=Journal(old/'journal.sqlite');body=dict(benchmark='kramabench',task_id=task.id,backend='claude-code-subagents',
+        status='dispatch_unknown',run=str(old/'solvers/kramabench'/task.id/'claude-code-subagents'))
+    j.claim('solver',('kramabench',task.id,'claude-code-subagents'),'frozen',body)
     folder=Path(body['run'])/task.id/'claude-code-subagents'
     folder.mkdir(parents=True)
     (folder/'gateway-requests.jsonl').write_text(json.dumps(dict(event='dispatched',upstream_attempted=True)))
     (middle/'authorization.json').write_text(json.dumps(dict(auth,retained_from=str(old))))
     Journal(middle/'journal.sqlite')
-    jobs=[('kramabench',task,'full',tmp_path/'new/solvers'/task.id/'full')]
+    jobs=[('kramabench',task,'claude-code-subagents',tmp_path/'new/solvers'/task.id/'claude-code-subagents')]
     rows=matrix.retained_attempts(middle,jobs,settings,'manifest')
-    assert rows[('kramabench',task.id,'full')]['status']=='dispatch_unknown'
+    assert rows[('kramabench',task.id,'claude-code-subagents')]['status']=='dispatch_unknown'
     monkeypatch.setattr(matrix.runtime,'source_manifest',lambda:{'changed':'source'})
     with pytest.raises(ValueError,match='source changed'):matrix.retained_attempts(middle,jobs,settings,'manifest')
 

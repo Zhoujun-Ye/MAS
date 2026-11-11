@@ -154,7 +154,12 @@ native internal retry behavior remains a separate pinned-CLI verification bounda
 
 ## Resource Evidence And Concurrency
 
-With `--record-resources`, all three benchmark runners capture CPU plus memory
+All four benchmarks use the same shared default: 8 CPUs and 4 numerical threads
+per solver, for both Single and Structured. Child commands always pass these
+settings explicitly; plans record both even when using defaults. Explicit study
+overrides must be frozen, never inferred from a benchmark or applied mid-run.
+
+With `--record-resources`, all four benchmark runners capture CPU plus memory
 usage, sampled maximum, available cgroup lifetime peak, `memory.events` deltas and
 OOM counters. Missing kernel counters are unknown, not zero. This server lacks
 `memory.peak`; its sampled maximum is not advertised as the true peak. Container
@@ -165,7 +170,8 @@ Solver concurrency is explicit 1..256 (default 8), grading 1..64 (default 2).
 Separate bounded pools grade each solver artifact as it finishes; they no longer
 wait for every solver. Total possible simultaneous paid processes are the sum of
 solver and judge concurrency, which must be considered in provider capacity planning.
-Runtime admission conservatively checks eight GiB per solver against 90% of host
+Runtime admission rejects CPU reservations above host CPU capacity and
+conservatively checks eight GiB per solver against 90% of host
 available memory and records capacity. These are configuration bounds, not validated
 provider throughput recommendations. No automatic concurrency ramp, quota reduction,
 sorting, environment provisioning or native worker scheduling is introduced.

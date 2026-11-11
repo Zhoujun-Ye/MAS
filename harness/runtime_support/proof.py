@@ -8,6 +8,8 @@ def validate_effort(proof, effort):
 
 
 def validate(proof, backend):
+    if proof.get('mode') in {'full','observations','full-prompt-only'} or proof.get('evidence_configuration'):
+        raise ValueError('Retired FULL/OBS proofs cannot admit baseline launches')
     if proof.get('proof_kind') == 'native_error_injection':
         raise ValueError('A synthetic error probe cannot admit a solver launch')
     if not (proof.get("passed") is True and proof.get("paid_calls") == 0

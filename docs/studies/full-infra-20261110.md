@@ -1,5 +1,8 @@
 # FULL Infrastructure Audit (November 10)
 
+Historical paid evidence only. FULL/OBS and prompt-only ablations were retired
+on 2026-11-10; the runtime and launch paths are no longer active.
+
 ## Scope And Evidence
 
 The six retained FULL attempts in `threebench2-20261109-01` contain 472 native

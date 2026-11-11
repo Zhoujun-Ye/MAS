@@ -17,17 +17,11 @@ coordinator/full modes, capability catalogs, or custom scheduling semantics.
 - `harness/claude_code_single_agent/`: print-mode strict Single, with native delegation tools removed and denied.
 - `harness/_claude_cli.py` and `_claude_hooks.py`: shared native arguments/observations and opt-in Single permission policy.
 - `harness/_cli.py`: CLI preflight, process lifetime, stdin and raw evidence only.
-- `harness/evidence_mas/`: our opt-in MAS harness, currently the observation
-  store, bounded delta sharing and decision-v4 FULL protocol. The manual
-  historical ledger API was removed on 2026-11-07. On 2026-11-05
-  the user authorized system-side candidate extraction and submission consistency
-  gates, without Structured prompting for the explicit FULL/OBS studies. The user
-  subsequently requested the exact existing Native (N) prompt in both, FULL as a
-  superset of OBS access, intermediate estimand capture and one-time shadow grading.
-  Preserve
-  the frozen Structured baseline separately. No Independent Framer, custom
-  scheduler, automatic semantic choice or automatic submission. Consistency is
-  not correctness; same-UID writable stores are not a security boundary.
+- FULL, OBS and their prompt-only ablations were retired on 2026-11-10.
+  Active conditions are only strict Single and frozen Structured Subagents.
+  Do not restore their runtime, tools, hooks, prompts or launch choices. Preserve
+  paid historical evidence and frozen sources; analysis may read recorded artifacts
+  without reconstructing or executing the retired decision engine.
 - `harness/runtime_support/`: reusable SQL/web tools, credential transport and
   native proof validation shared across conditions. Keep these libraries out of
   `scripts/`; scripts own executable workflows, not reusable harness mechanisms.
@@ -49,8 +43,7 @@ coordinator/full modes, capability catalogs, or custom scheduling semantics.
   Benchmark timeout policies belong in `benchmarks/policy.py`.
   read-only native evidence belongs in `analysis/native_evidence.py`.
   Historical study utilities and experiment drivers live in `scripts/studies/`,
-  not baseline defaults. Reusable MAS mechanisms belong in `harness/evidence_mas/`,
-  even when initially evaluated as a research condition.
+  not baseline defaults. Do not port retired MAS mechanisms into either baseline.
 - `benchmarks/dataclawbench/` and `benchmarks/hybriddeepresearch/` keep gold/reference
   fields host-side. The latter decodes the public release in memory; never publish
   decrypted questions, gold SQL, answers, or evaluation logs.
@@ -90,6 +83,11 @@ See `docs/cli-adapters.md` for pinned versions, references and limitations.
   provisioning receipts and source-stage location are in `docs/server-preparation.md`.
 - Run tests and experiments on the server, not locally. Inspect live processes and
   CPU ownership first. Never modify `/home/zhoujunye/agent-team` or its resources.
+- All four benchmarks and both active conditions default to 8 CPUs and 4 numerical
+  threads per solver. Use the shared defaults in `harness/runtime_support/runtime.py`
+  and explicit child flags; never silently fall back to 2 CPUs. Freeze CPU/thread
+  settings and capture resources in paid infra studies. Historical frozen runs
+  retain their actual profiles; do not hot-change or replay paid attempts.
 - Prefer bounded parallel execution for independent experiment conditions and
   independent grading jobs to reduce wall-clock time. Choose concurrency after
   checking server capacity and provider rate limits; isolate workspaces and outputs,
@@ -161,14 +159,15 @@ See `docs/cli-adapters.md` for pinned versions, references and limitations.
   costs and unverified behavior when native evidence makes them available.
   Missing accounting is unknown, never zero.
 
-## Current Infra And Retention Override (2026-11-07)
+## Current Infra And Retention Override (2026-11-10)
 
-- The user authorized generic sharing/decision/infra repairs and offline tests,
-  not new paid experiments. Use decision-v4 and the canonical workflow in
-  `docs/studies/evidence-infra.md` going forward. Keep the Structured baseline
-  exact and do not hardcode validation task IDs, answers or reference-specific logic.
-- Observation context is bounded and incremental. Hook emissions, evidence reads,
-  semantic correctness and actual model incorporation are distinct measurements.
+- The user retired FULL/OBS and authorized one FDABench choice smoke: four fixed
+  questions times Single/Structured, eight solver attempts, no retries or paid
+  judges. This is not standing authorization for further paid experiments.
+  Shared infra is documented in `docs/studies/evidence-infra.md`. Keep the
+  Structured baseline exact and never hardcode answers or reference-specific logic.
+- Hook emissions, evidence reads, semantic correctness and actual model
+  incorporation are distinct measurements.
   Native scheduling remains external; never add automatic semantic selection,
   submission, retries or a custom worker scheduler.
 - The user explicitly revoked earlier retain-all-history instructions: delete
@@ -182,7 +181,7 @@ See `docs/cli-adapters.md` for pinned versions, references and limitations.
   before/after speed comparison. Superseded offline iterations and duplicate logs
   are disposable; do not delete paid evidence merely because its implementation
   has since changed. Full-scale operation is documented in `docs/studies/fullscale-infra.md`.
-- Read-only decision-v3 support remains solely for that retained paired run;
+- Read-only recorded artifact analysis remains for retained paid runs;
   old protocols and manual ledgers are not launch options. Active data, environments,
   credentials, required images, fixed question manifests and unrelated user work
   remain protected. Never touch `agent-team` resources or rewrite Git history.

@@ -20,21 +20,52 @@ def cli_args(tmp_path, *extra):
             "--proofs", str(tmp_path / "proofs"), "--image", "fixture-image", *extra]
 
 
-def test_explicit_krama_full_scope_does_not_expand_attempts(tmp_path, monkeypatch, capsys):
-    monkeypatch.setattr(matrix, 'selections', lambda *args: selected_tasks())
-    monkeypatch.setattr(matrix.runtime, 'credential', lambda *a: pytest.fail('Planning must not load credentials'))
-    assert matrix.main(cli_args(tmp_path, '--benchmarks', 'kramabench', '--backends',
-        'claude-code-subagents', '--evidence-modes', 'full')) == 0
-    plan = json.loads(capsys.readouterr().out)
-    assert plan['benchmarks'] == ['kramabench']
-    assert plan['attempts'] == plan['maximum_judge_calls'] == 2
-    assert {r['benchmark'] for r in plan['selections']} == {'kramabench'}
-    assert {r['backend'] for r in plan['selections']} == {'full'}
+def test_matched_manifest_freezes_four_ids_without_relaxing_validation20(tmp_path,monkeypatch):
+    tasks=[SimpleNamespace(id=f'FDA{i}',category='single_choice',query='Fixture') for i in range(6)]
+    monkeypatch.setattr(matrix,'task_pools',lambda *a:{'fdabench':tasks})
+    monkeypatch.setattr(matrix,'task_fingerprint',lambda b,t:'hash-'+t.id)
+    manifest=dict(kind='matched-study-v1',benchmarks={'fdabench':[
+        dict(task_id=t.id,task_sha256='hash-'+t.id) for t in tasks[:4]]})
+    assert [t.id for _,t in matrix.manifest_selections(tmp_path,manifest,0,4)]==[t.id for t in tasks[:4]]
+    manifest['kind']='validation20-v1'
+    with pytest.raises(ValueError,match='20 unique'):
+        matrix.manifest_selections(tmp_path,manifest,0,4)
+    manifest['kind']='matched-study-v1'
+    manifest['benchmarks']['fdabench'][0]['task_sha256']='changed'
+    with pytest.raises(ValueError,match='changed or disappeared'):
+        matrix.manifest_selections(tmp_path,manifest,0,4)
+
+
+@pytest.mark.parametrize('mode',('full','observations','full-prompt-only'))
+def test_retired_proofs_do_not_admit_baselines(mode):
+    from harness.runtime_support.proof import validate
+    with pytest.raises(ValueError,match='Retired'):
+        validate(dict(mode=mode),'claude-code-subagents')
+
+
+@pytest.mark.parametrize('condition',('full','observations','full-prompt-only'))
+def test_retired_conditions_reject_before_credentials(tmp_path, monkeypatch, condition):
+    monkeypatch.setattr(matrix.runtime, 'credential', lambda *a: pytest.fail('Retired condition read credentials'))
+    with pytest.raises(SystemExit):
+        matrix.main(cli_args(tmp_path, '--conditions', condition, '--execute'))
+    with pytest.raises(ValueError,match='Only Single and Structured'):
+        matrix.runtime_backend(condition)
 
 
 def test_duplicate_benchmark_scope_is_rejected(tmp_path):
     with pytest.raises(ValueError, match='unique benchmarks'):
         matrix.main(cli_args(tmp_path, '--benchmarks', 'kramabench', 'kramabench'))
+
+
+def test_fdabench_choice_plan_has_no_paid_judges(tmp_path,monkeypatch,capsys):
+    tasks=[('fdabench',SimpleNamespace(id=f'FDA{i}',category=c,web=True))
+        for i,c in enumerate(('single_choice','multiple_choice'))]
+    monkeypatch.setattr(matrix,'selections',lambda *a:tasks)
+    monkeypatch.setattr(matrix.runtime,'credential',lambda *a:pytest.fail('Planning read credentials'))
+    assert matrix.main(cli_args(tmp_path,'--benchmarks','fdabench'))==0
+    plan=json.loads(capsys.readouterr().out)
+    assert plan['attempts']==4
+    assert plan['maximum_judge_calls']==0
 
 
 def test_plan_is_exact_12_scope_and_never_executes(tmp_path, monkeypatch, capsys):

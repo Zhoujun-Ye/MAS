@@ -1,83 +1,58 @@
-# Active Evidence Infrastructure
+# Baseline Execution Infrastructure
 
-Current contracts, not a chronological repair log. Paid results and their frozen
-implementations are listed in [retention](../archive.md); measured quality and
-speed must be read separately from engineering validation.
+Active conditions are only Single and Structured. FULL, OBS and their prompt-only
+ablations were retired on 2026-11-10, including their runtime, hooks, tools and
+launch choices. Their paid evidence and frozen sources remain under
+[retention](../archive.md). The frozen Structured baseline is unchanged.
 
-## Conditions And Ownership
+## Ownership And Isolation
 
-FULL uses decision-v4 on ordinary native Claude subagents. OBS provides the same
-observation access without decision mutation tools. Both use the existing Native
-(N) organization, not the separately frozen Structured baseline. The explicit
-prompt-only study mode supplies FULL guidance without its decision tools.
-None is an untouched default CLI condition.
-
-- `harness/evidence_mas/` owns storage, capture, bounded sharing and decisions.
-- `harness/runtime_support/` owns containers, credential transport, SQL/web tools
-  and native proof validation.
+- `harness/runtime_support/` owns containers, credential transport, SQL/web tools,
+  corpus access and runtime-bound native proof validation.
 - `scripts/common/` composes benchmark workflows and unchanged solver prompts.
-- Native contexts, delegation and scheduling stay in the external CLI.
+- Native contexts, delegation and scheduling stay in the external CLI. Strict
+  Single removes and denies delegation tools; Structured uses native subagents.
+- No automatic semantic choice, submission, retry or custom worker scheduler.
 
-There is no automatic semantic choice, submission, retry or custom worker scheduler.
-Same-UID stores, roles and run tokens are not adversarial isolation or attribution
-boundaries.
+Solvers run with network disabled. Real provider keys remain host-side; a private
+Unix gateway exposes fixed native protocol destinations and records requests.
+Run tokens do not authenticate same-UID process origin and are not OS isolation.
+References, gold SQL, rubric answers and frozen search results are never mounted.
 
-## Observation And Decision Contracts
+## Tools And Resources
 
-[Executed evidence](intermediate-full.md) is the canonical API contract.
-Hook deltas are incremental, capped at three records and 1800 characters
-(6000 with initial guidance), scoped per recipient and exact-content deduplicated.
-Raw observations remain accessible; a hook emission is not acknowledgement or
-comprehension. Dataset/dataframe caching is not implicitly introduced.
-
-Only successful complete Bash executions create candidates. Native overflow
-previews are pointers; bounded immutable snapshots of the original tool-results
-file are separately readable. Observation reads support `start/end` or bounded
-`start/limit`. Candidate reads require contiguous input/output access by the
-current lead. Unchanged candidates retain access; changed interpretations require
-fresh review and changed snapshots require fresh selection. Duplicates do not vote.
-Consistency is not correctness, and missing candidate coverage remains unknown.
-
-MCP tool failures and failed audit writes do not kill unrelated stdio requests.
-Errors expose sanitized metadata, not unexpected exception payloads; process
-interrupts still propagate. Capture degradation is explicit, not a successful gate.
-Sleep guards reject only explicit lead agent-wait placeholders after observed
-worker shutdown, never actual computation/resource waits or unknown running work.
-
-## Compute And Admission
+SQL and corpus readers share the same implementations across both conditions.
+Web-enabled tasks use [web transport](web-infra.md): GET and DNS both use the
+private Mac/Clash route, with no direct/provider-fetch or server-DNS fallback.
+Model/search/judge APIs remain server-direct. FDABench choice scoring is offline;
+report judges require separate paid authorization.
 
 [Full-scale operation](fullscale-infra.md) owns durable claims, accounting,
-resource telemetry, recovery and manifest rules. The explicit CPU8/thread4 profile
-is `cpu8-infra-protocol.json`; planning remains nonexecuting and is not authorization.
-Eight solver jobs means eight total, not eight per condition.
+resource telemetry, recovery and manifest rules. Full-scale means task coverage,
+not the retired FULL condition. CPU quota and numerical thread limits are frozen
+per run, and bounded concurrency counts total solver jobs across conditions.
+The shared defaults are 8 CPUs and 4 numerical threads for every benchmark and
+both conditions. Plans and child commands record the values explicitly.
 
-`--compute-threads` is frozen and bounded by CPU quota. It controls per-process
-numerical library limits, not a global worker budget. More CPUs cannot supply
-missing physical models or shorten provider generation. No model/package installation
-is inferred from task content.
+The shared image includes Poppler so native PDF reads do not fail and trigger
+repeated environment probing. SQLite helper failures return a compact typed error,
+not a Python traceback. Successful SQL results, prompts, model requests and scoring
+are unchanged; no automatic tool or model retry is introduced.
 
-`--require-module NAME` requires a successful import, not merely a discoverable
-spec. Explicit `--capability-probe /absolute/check.py` assertions run in a
-network-disabled preflight container with input mounts and no provider key.
-Probe source/digests are frozen; each has a 60-second deadline. These are offline
-checks, not installers, inferred task requirements or evidence of solvability.
-
-Web-enabled tasks use [web-v5 transport](web-infra.md): GET and DNS both use the
-private Mac/Clash route, with no direct/provider-fetch or server-DNS fallback.
-Native model/search/judge APIs remain server-direct.
+`--require-module NAME` requires successful import. Explicit capability probes run
+in network-disabled preflight containers, without provider keys, with source
+digests and deadlines. They are not installers or proof of task solvability.
 
 ## Verification And Limits
 
-Current maintenance receipts are under
-`/home/zhoujunye/mas-data/receipts/maintenance-20261110/`.
-Fresh FULL/OBS raw proofs are in `native-evidence/` under that maintenance root.
-The preceding `clash-dns-20261110-01/native-proofs-with-read/` retains proof
-summaries only; superseded synthetic payloads were cleaned.
-Always validate the requested mode, configuration hashes, effort, image and binary;
-a historical passing proof is not admission for changed code.
+Before paid dispatch, bind proofs to the exact image, native binary and effort.
+Use synthetic provider responses to verify strict Single denials, real Structured
+delegation, host credential isolation, submissions and mounted data/tool access.
+Run real free web probes separately. Freeze source, task IDs/hashes, input hashes,
+settings, attempt count and judge authorization before starting paid work.
 
-The [November 10 audit](full-infra-20261110.md) records the paid capture check,
-DNS-policy diagnosis, deployed repairs and 900-test pre-cleanup regression.
-Synthetic native proofs verify mechanics with fake provider responses, not model
-uptake or benchmark-wide gains. Latest regression/probe receipts and frozen paid
-sources are retained; superseded offline workspaces and duplicate logs are disposable.
+Fake-provider tests establish mechanics, not model uptake or benchmark gains.
+Keep failures, native traces, host accounting and exact submission hashes. Report
+unknown usage as unknown; token-price estimates and shared balance deltas are not
+per-request invoices. Paid historical studies remain descriptive evidence, not
+authorization for further calls or active runtime contracts.

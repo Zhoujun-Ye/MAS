@@ -46,9 +46,8 @@ work between itself and subagents (at least one, scaled to complexity) and synth
 no specialist roster, judge role or cost-reduction policy.
 
 For inspection, `scripts/common/prompts/structured_subagents.py` holds this unchanged
-default as `PROMPT`. `scripts/common/prompts/native_subagents.py` holds the user's
-four-point alternative as `PROMPT`, without activating it. These names distinguish
-lead prompts; both describe ordinary native Claude Code subagents. The Python
+default as `PROMPT`. FULL/OBS, their Native alternative prompt and prompt-only
+ablations were retired on 2026-11-10. Only Single and Structured are active. The Python
 files are not raw-text inputs for `--organization-prompt`.
 
 Native facts this relies on, observed on 2.1.286:

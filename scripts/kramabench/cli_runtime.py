@@ -25,8 +25,6 @@ from scripts.kramabench.prepare import verify_inputs
 from harness.runtime_support.credential_gateway import CredentialGateway
 from analysis.native_evidence import native_single_agent, native_subagents
 from analysis.run_integrity import inspect_run
-from scripts.common import evidence
-from harness.evidence_mas.decision import host_check as decision_host_check
 
 
 SHARED_INSTRUCTIONS = """Solve the public data-analysis question using only the supplied input lake at /data.
@@ -73,11 +71,10 @@ def run_attempt(task, backend, args, key, stop, active, lock):
     profile.mkdir(mode=0o700)
     (profile / "home").mkdir()
     instructions = INSTRUCTIONS + limit_instructions(args.timeout) + "\n" + condition_instructions(args, backend)
-    mode=getattr(args,'evidence_mode',None)
     # Readable task rules only. Isolated settings (--setting-sources "") do not auto-load
     # these files, so workers see them only if they read them; lead-only text stays in the prompt.
-    (work / "AGENTS.md").write_text(SHARED_INSTRUCTIONS if mode else INSTRUCTIONS)
-    (work / "CLAUDE.md").write_text(SHARED_INSTRUCTIONS if mode else INSTRUCTIONS)
+    (work / "AGENTS.md").write_text(INSTRUCTIONS)
+    (work / "CLAUDE.md").write_text(INSTRUCTIONS)
     subprocess.run(["git", "init", "--quiet", str(work)], check=True)
     prompt = task.query + "\n\n" + instructions
     write_json(folder / "task.json", asdict(task))
@@ -91,10 +88,9 @@ def run_attempt(task, backend, args, key, stop, active, lock):
         gateway = CredentialGateway(key, unix_path=folder / "gateway.sock", web_limit=0,
                                     ledger_path=folder / "gateway-requests.jsonl")
         gateway.__enter__()
-        mount_kwargs={'dataset_mounts':[(args.upstream/'data','/data',True)]+evidence.source_mounts(mode)} if mode else {}
         identity = container(work, profile, args.upstream / "data", args.image,
                              gateway=gateway, backend=backend, effort=getattr(args, "effort", "max"),
-                             cpus=getattr(args, 'cpus', 2), compute_threads=getattr(args, 'compute_threads', 1), **mount_kwargs)
+                             cpus=getattr(args, 'cpus', runtime.DEFAULT_CPUS), compute_threads=getattr(args, 'compute_threads', runtime.DEFAULT_COMPUTE_THREADS))
         if getattr(args, 'record_resources', False):
             resources = ContainerResources(identity, folder, args.cpus).start()
         with lock:
@@ -107,13 +103,8 @@ def run_attempt(task, backend, args, key, stop, active, lock):
         report.update(status="running", started_at=now(), container_id=identity)
         write_json(folder / "report.json", report)
         opts = options(backend)
-        if mode:
-            result=evidence.launch(mode,CLAUDE,task.query,instructions,work,folder,identity,
-                worker_rules=SHARED_INSTRUCTIONS + limit_instructions(args.timeout),
-                model=opts['model'],allowed_tools=opts['allowed_tools'],disallowed_tools=opts['disallowed_tools'],timeout=args.timeout)
-        else:
-            result = adapter.run(prompt, workspace=work, output=folder / "cli", timeout=args.timeout,
-                                 execute=True, **terminal_options, **opts)
+        result = adapter.run(prompt, workspace=work, output=folder / "cli", timeout=args.timeout,
+                             execute=True, **terminal_options, **opts)
         report.update(status=result["status"], cli=result, finished_at=now())
         write_json(folder / "report.json", report)
         if backend == "claude-code-subagents":
@@ -183,11 +174,6 @@ def run_attempt(task, backend, args, key, stop, active, lock):
                     stop.set()
             report['finished_at']=now()
             report["integrity_audit"] = inspect_run(folder, backend)
-            if mode:
-                try:
-                    report['evidence_workspace']=evidence.audit(folder,mode)
-                except Exception as error:
-                    report['evidence_workspace']=dict(available=False,error_type=type(error).__name__)
             write_json(folder / "report.json", report)
     return report
 
@@ -220,11 +206,6 @@ def collect_attempt(folder, report, args):
         candidate = json.loads(raw_submission.read_text())
         if not isinstance(candidate, dict) or "answer" not in candidate:
             raise ValueError("Submission must contain answer")
-        if getattr(args, 'evidence_mode', None) == 'full':
-            report['decision_gate'] = decision_host_check(folder, candidate)
-            gate=report['decision_gate']
-            report['protocol_status'] = ('coverage_unknown' if gate.get('coverage') is False
-                else 'complete' if gate['accepted'] else 'incomplete')
         shutil.copyfile(raw_submission, folder / "submission.json")
         report["grade"] = grade_answer(args.upstream, task_id, folder / "submission.json")
         if 'decision_gate' in report:
@@ -240,12 +221,12 @@ def collect_attempt(folder, report, args):
         name = "mas-cli6-replay-" + uuid.uuid4().hex[:10]
         write_json(folder/'replay/container-ownership.json',dict(container_name=name,status='creating'))
         command = ["docker", "run", "--rm", "--pull", "never", "--name", name, "--network", "none",
-                   "--cpus", "2", "--memory", "8g", "--pids-limit", "256", "--cap-drop", "ALL",
+                   "--cpus", str(getattr(args,'cpus',runtime.DEFAULT_CPUS)), "--memory", "8g", "--pids-limit", "256", "--cap-drop", "ALL",
                    "--security-opt", "no-new-privileges", "--user", f"{os.getuid()}:{os.getgid()}",
                    "--workdir", "/workspace", "--mount", f"type=bind,src={replay},dst=/workspace",
                    "--mount", f"type=bind,src={args.upstream / 'data'},dst=/data,readonly"]
-        for key, value in THREADS.items():
-            command += ["--env", key + "=" + value]
+        for key in THREADS:
+            command += ["--env", key + "=" + str(getattr(args,'compute_threads',runtime.DEFAULT_COMPUTE_THREADS))]
         command += [args.image, "python3", data["pipeline_path"]]
         try:
             try:
@@ -300,13 +281,13 @@ def preflight(args):
                 limit_instructions=limit_instructions(args.timeout),
                 backend_options={b: options(b) for b in backends},
                 backend_instructions={b: condition_instructions(args, b) for b in backends},
-                organization_override=getattr(args, "organization_override", None), evidence=evidence.configuration(getattr(args,'evidence_mode',None)),
+                organization_override=getattr(args, "organization_override", None),
                 native_environment={b: native_env(b, effort=getattr(args, "effort", "max"),
-                    compute_threads=getattr(args, 'compute_threads', 1)) for b in backends},
-                compute_threads=getattr(args, 'compute_threads', 1),
+                    compute_threads=getattr(args, 'compute_threads', runtime.DEFAULT_COMPUTE_THREADS)) for b in backends},
+                compute_threads=getattr(args, 'compute_threads', runtime.DEFAULT_COMPUTE_THREADS),
                 required_modules=runtime.capability_modules(getattr(args, 'require_module', [])),
                 capability_probes=runtime.capability_probes(getattr(args, 'capability_probe', [])),
-                cpu_per_attempt=getattr(args, 'cpus', 2), record_resources=getattr(args, 'record_resources', False), memory_per_attempt="8g",
+                cpu_per_attempt=getattr(args, 'cpus', runtime.DEFAULT_CPUS), record_resources=getattr(args, 'record_resources', False), memory_per_attempt="8g",
                 source=source_manifest(),
                 judge_limit=getattr(args, "judge_limit", 0),
                 replay_timeout_seconds=getattr(args, "replay_timeout", 180),
@@ -329,8 +310,8 @@ def preflight(args):
     backend = backends[0]
     binary = CLAUDE
     identity = container(work, profile, args.upstream / "data", args.image, backend=backend, network="none",
-                         effort=getattr(args, "effort", "max"), cpus=getattr(args, 'cpus', 2),
-                         compute_threads=getattr(args, 'compute_threads', 1))
+                         effort=getattr(args, "effort", "max"), cpus=getattr(args, 'cpus', runtime.DEFAULT_CPUS),
+                         compute_threads=getattr(args, 'compute_threads', runtime.DEFAULT_COMPUTE_THREADS))
     resources = None
     try:
         if getattr(args, 'record_resources', False):

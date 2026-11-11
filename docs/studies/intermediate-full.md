@@ -1,6 +1,9 @@
 # Executed Evidence and Decisions
 
-## Active Contract
+Retired on 2026-11-10. This documents paid historical evidence only; no runtime,
+tools, hooks or launch modes described here remain active.
+
+## Historical Contract
 
 FULL uses decision-v4. It adds evidence tools to the existing Native organization,
 not the frozen Structured prompt, fixed roles or a custom scheduler. OBS keeps

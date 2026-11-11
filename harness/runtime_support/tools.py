@@ -185,6 +185,9 @@ def main(argv=None):
         # One clear, final message instead of a traceback; exit status 3 means no budget left.
         print(error, file=sys.stderr)
         return 3
+    except sqlite3.Error as error:
+        print(json.dumps(dict(error=type(error).__name__,message=str(error)[:500])),file=sys.stderr)
+        return 2
     except (RuntimeError,ValueError) as error:
         print(str(error),file=sys.stderr)
         return 2

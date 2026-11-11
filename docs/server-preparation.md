@@ -18,8 +18,13 @@
 - Current results: [current-results.md](current-results.md).
 
 Claude Code is pinned to 2.1.286. The current solver image is
-`mas/research-benchmarks:20261103-v1`, ID
-`sha256:f940900759fee9d7f9fcdd819f5fc7062d4b1e11b192355b503ce33511bfa14b`.
+`mas/research-benchmarks:20261111-pdf-v1`, ID
+`sha256:57a1e27dcdcb49b28d7a0c0e38ec4bde624d3baf32ff9bb006184b3521ff1489`.
+It extends the retained November 3 image with Poppler for native PDF reading;
+the base image is unchanged and remains required for historical paid provenance.
+Build/package receipts are under
+`fdabench-single-structured-smoke4-20261110-01/pdf-image-03/` in the receipt root.
+All four benchmarks default to 8 CPUs and 4 numerical threads per solver.
 The existing KramaBench base image is retained for builds.
 
 ## Data And Environment Provenance

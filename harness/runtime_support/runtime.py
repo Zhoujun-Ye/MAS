@@ -17,13 +17,16 @@ import time
 from common.io import write_json
 from harness._claude_hooks import BLOCKED_TOOLS
 
+DEFAULT_CPUS = 8
+DEFAULT_COMPUTE_THREADS = 4
+
 CLAUDE = Path("/home/zhoujunye/.local/bin/claude").resolve()
 
 # Claude Code 2.1.286 has no TaskOutput tool; background agents notify the lead instead.
 TOOLS = ("Bash", "Read", "Write", "Edit", "Glob", "Grep", "Agent", "Task", "SendMessage",
          "TaskCreate", "TaskUpdate", "TaskGet", "TaskList", "TaskStop")
 
-THREADS = {name: "1" for name in ("OMP_NUM_THREADS", "OPENBLAS_NUM_THREADS", "MKL_NUM_THREADS",
+THREADS = {name: str(DEFAULT_COMPUTE_THREADS) for name in ("OMP_NUM_THREADS", "OPENBLAS_NUM_THREADS", "MKL_NUM_THREADS",
                                   "NUMEXPR_NUM_THREADS", "VECLIB_MAXIMUM_THREADS")}
 
 
@@ -158,7 +161,7 @@ def options(backend):
     return dict(model="deepseek-flash[1m]", allowed_tools=tools,
                 disallowed_tools=("WebSearch", "WebFetch"), isolated_settings=True)
 
-def native_env(backend, *, effort="max", compute_threads=1):
+def native_env(backend, *, effort="max", compute_threads=DEFAULT_COMPUTE_THREADS):
     options(backend)
     if type(compute_threads) is not int or not 1 <= compute_threads <= 128:
         raise ValueError('Compute threads must be an integer between 1 and 128')
@@ -183,8 +186,8 @@ class ContainerStartupError(RuntimeError):
 
 
 def container(work, profile, dataset, image, key=None, network="bridge", backend="claude-code-subagents", *,
-              dataset_mounts=None, environment_overrides=None, forwarded_env=(), gateway=None, effort="max", cpus=2,
-              compute_threads=1):
+              dataset_mounts=None, environment_overrides=None, forwarded_env=(), gateway=None, effort="max", cpus=DEFAULT_CPUS,
+              compute_threads=DEFAULT_COMPUTE_THREADS):
     if type(cpus) is not int or not 1 <= cpus <= 128:
         raise ValueError('Container CPUs must be an integer between 1 and 128')
     if type(compute_threads) is not int or not 1 <= compute_threads <= cpus:

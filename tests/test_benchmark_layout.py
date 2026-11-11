@@ -13,7 +13,7 @@ def test_current_project_and_runtime_names_are_mas():
     assert tomllib.loads((ROOT/'pyproject.toml').read_text())['project']['name'] == 'mas'
     assert (ROOT/'README.md').read_text().splitlines()[0] == '# MAS'
     assert 'purpose=mas-cli6' in (ROOT/'harness/runtime_support/runtime.py').read_text()
-    for name in ('evidence_mas',):
+    for name in ('external_workflow',):
         assert 'mas/research-benchmarks:' in (ROOT/'scripts/probes'/(name+'.py')).read_text()
 
 
@@ -53,7 +53,9 @@ def test_reusable_mas_and_tool_components_belong_to_harness():
     for name in ('tools', 'credential_gateway', 'gateway_bridge', 'proof'):
         assert (ROOT / 'harness/runtime_support' / (name + '.py')).is_file()
         assert not (ROOT / 'scripts/common' / (name + '.py')).exists()
-    for folder in ('evidence_mas', 'runtime_support'):
+    assert not (ROOT/'harness/evidence_mas').exists()
+    assert (ROOT/'analysis/historical_workspace.py').is_file()
+    for folder in ('runtime_support',):
         for path in (ROOT / 'harness' / folder).glob('*.py'):
             for node in ast.walk(ast.parse(path.read_text())):
                 if isinstance(node, ast.ImportFrom):
@@ -106,4 +108,14 @@ def test_image_preparation_is_plan_only_by_default(tmp_path, monkeypatch, capsys
         "--output", str(tmp_path / "new"), "--base-image", "existing@sha256:fake", "--image", "new"])
     prepare.main()
     assert not (tmp_path / "new").exists()
+    assert '"environment_changed": false' in capsys.readouterr().out
+
+
+def test_shared_pdf_image_preparation_is_explicit(tmp_path,monkeypatch,capsys):
+    from scripts.server import prepare_solver_image
+    monkeypatch.setattr(prepare_solver_image.subprocess,'run',lambda *a,**k:(_ for _ in ()).throw(AssertionError('Planning provisioned Docker')))
+    monkeypatch.setattr(prepare_solver_image.sys,'argv',['prepare_solver_image.py','--base-image','existing',
+        '--image','new','--output',str(tmp_path/'new')])
+    prepare_solver_image.main()
+    assert not (tmp_path/'new').exists()
     assert '"environment_changed": false' in capsys.readouterr().out

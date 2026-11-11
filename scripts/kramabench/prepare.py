@@ -146,7 +146,7 @@ def main():
         context.mkdir()
         (context / 'requirements.txt').write_text(REQUIREMENTS)
         dockerfile = f'''FROM {args.base_image}
-RUN sed -i 's|http://deb.debian.org|https://mirrors.tuna.tsinghua.edu.cn|g' /etc/apt/sources.list.d/debian.sources && apt-get update && apt-get install -y --no-install-recommends git coreutils ca-certificates && rm -rf /var/lib/apt/lists/*
+RUN sed -i 's|http://deb.debian.org|https://mirrors.tuna.tsinghua.edu.cn|g' /etc/apt/sources.list.d/debian.sources && apt-get update && apt-get install -y --no-install-recommends git coreutils ca-certificates poppler-utils && rm -rf /var/lib/apt/lists/*
 COPY requirements.txt /tmp/requirements.txt
 RUN pip install --no-cache-dir --index-url https://pypi.tuna.tsinghua.edu.cn/simple -r /tmp/requirements.txt && pip check && rm /tmp/requirements.txt
 ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 OPENBLAS_NUM_THREADS=1 OMP_NUM_THREADS=1 MPLCONFIGDIR=/tmp/matplotlib HOME=/tmp LANG=C.UTF-8

@@ -29,6 +29,23 @@ def test_missing_metrics_are_unknown_not_zero():
     assert summarize([], 8)['available'] is False
 
 
+def test_every_benchmark_dispatches_the_same_explicit_default_resources(tmp_path):
+    args=SimpleNamespace(root=tmp_path,proofs=tmp_path,image='fixture',credentials=tmp_path/'private')
+    assert runtime.DEFAULT_CPUS==8 and runtime.DEFAULT_COMPUTE_THREADS==4
+    for benchmark in matrix.SUPPORTED_BENCHMARKS:
+        for backend in matrix.BACKENDS:
+            command=matrix.solver_command(args,benchmark,SimpleNamespace(id='fixture',web=False),backend,tmp_path/'out')
+            assert command[command.index('--cpus')+1]=='8'
+            assert command[command.index('--compute-threads')+1]=='4'
+
+
+def test_host_admission_rejects_cpu_oversubscription_before_docker(monkeypatch):
+    monkeypatch.setattr(matrix.os,'cpu_count',lambda:8)
+    monkeypatch.setattr(matrix.subprocess,'check_output',lambda *a,**k:pytest.fail('Overbooked profile reached Docker'))
+    with pytest.raises(ValueError,match='CPU reservations'):
+        matrix.runtime_preflight(SimpleNamespace(concurrency=2,cpus=8))
+
+
 @pytest.mark.parametrize('interval', [0, -1, float('inf'), float('nan'), True])
 def test_sampling_interval_cannot_busy_loop(tmp_path, interval):
     with pytest.raises(ValueError, match='interval'):
@@ -71,7 +88,7 @@ def test_explicit_cpu_quota_reaches_docker(tmp_path, monkeypatch):
 
 
 def test_compute_threads_are_explicit_and_bounded(tmp_path, monkeypatch):
-    assert runtime.native_env('claude-code-subagents')['OPENBLAS_NUM_THREADS'] == '1'
+    assert runtime.native_env('claude-code-subagents')['OPENBLAS_NUM_THREADS'] == '4'
     assert runtime.native_env('claude-code-subagents',compute_threads=4)['OPENBLAS_NUM_THREADS'] == '4'
     with pytest.raises(ValueError,match='quota'):
         runtime.container(tmp_path,tmp_path,tmp_path,'fixture',cpus=2,compute_threads=4)
@@ -101,7 +118,7 @@ def test_mixed_cpu_study_keeps_exact_authorized_scope(tmp_path, monkeypatch, cap
     monkeypatch.setattr(matrix.runtime, 'credential', lambda *a: pytest.fail('Planning must not load credentials'))
     assert matrix.main(['--root', str(tmp_path), '--output', str(tmp_path/'out'), '--image', 'fixture',
         '--proofs', str(tmp_path), '--benchmarks', 'kramabench', '--conditions', 'claude-code-subagents',
-        'full', '--tasks-per-benchmark', '20', '--concurrency', '8', '--cpus', '8', '--record-resources',
+        'claude-code-single-agent', '--tasks-per-benchmark', '20', '--concurrency', '8', '--cpus', '8', '--record-resources',
         '--compute-threads', '4', '--require-module', 'numpy']) == 0
     plan = json.loads(capsys.readouterr().out)
     assert plan['attempts'] == plan['maximum_judge_calls'] == 40
@@ -111,13 +128,13 @@ def test_mixed_cpu_study_keeps_exact_authorized_scope(tmp_path, monkeypatch, cap
     assert plan['protocol_settings']['required_modules'] == ['numpy']
     assert plan['solver_concurrency'] == 8
     assert len({r['task_id'] for r in plan['selections']}) == 20
-    assert {r['backend'] for r in plan['selections']} == {'full', 'claude-code-subagents'}
+    assert {r['backend'] for r in plan['selections']} == {'claude-code-single-agent', 'claude-code-subagents'}
 
 
 def test_solver_command_records_resource_options(tmp_path):
     args = SimpleNamespace(root=tmp_path, proofs=tmp_path, image='fixture', credentials=tmp_path/'private',
                            cpus=8, record_resources=True, compute_threads=4, require_module=['numpy'])
-    cmd = matrix.solver_command(args, 'kramabench', SimpleNamespace(id='fixture'), 'full', tmp_path/'out')
+    cmd = matrix.solver_command(args, 'kramabench', SimpleNamespace(id='fixture'), 'claude-code-subagents', tmp_path/'out')
     assert cmd[cmd.index('--cpus') + 1] == '8'
     assert '--record-resources' in cmd
     assert cmd[cmd.index('--compute-threads') + 1] == '4'
@@ -125,7 +142,7 @@ def test_solver_command_records_resource_options(tmp_path):
 
 
 def test_canonical_infra_profile_matches_live_protocol_without_task_ids():
-    settings=matrix.protocol_settings(SimpleNamespace(effort='high',backends=['claude-code-subagents','full'],
+    settings=matrix.protocol_settings(SimpleNamespace(effort='high',backends=['claude-code-subagents','claude-code-single-agent'],
         concurrency=8,judge_concurrency=2,cpus=8,compute_threads=4,record_resources=True))
     profile=Path(__file__).resolve().parents[1]/'docs/studies/cpu8-infra-protocol.json'
     assert json.loads(profile.read_text())==settings
@@ -163,7 +180,7 @@ def test_matrix_forwards_and_freezes_functional_probe(tmp_path):
     args = SimpleNamespace(root=tmp_path, proofs=tmp_path, image='fixture',
         credentials=tmp_path/'private', cpus=8, record_resources=True, compute_threads=4,
         require_module=[], capability_probe=[str(probe)], effort='high',
-        backends=['claude-code-subagents', 'full'], concurrency=8, judge_concurrency=2)
-    command = matrix.solver_command(args, 'kramabench', SimpleNamespace(id='fixture'), 'full', tmp_path/'out')
+        backends=['claude-code-subagents', 'claude-code-single-agent'], concurrency=8, judge_concurrency=2)
+    command = matrix.solver_command(args, 'kramabench', SimpleNamespace(id='fixture'), 'claude-code-subagents', tmp_path/'out')
     assert command[command.index('--capability-probe') + 1] == str(probe)
     assert matrix.protocol_settings(args)['capability_probes'] == runtime.capability_probes([probe])

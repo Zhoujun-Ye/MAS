@@ -31,8 +31,8 @@ def test_layout_entries_are_unique():
     assert len(entries) == len(set(entries))
 
 
-def test_evidence_readme_describes_current_not_retired_composition():
-    text = (ROOT / 'harness/evidence_mas/README.md').read_text()
-    assert 'decision-v4' in text
+def test_infra_document_distinguishes_retired_conditions():
+    text = (ROOT / 'docs/studies/evidence-infra.md').read_text()
+    assert 'Single and Structured' in text
+    assert 'retired' in text
     assert 'frozen Structured baseline is unchanged' in text
-    assert 'Both modes prepend the exact frozen Structured lead prompt' not in text

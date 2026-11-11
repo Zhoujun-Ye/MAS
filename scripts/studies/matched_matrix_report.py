@@ -144,7 +144,7 @@ def collect(root):
 
 def summarize(result):
     groups = []
-    for b in ('dataclawbench', 'hybriddeepresearch', 'kramabench', 'all'):
+    for b in ('dataclawbench', 'hybriddeepresearch', 'kramabench', 'fdabench', 'all'):
         for k in ('claude-code-single-agent', 'claude-code-subagents','observations','full'):
             selected = [r for r in result if r['backend'] == k and (b == 'all' or r['benchmark'] == b)]
             if not selected:

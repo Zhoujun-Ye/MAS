@@ -1,5 +1,8 @@
 # Paid Speed Check (2026-11-07)
 
+Historical comparison: FULL/OBS and their prompt-only ablations were retired
+on 2026-11-10. Frozen paid sources and evidence remain unchanged.
+
 The user authorized the same four tasks, Structured and FULL once each: eight
 solvers total, up to eight scoring calls, no reruns. All eight solvers and grades
 completed, process exit zero. Scoring was deterministic for these tasks, so paid

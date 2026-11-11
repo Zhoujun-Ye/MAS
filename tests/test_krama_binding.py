@@ -79,7 +79,7 @@ def roundtrip_plan(request, tmp_path, monkeypatch):
     proof_path.write_text(json.dumps(proof))
     args = SimpleNamespace(backend=backend, backends=(backend,), output=tmp_path / "out",
         upstream=tmp_path, offline_proof=proof_path, all_tasks=False, selected_task_ids=[task.id],
-        concurrency=1, timeout=3600, judge_limit=1, replay_timeout=180)
+        concurrency=1, timeout=3600, judge_limit=1, replay_timeout=180,cpus=2,compute_threads=1)
     plan.update(attempts=1, tasks=[dict(id=task.id, domain=task.domain, query=task.query)],
         organization_override=None, backend_instructions={backend: run.condition_instructions(args, backend)},
         limit_instructions=run.limit_instructions(3600),

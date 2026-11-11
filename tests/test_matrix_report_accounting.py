@@ -82,6 +82,14 @@ def test_summary_has_no_empty_conditions_and_distinguishes_partial_costs():
     assert summarize([]) == []
 
 
+def test_fdabench_is_included_in_benchmark_summary():
+    row=dict(benchmark='fdabench',backend='claude-code-single-agent',score=1,
+        seconds=60,total_usd_offpeak=.01,status='cli_exited',model_requests=1,native_audit_passed=True)
+    groups=summarize([row])
+    assert [g['benchmark'] for g in groups]==['fdabench','all']
+    assert groups[0]['raw_accuracy']==1
+
+
 def test_report_script_keeps_direct_execution_from_an_unrelated_cwd(tmp_path):
     result = subprocess.run([sys.executable, '-I', str(Path(matched_matrix_report.__file__).resolve()),
         '--help'], cwd=tmp_path, capture_output=True, text=True, timeout=15)

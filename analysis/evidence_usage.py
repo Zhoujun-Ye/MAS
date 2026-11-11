@@ -9,8 +9,7 @@ import re
 from pathlib import Path
 
 from benchmarks.kramabench.evaluation import score_answer
-from harness.evidence_mas.decision import DecisionProtocol
-from harness.evidence_mas.store import Store
+from analysis.historical_workspace import WorkspaceReader
 
 
 def timestamp(value):
@@ -75,14 +74,15 @@ def matches(value, grade):
 
 
 def workspace(folder, start, wall, grade):
-    store = Store(folder/'native-profile/evidence', 'benchmark-evidence', readonly=True)
+    store = WorkspaceReader(folder/'native-profile/evidence')
     with store.connect() as db:
         observations = store.latest(db, 'observation')
         events = [json.loads(row[0]) for row in db.execute('SELECT body FROM events ORDER BY seq')]
-        state = DecisionProtocol(store).snapshot(db)
+        state = store.recorded_state(events)
     by_id = {o['id']:o for o in observations}
     worker = lambda o: o.get('agent_id','unknown')!='unknown'
     counts, previews, direct_reads, decision_worker_reads = Counter(), set(), set(), 0
+    unattributed_reads = 0
     first_access, views, selection_checks = None, {}, []
     for event in events:
         role, method = event['role'], event['method']
@@ -101,9 +101,8 @@ def workspace(folder, start, wall, grade):
                 views[result['snapshot']] = result
             if method=='decision.read' and args.get('candidate_id'):
                 ref=result.get('observation')
-                if ref is None:  # Retained v3 reads exposed only the first representative.
-                    candidate = next((c for c in state['candidates'] if c['id']==args['candidate_id']),None)
-                    ref=candidate['observations'][0] if candidate else None
+                if ref is None:
+                    unattributed_reads += 1  # Do not reconstruct retired v3 source-selection semantics.
                 if ref and ref['id'] in by_id:
                     decision_worker_reads += worker(by_id[ref['id']])
             if method=='decision.select':
@@ -121,13 +120,16 @@ def workspace(folder, start, wall, grade):
         method_counts=dict(counts), lead_worker_preview_observations=len(previews),
         lead_direct_worker_reads=len(direct_reads), lead_decision_worker_reads=decision_worker_reads,
         first_workspace_access_fraction=(first_access-start)/wall if first_access is not None and wall>0 else None,
-        candidates=len(state['candidates']), conflict=state['conflict'],
+        candidates=state['candidate_count'], conflict=state['conflict'],
         explicit_measurements=sum(m['confidence']=='explicit' for m in intermediate),
-        possible_measurements=sum(m['confidence']=='possible' for m in intermediate),
+        possible_measurements=None,
         invalid_measurements=state['invalid_measurement_count'],
-        gold_in_final_candidates=any(matches(v,grade) is True for v in candidate_values),
+        gold_in_final_candidates=None,
+        gold_in_recorded_candidates=any(matches(v,grade) is True for v in candidate_values) if state['complete'] else None,
         gold_in_explicit_intermediates=any(matches(m['value'],grade) is True for m in intermediate if m['confidence']=='explicit'),
-        gold_in_possible_hints=any(matches(m['value'],grade) is True for m in intermediate if m['confidence']=='possible'),
+        gold_in_possible_hints=None, unattributed_decision_reads=unattributed_reads,
+        candidate_scope='Latest recorded decision.view pages, not reconstructed terminal candidates',
+        recorded_snapshot_available=state['available'], recorded_candidates_complete=state['complete'],
         selections=selection_checks, degraded=(store.root/'degraded.jsonl').exists())
 
 

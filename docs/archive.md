@@ -19,12 +19,14 @@ sources live under `/home/zhoujunye/mas-stages/`.
 | `hdr2-network-20261107-01` | `20261107-hdr2-network-01` | Four-attempt networking retest and receipts |
 | `threebench2-20261109-01` | `20261109-threebench2-01` | Eighteen attempts; original SQL grading failures and separate deterministic regrades |
 | `full-infra-paid4-20261110-01` | `20261110-full-infra-01` | Four FULL attempts in three benchmark directories, two paid grades, no retries |
+| `fdabench-single-structured-smoke4-20261110-01` | `20261110-fdabench-single-structured-smoke4-01` | Eight completed choice attempts, offline grades, actual 2-CPU/thread1 diagnostic profile; no retries or paid judges |
 
 Preserve raw attempts, submissions, ledgers, incurred costs, frozen settings,
 admission proofs, source and result reports, including failed/incomplete work.
 Use authorized upstream recovery as the same task's primary replacement, never
 best-of selection; retain both attempts' costs. A lifecycle failure alone does
-not authorize a retry. Read-only decision-v3 support exists only for the CPU8 pair.
+not authorize a retry. Retired FULL/OBS artifacts are read-only history; their
+runtime is removed from active source, not from frozen paid provenance.
 
 Keep current trajectory/diagnostic summaries and the latest native, credential,
 container, resource, manifest and transport verification receipts. The November

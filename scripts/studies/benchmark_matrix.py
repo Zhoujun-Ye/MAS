@@ -26,7 +26,6 @@ from harness.runtime_support import web_policy
 from harness.runtime_support.proof import validate_runtime, validate_effort
 from benchmarks._external import digest
 from benchmarks.policy import default_timeout, timeout_policy
-from scripts.common import evidence
 from common.io import fingerprint
 from common.journal import Journal, exclusive
 from harness.runtime_support.admission import admit_balance, amount, BalanceWatch, fatal_provider_record, unavailable_web_proxy
@@ -53,7 +52,8 @@ def task_pools(root, benchmarks=BENCHMARKS):
 
 def manifest_selections(root, manifest, offset, count):
     full = manifest.get('kind')=='benchmark-full-v1'
-    if (manifest.get("kind") not in {"validation20-v1","benchmark-full-v1"} or offset < 0
+    validation = manifest.get('kind')=='validation20-v1'
+    if (manifest.get("kind") not in {"validation20-v1","benchmark-full-v1","matched-study-v1"} or offset < 0
             or (count is not None and count<1) or (not full and (count is None or offset+count>20))):
         raise ValueError("Invalid validation manifest or task slice")
     names = list(manifest['benchmarks'])
@@ -64,7 +64,7 @@ def manifest_selections(root, manifest, offset, count):
     for benchmark in names:
         frozen = manifest["benchmarks"][benchmark]
         ids = [row["task_id"] for row in frozen]
-        if not ids or len(set(ids))!=len(ids) or (not full and len(ids)!=20):
+        if not ids or len(set(ids))!=len(ids) or (validation and len(ids)!=20):
             raise ValueError("Each validation benchmark must contain 20 unique IDs")
         if offset>=len(ids) or (count is not None and offset+count>len(ids)):
             raise ValueError('Manifest slice exceeds task count')
@@ -109,7 +109,9 @@ def selections(root, count=2, seed=42, benchmarks=BENCHMARKS):
 
 
 def runtime_backend(condition):
-    return 'claude-code-subagents' if condition in evidence.MODES else condition
+    if condition not in BACKENDS:
+        raise ValueError('Only Single and Structured conditions are active')
+    return condition
 
 
 def solver_dispatch_status(folder):
@@ -194,8 +196,6 @@ def retained_attempts(path, jobs, settings, manifest_sha, _seen=None, *, allow_g
                     rows.append(inherited.get((b,t.id,k),dict(benchmark=b,task_id=t.id,backend=k,status='not_started',run=str(out))))
                     continue
                 row=dict(entry['body'])
-                if k in evidence.MODES:
-                    row.update(runtime_backend=runtime_backend(k),evidence_mode=k)
                 if entry['state']!='complete':
                     report=Path(row['run'])/t.id/runtime_backend(k)/'report.json'
                     record=json.loads(report.read_text()) if report.exists() else {}
@@ -343,20 +343,16 @@ def solver_command(args, benchmark, task, backend, output, *, execute=False):
                "--backend", backend, "--task-id", task.id, "--image", args.image, "--output", str(output),
                "--credentials", str(args.credentials), "--timeout", str(default_timeout(benchmark)),
                "--offline-proof", str(args.proofs / condition / "proof.json")]
-    if condition in evidence.MODES:
-        command += ['--evidence-mode',condition]
     command += ["--effort", getattr(args, "effort", "max")]
     if backend == "claude-code-subagents" and getattr(args, "organization_prompt", None):
         command += ["--organization-prompt", str(args.organization_prompt)]
     if benchmark == "kramabench":
         if hasattr(args,'output'):command+=['--asset-cache',str(args.output/'asset-digests.sqlite')]
         command += ["--concurrency", "1", "--replay-timeout", "180", "--judge-limit", "0"]
-        if getattr(args, 'cpus', 2) != 2:
-            command += ['--cpus', str(args.cpus)]
+        command += ['--cpus', str(getattr(args,'cpus',runtime.DEFAULT_CPUS))]
         if getattr(args, 'record_resources', False):
             command += ['--record-resources']
-        if getattr(args, 'compute_threads', 1) != 1:
-            command += ['--compute-threads', str(args.compute_threads)]
+        command += ['--compute-threads', str(getattr(args,'compute_threads',runtime.DEFAULT_COMPUTE_THREADS))]
         for module in runtime.capability_modules(getattr(args, 'require_module', [])):
             command += ['--require-module', module]
         for probe in runtime.capability_probes(getattr(args, 'capability_probe', [])):
@@ -367,8 +363,8 @@ def solver_command(args, benchmark, task, backend, output, *, execute=False):
     else:
         command += ['--asset-cache',str(args.output/'asset-digests.sqlite')] if hasattr(args,'output') else []
         command += ['--from-plan'] if execute else ['--preflight']
-        if getattr(args,'cpus',2)!=2:command += ['--cpus',str(args.cpus)]
-        if getattr(args,'compute_threads',1)!=1:command += ['--compute-threads',str(args.compute_threads)]
+        command += ['--cpus',str(getattr(args,'cpus',runtime.DEFAULT_CPUS)),
+                    '--compute-threads',str(getattr(args,'compute_threads',runtime.DEFAULT_COMPUTE_THREADS))]
         for module in runtime.capability_modules(getattr(args,'require_module',[])):
             command += ['--require-module',module]
         for probe in runtime.capability_probes(getattr(args,'capability_probe',[])):
@@ -397,16 +393,13 @@ def protocol_settings(args):
                 web_policy=web_policy.configuration(getattr(args,'max_web_requests',web_policy.DEFAULT_WEB_LIMIT)),
                 organization_sha256={k: hashlib.sha256(
                     (override["text"] if override and k == "claude-code-subagents"
-                     else evidence.lead_prompt(k)
-                     if k in evidence.MODES else backend_instructions(k)).encode()).hexdigest() for k in backends},
+                     else backend_instructions(k)).encode()).hexdigest() for k in backends},
                 timeout_seconds_by_benchmark={b: default_timeout(b) for b in (
                     SUPPORTED_BENCHMARKS if 'fdabench' in getattr(args, 'benchmarks', ()) else BENCHMARKS)},
                 solver_concurrency=args.concurrency, judge_concurrency=args.judge_concurrency)
-    if getattr(args, 'cpus', 2) != 2 or getattr(args, 'record_resources', False):
-        settings.update(cpu_per_attempt=getattr(args, 'cpus', 2),
-                        record_resources=getattr(args, 'record_resources', False))
-    if getattr(args, 'compute_threads', 1) != 1:
-        settings['compute_threads'] = args.compute_threads
+    settings.update(cpu_per_attempt=getattr(args,'cpus',runtime.DEFAULT_CPUS),
+                    compute_threads=getattr(args,'compute_threads',runtime.DEFAULT_COMPUTE_THREADS),
+                    record_resources=getattr(args,'record_resources',False))
     if getattr(args, 'require_module', []):
         settings['required_modules'] = runtime.capability_modules(args.require_module)
     if getattr(args, 'capability_probe', []):
@@ -428,6 +421,9 @@ def runtime_preflight(args):
     """Check every condition before creating a run namespace or dispatching children."""
     evaluator = sql_evaluator_preflight(args.root) if getattr(args, 'sql_grading_required', False) else None
     available=None
+    host_cpus=os.cpu_count()
+    if host_cpus and getattr(args,'concurrency',8)*getattr(args,'cpus',runtime.DEFAULT_CPUS)>host_cpus:
+        raise ValueError('Configured solver CPU reservations exceed host capacity')
     if Path('/proc/meminfo').exists():
         memory=dict(line.split(':',1) for line in Path('/proc/meminfo').read_text().splitlines())
         available=int(memory['MemAvailable'].split()[0])*1024
@@ -441,7 +437,6 @@ def runtime_preflight(args):
         path = args.proofs / condition / 'proof.json'
         raw = path.read_bytes()
         proof = json.loads(raw)
-        evidence.validate_proof(proof, condition if condition in evidence.MODES else None)
         validate_runtime(proof, runtime_backend(condition), image_id=image, binary_sha256=binary)
         validate_effort(proof, args.effort)
         proofs[condition] = dict(path=str(path), sha256=hashlib.sha256(raw).hexdigest(),
@@ -467,19 +462,18 @@ def main(argv=None):
                         help='Explicit benchmark scope; defaults to all three benchmarks')
     parser.add_argument("--credentials", type=Path, default=Path("/home/zhoujunye/mas/.env"))
     parser.add_argument("--concurrency", type=int, default=8, choices=range(1, 257))
-    parser.add_argument('--cpus', type=int, choices=range(1, 129), default=2)
+    parser.add_argument('--cpus', type=int, choices=range(1, 129), default=runtime.DEFAULT_CPUS)
     parser.add_argument('--record-resources', action='store_true')
     parser.add_argument('--max-web-requests',type=int,choices=range(1,101),default=web_policy.DEFAULT_WEB_LIMIT)
-    parser.add_argument('--compute-threads', type=int, choices=range(1, 129), default=1)
+    parser.add_argument('--compute-threads', type=int, choices=range(1, 129), default=runtime.DEFAULT_COMPUTE_THREADS)
     parser.add_argument('--require-module', action='append', default=[])
     parser.add_argument('--capability-probe', action='append', default=[])
     parser.add_argument("--effort", choices=("high", "max"), default="max")
     parser.add_argument("--organization-prompt", type=Path)
     parser.add_argument("--backends", nargs="+", choices=BACKENDS, default=BACKENDS,
                         help="Explicit conditions to run; defaults to the matched Single/Subagents pair")
-    parser.add_argument('--evidence-modes',nargs='+',choices=evidence.MODES)
-    parser.add_argument('--conditions', nargs='+', choices=BACKENDS + evidence.MODES,
-                        help='Explicit mixed baseline/evidence conditions for an authorized matched study')
+    parser.add_argument('--conditions', nargs='+', choices=BACKENDS,
+                        help='Explicit Single/Structured conditions for an authorized matched study')
     parser.add_argument('--retain-started-from',type=Path,help='Never rerun started attempts; dispatch only previously not_started slots')
     parser.add_argument('--recover-upstream-from', type=Path,
                         help='Explicitly authorized one-time recovery of terminal upstream-5xx failures')
@@ -516,13 +510,9 @@ def main(argv=None):
     if args.compute_threads > args.cpus:
         raise ValueError('Compute threads cannot exceed the container CPU quota')
     if args.conditions:
-        if args.evidence_modes or args.organization_prompt or args.backends != BACKENDS:
+        if args.organization_prompt or args.backends != BACKENDS:
             raise ValueError('Explicit conditions cannot be combined with backend or prompt overrides')
         args.backends = args.conditions
-    if args.evidence_modes:
-        if args.organization_prompt or args.backends!=['claude-code-subagents'] or len(set(args.evidence_modes))!=len(args.evidence_modes):
-            raise ValueError('Select only Subagents, unique evidence modes, and no organization override')
-        args.backends=args.evidence_modes
     args.root, args.output, args.proofs = args.root.resolve(), args.output.resolve(), args.proofs.resolve()
     if args.retain_started_from:
         args.retain_started_from=args.retain_started_from.resolve()
@@ -575,7 +565,8 @@ def main(argv=None):
                     raise ValueError('Retained grade artifact or evaluator binding changed')
                 judge_recoveries[(b,t.id,k)]=dict(benchmark=b,task_id=t.id,backend=k,**candidate)
     maximum_judges = sum(1 for b, t, _, _ in jobs
-                         if b != "hybriddeepresearch" or t.category != "search_to_sql")
+                         if (b != 'fdabench' or t.category == 'report')
+                         and (b != "hybriddeepresearch" or t.category != "search_to_sql"))
     if args.recover_judge_5xx:
         maximum_judges=len(judge_recoveries)
     authorization = dict(attempts=len(jobs), maximum_judge_calls=maximum_judges, retries=0, effort=args.effort,
@@ -781,7 +772,7 @@ def main(argv=None):
                 raise ValueError('Unfinalized solver already has a grading claim; refuse automatic replay')
             target=args.output/'solvers'/b/t.id/k
             record=finalization.recover(b,t,runtime_backend(k),out,target,root=args.root,
-                image=args.image,evidence_mode=k if k in evidence.MODES else None)
+                image=args.image)
             retained[identity]=dict(retained[identity],run=str(target),status=record['status'],
                                     offline_finalization_from=str(out))
             jobs[index]=(b,t,k,target)
@@ -803,8 +794,6 @@ def main(argv=None):
             actual_backend=runtime_backend(k)
             report = out / t.id / actual_backend / "report.json"
             row = dict(benchmark=b, task_id=t.id, backend=k, returncode=code, run=str(out), status="not_started")
-            if k in evidence.MODES:
-                row.update(runtime_backend=actual_backend,evidence_mode=k)
             if report.exists():
                 record = json.loads(report.read_text())
                 row["status"] = record["status"]
@@ -824,7 +813,7 @@ def main(argv=None):
             if solver_row['status'] in {'not_started','dispatch_unknown'}:
                 return dict(benchmark=b,task_id=t.id,backend=k,judge_calls=None,status='solver_outcome_unknown')
             actual_backend=runtime_backend(k)
-            grades_root=args.output/'grades'/k if k in evidence.MODES else args.output/'grades'
+            grades_root=args.output/'grades'
             binding=grade_binding(b,t,k,out,authorization['source_manifest'])
             identity=(b,t.id,k)
             paid_grade=needs_judge(b,t,out,bool(args.authorized_judges))
@@ -868,8 +857,6 @@ def main(argv=None):
             result=grade_attempt(b, t, actual_backend, out, data_root=args.root, grades_root=grades_root,
                 credentials=args.credentials, judge_enabled=bool(args.authorized_judges), key=key,
                 command_run=command_run, log=args.output / "logs" / (b + "-" + t.id + "-" + k + "-grade"))
-            if k in evidence.MODES:
-                result.update(backend=k,runtime_backend=actual_backend)
             if result.get('fatal_provider_error'):
                 stop.set()
             result['grading_artifact']=str(grades_root/b/t.id/actual_backend)

@@ -17,47 +17,33 @@ rules, including the run's wall-clock and web request limits. Structural worker
 completion does not prove substantive contribution; that remains a separate
 evidence-review question.
 
+FULL, OBS and prompt-only ablations were retired on 2026-11-10. Active launch
+conditions are only Single and Structured; historical results below are not launch choices.
 Deep Agents, Claude Code Agent Teams and Codex adapters are retired. Do not restore
 their active adapters or launch choices. Codex results were removed at the user's
 request. Paid comparisons and their frozen source/accounting are retained under
 the explicit [retention policy](docs/archive.md).
 
-## Current Results
+## Retained Results
+The FDABench four-question diagnostic completed all eight authorized attempts:
+Single 4/4 and Structured 4/4, with offline scoring, no retries and no paid judge.
+Mean CLI times were 4.19 and 3.67 minutes respectively. This batch mistakenly used
+2 CPUs/thread1, not the previously adopted CPU8/thread4 profile; it is not a
+validation of the corrected resource profile or an infra speedup comparison.
+See [scope, limitations and follow-up repairs](docs/studies/fdabench-smoke4-20261110.md).
 
-The retained twenty-question 8-CPU KramaBench Structured/FULL comparison uses
-20 fixed questions per condition, eight concurrent tasks total, Claude Code
-2.1.286 and DeepSeek Flash at high effort. The three authorized upstream-503
-recoveries replace the matching primary rows; original failures and all incurred
-cost evidence remain part of this batch.
+Current defaults are 8 CPUs and 4 numerical threads across all four benchmarks
+and both conditions. The shared image includes native PDF rendering. These
+repairs have separate free runtime verification; the paid diagnostic was not
+silently changed or repeated.
 
-| Metric | Structured | FULL (decision-v3 run) |
-| --- | ---: | ---: |
-| Mean score | 0.7453846154 | 0.7453846154 |
-| Full-score questions | 14/20 | 14/20 |
-| Mean effective CLI minutes | 7.3662 | 7.7321 |
-| Mean CPU cores | 0.4901 | 0.5357 |
-| Measured quota throttled seconds | 0 | 0 |
-
-Scores match on every question. These reused validation questions do not establish
-held-out performance or causal superiority. Earlier experiments and their
-result-only compatibility paths were removed at the user's request on 2026-11-07.
-See [current evidence](docs/current-results.md) for scope and cost limitations.
-
-The repaired decision-v4 FULL was subsequently tested twice on the same four
-questions. Mean FULL time fell from 232.87 to 173.55 seconds with identical scores;
-Structured varied from 162.30 to 150.79 seconds. This small stochastic sample is
-not a full-benchmark speed guarantee. See [paid speed check](docs/studies/infra-smoke4-speed-check.md),
-[active infra](docs/studies/evidence-infra.md) and [full-scale operation](docs/studies/fullscale-infra.md).
-
-The latest four-task FULL infrastructure check completed without retries: both
-DataClaw tasks and Krama scored 1, HDR SQL scored 0. Overflow capture was exercised;
-later DNS/read repairs were checked offline and with free probes, not another
-paid efficacy comparison. See [the November 10 audit](docs/studies/full-infra-20261110.md).
+Earlier paid Structured/FULL results remain historical evidence in
+[current results](docs/current-results.md) and [retention](docs/archive.md).
+FULL/OBS and their ablations are no longer active launch choices.
 
 ## Layout
 
-- `harness/`: native CLI adapters and our opt-in MAS harness; see [ownership](harness/README.md).
-- `harness/evidence_mas/`: observation sharing, execution-backed decisions and hook/MCP interfaces.
+- `harness/`: native CLI adapters and shared execution infra; see [ownership](harness/README.md).
 - `scripts/common/prompts/`: solver condition text, prompt selection and shared run-limit wording.
 - `benchmarks/{kramabench,dataclawbench,hybriddeepresearch,fdabench}/`: tasks and independent evaluation.
 - `scripts/<benchmark>/{catalog,run,score}.py`: benchmark entry points.

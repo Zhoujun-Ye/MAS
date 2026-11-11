@@ -8,10 +8,12 @@ management or scheduling. Agent Teams and retired adapters remain retired.
 | --- | --- |
 | `claude_code_single_agent/`, `claude_code_subagents/` | Native baseline adapters |
 | `_cli.py`, `_claude_cli.py`, `_claude_hooks.py` | Shared CLI lifetime and native observation/policy |
-| `evidence_mas/` | Our opt-in MAS harness: observations, analytical decisions, evidence and dependency tracking |
 | `runtime_support/` | Containers, native CLI environment, provenance, SQL/web tools, credential gateway/bridge and runtime proof validation |
 
 Outside this package:
+
+FULL/OBS and their prompt-only modes are retired. Only Single and Structured
+are active; retained paid artifacts are read by `analysis/`, never launched here.
 
 - `benchmarks/`: task data, reference protection and evaluation contracts.
 - `scripts/<benchmark>/`: catalog/run/score workflows and benchmark-specific replay.

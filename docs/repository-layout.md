@@ -1,12 +1,12 @@
 # Repository Ownership
 
-Current source ownership, revised 2026-11-07. The retained paired run keeps its
+Current source ownership, revised 2026-11-10. The retained paired run keeps its
 original artifact paths; obsolete study outputs and compatibility source are removed.
 
 | Owner | Contents |
 | --- | --- |
 | `common/` | Domain-independent persistence, fingerprints and durable phase claims |
-| `harness/` | Native adapters, hooks, Shared Evidence Workspace, containers, tools, credential transport and execution provenance |
+| `harness/` | Single/Structured native adapters, hooks, containers, tools, credential transport and execution provenance |
 | `benchmarks/` | Task loading, references, grading contracts and benchmark policy |
 | `analysis/` | Read-only evidence interpretation and aggregate statistics |
 | `scripts/<benchmark>/` | Benchmark execution entrypoints and workflows |

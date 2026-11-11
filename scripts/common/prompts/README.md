@@ -6,13 +6,13 @@ top-level package.
 | File | Responsibility | Active |
 | --- | --- | --- |
 | `structured_subagents.py` | Frozen seven-point Subagents lead prompt | Subagents default |
-| `native_subagents.py` | Existing Native (N) lead prompt | Explicit Native/OBS/FULL studies only |
 | `single_agent.py` | Strict Single condition text | Single default |
 | `conditions.py` | Backend selection and explicit raw-text study overrides | Yes |
 | `limits.py` | Identical wall-clock and web-limit wording for both conditions | Yes |
 
-Both Subagents prompt names refer to ordinary native Claude Code subagents, not
-Agent Teams or different runtimes. Moving the text here does not change the
+Structured refers to ordinary native Claude Code subagents, not
+Agent Teams. FULL/OBS and their prompt-only study prompts are retired.
+Moving the text here does not change the
 default, permissions, delegation policy or benchmark protocol. The Single text
 does not replace native permission enforcement in `harness/`.
 

@@ -9,16 +9,16 @@ from scripts.studies.matched_matrix_report import replace_upstream_failures
 
 def original(tmp_path, status='cli_error', http_status=503, outcome='upstream_rejected'):
     root = tmp_path / 'original'
-    run = root / 'solvers/kramabench/task/full'
+    run = root / 'solvers/kramabench/task/claude-code-subagents'
     folder = run / 'task/claude-code-subagents'
     folder.mkdir(parents=True)
     (folder/'report.json').write_text(json.dumps(dict(status=status, cli=dict(returncode=1))))
     (folder/'gateway-requests.jsonl').write_text(json.dumps(dict(event='finished', upstream_attempted=True,
         route='/anthropic/v1/messages', http_status=http_status, outcome=outcome))+'\n')
     summary = dict(interrupted=False, authorization=dict(protocol_settings={}, task_manifest_sha256='manifest'),
-        rows=[dict(benchmark='kramabench', task_id='task', backend='full', status=status, run=str(run))])
+        rows=[dict(benchmark='kramabench', task_id='task', backend='claude-code-subagents', status=status, run=str(run))])
     (root/'summary.json').write_text(json.dumps(summary))
-    jobs = [('kramabench', SimpleNamespace(id='task'), 'full', tmp_path/'new')]
+    jobs = [('kramabench', SimpleNamespace(id='task'), 'claude-code-subagents', tmp_path/'new')]
     return root, jobs, folder, summary
 
 
@@ -28,7 +28,7 @@ def test_only_upstream_5xx_terminations_are_eligible(tmp_path, status):
     before = (root/'summary.json').read_bytes()
     result = upstream_recovery(root, jobs, {}, 'manifest')
     row, = result.values()
-    assert row['http_status'] == status and row['backend'] == 'full'
+    assert row['http_status'] == status and row['backend'] == 'claude-code-subagents'
     assert len(row['ledger_sha256']) == len(row['report_sha256']) == 64
     assert (root/'summary.json').read_bytes() == before
 
@@ -84,7 +84,7 @@ def test_recovery_rejects_changed_or_repeated_scope(tmp_path, change):
 
 
 def report_fixture():
-    row = dict(benchmark='kramabench', task_id='task', backend='full', status='cli_error',
+    row = dict(benchmark='kramabench', task_id='task', backend='claude-code-subagents', status='cli_error',
         score=1, raw_score=1, compliant_score=1, seconds=10, total_usd_offpeak=None,
         model_requests=2, native_audit_passed=False)
     auth = dict(protocol_settings={}, task_manifest_sha256='manifest')
@@ -92,7 +92,7 @@ def report_fixture():
     recovery_row = dict(row, status='cli_exited', score=0, raw_score=0, compliant_score=0,
                         seconds=20, total_usd_offpeak=.2, native_audit_passed=True)
     recovery = dict(run='recovery', authorization=dict(auth, upstream_recovery_from='/outputs/first',
-        upstream_recovery=[dict(benchmark='kramabench', task_id='task', backend='full')]),
+        upstream_recovery=[dict(benchmark='kramabench', task_id='task', backend='claude-code-subagents')]),
         account_delta={'CNY':'2.30'}, rows=[recovery_row])
     return original, recovery
 

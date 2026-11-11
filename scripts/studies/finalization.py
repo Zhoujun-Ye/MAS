@@ -25,10 +25,12 @@ def needed(benchmark,task,backend,run):
     return len(rows)!=1 or rows[0]!=record
 
 
-def recover(benchmark,task,backend,run,target,*,root,image,evidence_mode=None):
+def recover(benchmark,task,backend,run,target,*,root,image):
     from scripts.common import run as external
     from scripts.kramabench import cli_runtime as krama
     frozen=json.loads((run/'plan.json').read_text())
+    if frozen.get('evidence'):
+        raise ValueError('Retired FULL/OBS attempts remain read-only; no baseline finalization')
     if benchmark=='kramabench':
         if fingerprint(krama.verify_inputs(root/benchmark/'upstream'))!=frozen['inputs_sha256']:
             raise ValueError('Frozen recovery inputs changed')
@@ -46,7 +48,8 @@ def recover(benchmark,task,backend,run,target,*,root,image,evidence_mode=None):
         name for name in names if (Path(parent)/name).is_socket()])
     folder=target/task.id/backend
     report=json.loads((folder/'report.json').read_text())
-    args=SimpleNamespace(backend=backend,evidence_mode=evidence_mode,image=image,
+    args=SimpleNamespace(backend=backend,image=image,
+                         cpus=frozen.get('cpu_per_attempt',2),compute_threads=frozen.get('compute_threads',1),
                          upstream=root/benchmark/'upstream',replay_timeout=180)
     if benchmark=='kramabench':
         replay=folder/'replay-workspace'

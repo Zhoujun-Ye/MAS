@@ -29,7 +29,6 @@ from harness.runtime_support.proof import validate as validate_proof, validate_r
 from benchmarks.policy import default_timeout, timeout_policy
 from harness.runtime_support import web_policy
 from analysis.native_evidence import native_single_agent, native_subagents
-from scripts.common import evidence
 from common.io import fingerprint
 from common.file_digest import DigestCache
 from common.journal import exclusive
@@ -78,7 +77,7 @@ def run_web_limit(task, args):
     return (getattr(args, "max_web_requests", None) or web_policy.DEFAULT_WEB_LIMIT) if task.web else 0
 
 
-def instructions(task, backend, organization_override=None, *, timeout, web_limit=0, evidence_mode=None, worker=False):
+def instructions(task, backend, organization_override=None, *, timeout, web_limit=0):
     if web_limit and not task.web:
         raise ValueError("A web request limit requires a web-enabled task")
     common = "Do not install packages or seek benchmark questions, gold answers, reference SQL or solutions.\n"
@@ -98,12 +97,10 @@ def instructions(task, backend, organization_override=None, *, timeout, web_limi
     common += ("Web search/fetch are enabled: python3 /benchmark-tools.py search --query TEXT; "
                "python3 /benchmark-tools.py fetch --url URL. Search prints compact JSON lines; full results are shared files under /workspace/web.\n" if task.web else "No web search, fetching, or other external data access.\n")
     common += limit_instructions(timeout, web_limit)
-    if worker:
-        return common
     common += ('Write /workspace/submission.json with exactly {"final_answer": "your answer as text"}. '
                'If incomplete, use empty final_answer and explain in the CLI final response.\n')
     return common + condition_instructions(
-        SimpleNamespace(organization_override=organization_override,evidence_mode=evidence_mode), backend)
+        SimpleNamespace(organization_override=organization_override), backend)
 
 
 def mounts(task, args):
@@ -132,6 +129,7 @@ def mounts(task, args):
 
 
 def plan(args, tasks):
+    condition_instructions(args, args.backend)
     expected = fda.REVISION if args.benchmark == "fdabench" else DC_REVISION if args.benchmark == "dataclawbench" else HDR_REVISION
     revision = subprocess.check_output(["git", "-C", str(args.upstream), "rev-parse", "HEAD"], text=True).strip()
     if revision != expected:
@@ -145,7 +143,7 @@ def plan(args, tasks):
             if str(source) not in assets:
                 assets[str(source)] = asset_manifest(source,hash_file=hash_file) if source.is_dir() else hash_file(source)
     prompts = {t.id: t.question + "\n\n" + instructions(t, args.backend, getattr(args, "organization_override", None),
-                                                         timeout=args.timeout, web_limit=run_web_limit(t, args),evidence_mode=getattr(args,'evidence_mode',None))
+                                                         timeout=args.timeout, web_limit=run_web_limit(t, args))
                for t in tasks}
     options = runtime.options(args.backend)
     if any(t.web for t in tasks) and not args.web_search:
@@ -157,18 +155,18 @@ def plan(args, tasks):
                 assets=assets, attempts=len(tasks), retries=0, judge_calls=0, options=options,
                 image=args.image, network="none", timeout=args.timeout, timeout_policy=timeout_policy(args.benchmark, args.timeout),
                 record_resources=getattr(args,'record_resources',False),
-                cpu_per_attempt=getattr(args,'cpus',2),compute_threads=getattr(args,'compute_threads',1),
+                cpu_per_attempt=getattr(args, 'cpus', runtime.DEFAULT_CPUS),compute_threads=getattr(args, 'compute_threads', runtime.DEFAULT_COMPUTE_THREADS),
                 required_modules=runtime.capability_modules(getattr(args,'require_module',[])),
                 capability_probes=runtime.capability_probes(getattr(args,'capability_probe',[])),
                 asset_hash_policy='stat-validated-sha256-v1' if getattr(args,'asset_cache',None) else 'full-sha256',
                 web_search=args.web_search,
                 web_policy=web_policy.configuration(max(run_web_limit(t,args) for t in tasks)) if any(t.web for t in tasks) else None,
                 web_request_limits={t.id: run_web_limit(t, args) for t in tasks},
-                native_environment=runtime.native_env(args.backend, effort=getattr(args, "effort", "max"),compute_threads=getattr(args,'compute_threads',1)),
+                native_environment=runtime.native_env(args.backend, effort=getattr(args, "effort", "max"),compute_threads=getattr(args, 'compute_threads', runtime.DEFAULT_COMPUTE_THREADS)),
                 effort=getattr(args, "effort", "max"),
                 max_budget_usd=getattr(args, "max_budget_usd", None),
                 max_web_requests=getattr(args, "max_web_requests", None),
-                organization_prompt=condition_instructions(args, args.backend), evidence=evidence.configuration(getattr(args,'evidence_mode',None)),
+                organization_prompt=condition_instructions(args, args.backend),
                 organization_override=getattr(args, "organization_override", None),
                 data_variant=args.data_variant if args.benchmark == "dataclawbench" else None,
                 source=runtime.source_manifest(), evaluator=evaluator, status="planned", model_calls_started=False,
@@ -207,7 +205,7 @@ def preflight(args,tasks,frozen):
                          'print("read-only corpus and FTS index OK")')
         else:
             code='from pathlib import Path; p=next(p for p in Path("/data").rglob("*") if p.is_file()); f=p.open("rb"); f.read(80); f.close(); print("input mount readable")'
-        source_mounts=mounts(task,args)+[(Path(__file__).resolve().parents[2]/'harness/runtime_support/tools.py','/benchmark-tools.py',True)]+evidence.source_mounts(getattr(args,'evidence_mode',None))
+        source_mounts=mounts(task,args)+[(Path(__file__).resolve().parents[2]/'harness/runtime_support/tools.py','/benchmark-tools.py',True)]
         rows.append(check(work,profile,args.image,source_mounts,args.backend,args.effort,args.cpus,
             args.compute_threads,folder,['python3','-c',code],modules=args.require_module,
             probes=frozen['capability_probes'],record_resources=args.record_resources))
@@ -215,6 +213,7 @@ def preflight(args,tasks,frozen):
 
 
 def attempt(task, args, key):
+    condition_instructions(args, args.backend)
     folder = args.output / task.id / args.backend
     work, profile = folder / "workspace", folder / "native-profile"
     work.mkdir(parents=True)
@@ -228,9 +227,8 @@ def attempt(task, args, key):
     # The explicit helper keeps search-provider behavior consistent across modes.
     opts["disallowed_tools"] = ("WebSearch", "WebFetch")
     web_limit = run_web_limit(task, args)
-    mode=getattr(args,'evidence_mode',None)
     rules=instructions(task,args.backend,getattr(args,'organization_override',None),timeout=args.timeout,
-                       web_limit=web_limit,evidence_mode=mode)
+                       web_limit=web_limit)
     prompt = task.question + "\n\n" + rules
     result = dict(instance_id=task.id, final_answer="", status="not_started", cost_usd=None)
     runtime.write_json(folder / "report.json", result)
@@ -239,7 +237,7 @@ def attempt(task, args, key):
     resources = None
     interrupted = None
     try:
-        inputs = mounts(task, args) + [(Path(__file__).resolve().parents[2] / "harness/runtime_support/tools.py", "/benchmark-tools.py", True)] + evidence.source_mounts(mode)
+        inputs = mounts(task, args) + [(Path(__file__).resolve().parents[2] / "harness/runtime_support/tools.py", "/benchmark-tools.py", True)]
         environment = {"MAS_BENCHMARK_WEB": "1" if task.web else "0",
                        "MAS_WEB_PROVIDER": args.web_search or "none"}
         environment["MAS_WEB_MAX_REQUESTS"] = str(web_limit)
@@ -248,24 +246,18 @@ def attempt(task, args, key):
         gateway.__enter__()
         identity = runtime.container(work, profile, args.data, args.image, backend=args.backend, gateway=gateway,
             effort=getattr(args, "effort", "max"),
-            cpus=getattr(args,'cpus',2),compute_threads=getattr(args,'compute_threads',1),
+            cpus=getattr(args, 'cpus', runtime.DEFAULT_CPUS),compute_threads=getattr(args, 'compute_threads', runtime.DEFAULT_COMPUTE_THREADS),
             dataset_mounts=inputs, environment_overrides=environment)
         if getattr(args,'record_resources',False):
             from harness.runtime_support.resources import ContainerResources
-            resources=ContainerResources(identity,folder,getattr(args,'cpus',2)).start()
+            resources=ContainerResources(identity,folder,getattr(args, 'cpus', runtime.DEFAULT_CPUS)).start()
         result.update(status="running", container_id=identity, started_at=runtime.now())
         runtime.write_json(folder / "report.json", result)
         kwargs = dict(command_prefix=("docker", "exec", "-i", "--workdir", "/workspace", identity))
         kwargs.update(observer_dir=profile / "observer", observer_target="/native/observer", hook_script="/adapter-hooks.py")
         adapter = BACKENDS[args.backend](str(runtime.CLAUDE))
-        if mode:
-            native=evidence.launch(mode,runtime.CLAUDE,task.question,rules,work,folder,identity,
-                worker_rules=instructions(task,args.backend,timeout=args.timeout,web_limit=web_limit,worker=True),
-                model=opts['model'],allowed_tools=opts['allowed_tools'],disallowed_tools=opts['disallowed_tools'],
-                timeout=args.timeout,max_budget_usd=getattr(args,'max_budget_usd',None))
-        else:
-            native = adapter.run(prompt, workspace=work, output=folder / "cli", timeout=args.timeout,
-                                 execute=True, **opts, **kwargs)
+        native = adapter.run(prompt, workspace=work, output=folder / "cli", timeout=args.timeout,
+                             execute=True, **opts, **kwargs)
         result.update(status=native["status"], cli=native)
     except BaseException as error:
         result.update(status="launcher_error", error=dict(type=type(error).__name__, message=str(error).replace(key, "[REDACTED]")))
@@ -297,11 +289,6 @@ def attempt(task, args, key):
             except Exception as error:
                 result.update(status="cleanup_failed", gateway_cleanup_error=type(error).__name__)
         result["finished_at"] = runtime.now()
-        if mode:
-            try:
-                result['evidence_workspace']=evidence.audit(folder,mode)
-            except Exception as error:
-                result['evidence_workspace']=dict(available=False,error_type=type(error).__name__)
         runtime.write_json(folder / "report.json", result)
     if interrupted is not None:
         raise interrupted
@@ -312,7 +299,6 @@ def finalize_attempt(folder,args,result):
     """Host-only postprocessing, also usable after a quiescent solver crash."""
     work,profile=folder/'workspace',folder/'native-profile'
     single=args.backend.endswith('single-agent')
-    mode=getattr(args,'evidence_mode',None)
     if result["status"] == "cleanup_failed":
         return result
     result["integrity_audit"] = inspect_run(folder, args.backend)
@@ -343,11 +329,6 @@ def finalize_attempt(folder,args,result):
         data = json.loads(submission.read_text())
         if set(data) != {"final_answer"} or not isinstance(data["final_answer"], str):
             raise ValueError("Expected exactly one final_answer text field")
-        if mode == 'full':
-            result['decision_gate'] = evidence.host_check(folder, data)
-            gate=result['decision_gate']
-            result['protocol_status'] = ('coverage_unknown' if gate.get('coverage') is False
-                else 'complete' if gate['accepted'] else 'incomplete')
         result["submission_sha256"] = digest(submission)
         shutil.copyfile(submission, folder / "submission.json")
         if evaluable_prediction(result):
@@ -386,8 +367,8 @@ def main(argv=None, *, benchmark=None):
     parser.add_argument("--credentials", type=Path, default=Path("/home/zhoujunye/mas/.env"))
     parser.add_argument("--execute", action="store_true")
     parser.add_argument('--record-resources',action='store_true')
-    parser.add_argument('--cpus',type=int,choices=range(1,129),default=2)
-    parser.add_argument('--compute-threads',type=int,choices=range(1,129),default=1)
+    parser.add_argument('--cpus',type=int,choices=range(1,129),default=runtime.DEFAULT_CPUS)
+    parser.add_argument('--compute-threads',type=int,choices=range(1,129),default=runtime.DEFAULT_COMPUTE_THREADS)
     parser.add_argument('--require-module',action='append',default=[])
     parser.add_argument('--capability-probe',action='append',default=[])
     parser.add_argument('--asset-cache',type=Path,help='Host-only stat-validated input hash cache; never mounted')
@@ -396,14 +377,12 @@ def main(argv=None, *, benchmark=None):
     parser.add_argument("--effort", choices=("high", "max"), default="max")
     parser.add_argument("--organization-prompt", type=Path,
                         help="Explicit lead-only Claude Subagents study prompt override")
-    parser.add_argument('--evidence-mode',choices=evidence.MODES)
     args = parser.parse_args(argv)
     args.require_module=runtime.capability_modules(args.require_module)
     if args.compute_threads>args.cpus:parser.error('Compute threads exceed CPU quota')
     if args.preflight and (args.execute or args.from_plan):parser.error('Preflight is separate from execution')
     if args.from_plan and not args.execute:parser.error('--from-plan requires --execute')
     args.organization_override = organization_override(args.organization_prompt, args.backend)
-    evidence.validate_condition(args)
     if args.timeout is None:
         args.timeout = default_timeout(args.benchmark)
     if args.max_web_requests is None:
@@ -433,7 +412,6 @@ def main(argv=None, *, benchmark=None):
     if (args.execute and args.authorized_attempts != len(tasks)) or args.offline_proof is None:
         raise ValueError("Execution requires exact authorized attempt count and offline native proof")
     proof = json.loads(args.offline_proof.read_text())
-    evidence.validate_proof(proof,args.evidence_mode)
     validate_proof(proof, args.backend)
     validate_effort(proof, args.effort)
     args.image = json.loads(subprocess.check_output(["docker", "image", "inspect", args.image]))[0]["Id"]
