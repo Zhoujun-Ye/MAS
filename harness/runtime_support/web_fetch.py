@@ -181,6 +181,22 @@ def check_ready(timeout=10):
             raise
 
 
+def check_ready_with_recovery(timeout=10, *, attempts=3, delay=1):
+    """Bounded retries of free TLS admission only, never of a solver or web GET."""
+    if type(attempts) is not int or not 1 <= attempts <= 3 or delay < 0:
+        raise ValueError('Readiness requires 1-3 probes and a nonnegative delay')
+    failures = []
+    for index in range(attempts):
+        try:
+            receipt = check_ready(timeout)
+            return dict(receipt, readiness_attempts=index + 1, transient_failures=failures)
+        except (OSError, RuntimeError) as error:
+            failures.append(type(error).__name__)
+            if index + 1 == attempts:
+                raise
+            time.sleep(delay)
+
+
 def _check_ready(timeout, deadline):
     check_proxy()
     start=time.monotonic()

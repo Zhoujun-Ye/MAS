@@ -95,3 +95,31 @@ def unavailable_web_proxy(path):
         if isinstance(row,dict) and row.get('event')=='finished' and row.get('web_proxy_unavailable') is True:
             return True
     return False
+
+
+def infrastructure_health(path):
+    """Keep upstream failures orthogonal to solver lifecycle and answer scores."""
+    try:
+        lines = path.read_text().splitlines()
+    except FileNotFoundError:
+        return dict(infra_degraded=None, upstream_5xx=[], ledger_status='missing')
+    failures = {}
+    malformed = False
+    for line in lines:
+        try:
+            row = json.loads(line)
+        except ValueError:
+            malformed = True
+            continue
+        if not isinstance(row, dict):
+            malformed = True
+            continue
+        status = row.get('http_status')
+        if (row.get('event') == 'finished' and row.get('upstream_attempted') is True
+                and row.get('outcome') == 'upstream_rejected'
+                and type(status) is int and 500 <= status <= 599):
+            identity = row.get('request_id')
+            failures[identity] = dict(request_id=identity, http_status=status, route=row.get('route'))
+    return dict(infra_degraded=True if failures else None if malformed else False,
+                upstream_5xx=list(failures.values()), ledger_status='malformed' if malformed else 'read',
+                basis='host_gateway_upstream_response', retries_authorized=False)

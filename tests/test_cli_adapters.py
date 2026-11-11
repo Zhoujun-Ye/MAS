@@ -81,7 +81,9 @@ def test_subagent_command_uses_print_mode_and_native_permissions():
     assert command[:5] == ["claude", "--print", "--verbose", "--output-format", "stream-json"]
     settings = json.loads(command[command.index("--settings") + 1])
     assert settings == dict(env=dict(CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS="0"))
-    assert command[-4:] == ["--allowedTools", "Read,Edit", "--max-budget-usd", "0.5"]
+    assert command[command.index('--allowedTools') + 1] == 'Read,Edit'
+    assert command[command.index('--max-budget-usd') + 1] == '0.5'
+    assert '--tools' in command and '--disable-slash-commands' in command
     assert "--dangerously-skip-permissions" not in command and "--agents" not in command
 
 

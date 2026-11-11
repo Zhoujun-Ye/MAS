@@ -17,6 +17,11 @@ coordinator/full modes, capability catalogs, or custom scheduling semantics.
 - `harness/claude_code_single_agent/`: print-mode strict Single, with native delegation tools removed and denied.
 - `harness/_claude_cli.py` and `_claude_hooks.py`: shared native arguments/observations and opt-in Single permission policy.
 - `harness/_cli.py`: CLI preflight, process lifetime, stdin and raw evidence only.
+- The November 11 review-fix request authorizes a shared explicit tool surface:
+  Single's twelve tools plus Agent/Task, SendMessage and ListAgents for Subagents;
+  disable skills/slash commands for both. Keep the frozen organization prompts exact.
+  New runtime proofs must bind the environment/tool configuration and observed
+  init surface. Historical paid runs retain their original tool configurations.
 - FULL, OBS and their prompt-only ablations were retired on 2026-11-10.
   Do not restore their runtime, tools, hooks, prompts or launch choices. Preserve
   paid historical evidence and frozen sources; analysis may read recorded artifacts
@@ -162,6 +167,11 @@ See `docs/cli-adapters.md` for pinned versions, references and limitations.
   retry semantics and fatal key/balance handling need native-runtime validation
   before paid studies; do not recreate a provider client to claim enforcement.
 - Keep failed attempts. Native context/output exhaustion is incomplete work.
+- Mark observed host-ledger upstream 5xx independently as `infra_degraded`; never
+  automatically replace or retry those attempts. Retry only free pre-dispatch TLS
+  readiness (at most three probes), not a solver or a paid model/search request.
+  New Krama timeout outcomes score zero consistently with the other benchmarks;
+  retain submitted artifacts and diagnostic artifact grades without rewriting history.
 - Lifecycle status, CLI final text and enabled team flags do not establish
   correctness, actual team creation, member shutdown or workspace quiescence.
 - No old frozen-artifact, shared-budget, bounded-team or append-only-message

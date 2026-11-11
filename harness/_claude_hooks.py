@@ -11,7 +11,8 @@ import sys
 # Claude Code 2.1.286 removed TaskOutput; listing it would only name a missing tool.
 SINGLE_TOOLS = ("Bash", "Read", "Write", "Edit", "Glob", "Grep", "NotebookEdit",
                 "TaskCreate", "TaskUpdate", "TaskGet", "TaskList", "TaskStop")
-BLOCKED_TOOLS = ("Agent", "Task", "SendMessage", "Workflow", "CronCreate", "CronDelete",
+SUBAGENT_TOOLS = (*SINGLE_TOOLS, "Agent", "Task", "SendMessage", "ListAgents")
+BLOCKED_TOOLS = ("Agent", "Task", "SendMessage", "ListAgents", "Workflow", "CronCreate", "CronDelete",
                  "CronList", "ScheduleWakeup")
 
 

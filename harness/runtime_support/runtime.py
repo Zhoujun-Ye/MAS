@@ -15,7 +15,7 @@ import uuid
 import time
 
 from common.io import write_json
-from harness._claude_hooks import BLOCKED_TOOLS
+from harness._claude_hooks import SINGLE_TOOLS, SUBAGENT_TOOLS
 from harness.runtime_support.inference import DEFAULT_EFFORT, EFFORTS, configuration as inference_configuration
 
 DEFAULT_CPUS = 8
@@ -26,8 +26,7 @@ REPRODUCIBLE_ENV = dict(PYTHONHASHSEED="0", TZ="UTC", OMP_DYNAMIC="FALSE", MKL_D
 CLAUDE = Path("/home/zhoujunye/.local/bin/claude").resolve()
 
 # Claude Code 2.1.286 has no TaskOutput tool; background agents notify the lead instead.
-TOOLS = ("Bash", "Read", "Write", "Edit", "Glob", "Grep", "Agent", "Task", "SendMessage",
-         "TaskCreate", "TaskUpdate", "TaskGet", "TaskList", "TaskStop")
+TOOLS = SUBAGENT_TOOLS
 
 THREADS = {name: str(DEFAULT_COMPUTE_THREADS) for name in ("OMP_NUM_THREADS", "OPENBLAS_NUM_THREADS", "MKL_NUM_THREADS",
                                   "NUMEXPR_NUM_THREADS", "VECLIB_MAXIMUM_THREADS")}
@@ -160,7 +159,7 @@ def snapshot(work):
 def options(backend):
     if backend not in {"claude-code-single-agent", "claude-code-subagents"}:
         raise ValueError("Only Claude Code conditions are active")
-    tools = tuple(t for t in TOOLS if t not in BLOCKED_TOOLS) if backend == "claude-code-single-agent" else TOOLS
+    tools = SINGLE_TOOLS if backend == "claude-code-single-agent" else SUBAGENT_TOOLS
     return dict(model="deepseek-flash[1m]", allowed_tools=tools,
                 disallowed_tools=("WebSearch", "WebFetch"), isolated_settings=True)
 
@@ -172,13 +171,15 @@ def native_env(backend, *, effort=DEFAULT_EFFORT, compute_threads=DEFAULT_COMPUT
     environment = dict({name: str(compute_threads) for name in THREADS}, HOME="/native/home",
                 CLAUDE_CONFIG_DIR="/native/claude", ANTHROPIC_BASE_URL="https://api.deepseek.com/anthropic",
                 ANTHROPIC_MODEL="deepseek-flash[1m]", ANTHROPIC_DEFAULT_OPUS_MODEL="deepseek-flash[1m]",
-                ANTHROPIC_DEFAULT_SONNET_MODEL="deepseek-flash[1m]", ANTHROPIC_DEFAULT_HAIKU_MODEL="deepseek-flash",
+                ANTHROPIC_DEFAULT_SONNET_MODEL="deepseek-flash[1m]", ANTHROPIC_DEFAULT_HAIKU_MODEL="deepseek-flash[1m]",
+                ANTHROPIC_DEFAULT_FABLE_MODEL="deepseek-flash[1m]",
                 CLAUDE_CODE_SUBAGENT_MODEL="deepseek-flash[1m]",
                 CLAUDE_CODE_EFFORT_LEVEL="auto" if effort == "none" else effort,
                 **REPRODUCIBLE_ENV,
                 CLAUDE_CODE_AUTO_COMPACT_WINDOW="786432",
                 CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS="0",
                 CLAUDE_CODE_MAX_RETRIES="0",
+                BASH_DEFAULT_TIMEOUT_MS="600000", BASH_MAX_TIMEOUT_MS="600000",
                 DISABLE_AUTOUPDATER="1", CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC="1",
                 LANGSMITH_TRACING="false", LANGCHAIN_TRACING_V2="false")
     if policy["thinking"] == "disabled":

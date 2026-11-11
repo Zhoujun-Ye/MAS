@@ -1,6 +1,32 @@
 # KramaBench Fresh Random20
 
-## Preparation Scope
+## Current Review-Fix Launch
+
+The subsequent November 11 request authorizes fixing the infrastructure review,
+free server verification and then executing the same sixty slots. No experiment
+was running when checked. Current verification is recorded in
+[review fixes](infra-review-fixes-20261111.md): 921 server tests, both native
+admission proofs, Fable/Haiku alias probes, nine synthetic workflows and three
+503/no-retry probes passed. This is mechanics evidence, not measured accuracy.
+
+Launch source target: `/home/zhoujunye/mas-stages/20261111-krama-random20-fixed-01`.
+Admission proofs: `/home/zhoujunye/mas-data/receipts/review-fixes-20261111-01/native-proofs-02`.
+Output remains `/home/zhoujunye/mas/outputs/krama-random20-20261111-01`.
+The task manifest, organization prompts, sixteen solver slots, CPU8/thread4,
+thinking-off/temperature-zero policy and maximum six semantic grades are unchanged.
+The shared explicit tool surface, aliases, timeout outcome handling and deferred
+offline evaluation are corrected as documented in the review record. Freeze fresh
+source-bound task plans; never resume a paid plan across these changes.
+No extra paid smoke or retry is authorized by this launch description.
+The driver (PID `1744295`) has finished all sixty slots. The retained summary
+records fifty `cli_exited`, three `native_condition_unverified` and seven
+`timed_out` outcomes. Grading records fifty `graded`, three `invalid_submission`
+and seven `incomplete_timeout` outcomes, with five semantic judge calls. No
+controller failure or grading exception was recorded. These lifecycle counts are
+not accuracy claims or proof of valid delegation. No solver or judge was retried.
+The source remains frozen; later shutdown/compliance fixes are not retroactive.
+
+## Preparation Scope (Historical)
 
 The November 11 request is to prepare, clean, verify, commit and push a matched
 Single / Native / Structured comparison. No paid solver or judge is launched
@@ -102,7 +128,7 @@ and nonexecuting matrix plan are recorded under
 Older max-profile preparation is superseded, not paid evidence. Cleanup details
 are in [retention](../archive.md). The post-cleanup source needs fresh source-bound
 plans before execution; do not reuse an older plan across source changes.
-No paid output namespace has been created.
+No paid output namespace had been created at that preparation checkpoint.
 
 Planning only, from the source directory with the existing evaluation Python:
 

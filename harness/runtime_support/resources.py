@@ -157,16 +157,21 @@ class ContainerResources:
         except (OSError,ValueError,KeyError,subprocess.SubprocessError):
             return dict(available=False)
 
-    def close(self):
+    def close(self, *, final_sample=True):
         if self.result is not None:
             return self.result
         self.done.set()
         if self.thread is not None:
-            self.thread.join()
-        self.sample()
+            self.thread.join(timeout=1)
+        sampler_alive = self.thread is not None and self.thread.is_alive()
+        if sampler_alive:
+            self.errors.append('sampler_shutdown_timeout')
+        if final_sample and not sampler_alive:
+            self.sample()
         result = dict(summarize(self.samples, self.cpus), cpus=self.cpus,
-                      sample_count=len(self.samples), sample_errors=self.errors,
-                      capture_complete=not self.errors)
+                      sample_count=len(self.samples), sample_errors=list(self.errors),
+                      final_sample_requested=final_sample,
+                      capture_complete=not self.errors and final_sample)
         result['memory']=memory_summary(self.samples)
         result['pressure']=pressure_summary(self.samples)
         result['container_exit']=self.exit_state() if self.thread is not None else None

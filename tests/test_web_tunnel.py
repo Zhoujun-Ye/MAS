@@ -224,7 +224,7 @@ def test_frozen_policy_requires_tunnel_without_environment_proxy_fallback():
     assert policy['fetch_proxy_failure']=='fail closed; no direct fallback'
 
 
-def test_lost_proxy_pauses_new_dispatch_without_killing_active_solver(tmp_path,monkeypatch):
+def test_lost_proxy_does_not_permanently_pause_unrelated_solvers(tmp_path,monkeypatch):
     import json,time
     from scripts.studies import benchmark_matrix as matrix
     from test_fullscale_infra import setup_matrix,FakeProcess
@@ -244,7 +244,9 @@ def test_lost_proxy_pauses_new_dispatch_without_killing_active_solver(tmp_path,m
     monkeypatch.setattr(matrix.subprocess,'Popen',LostProxy)
     monkeypatch.setattr(matrix,'grade_attempt',lambda b,t,k,*a,**kw:dict(
         benchmark=b,task_id=t.id,backend=k,status='graded',judge_calls=0))
-    assert matrix.main(args(tmp_path/'out'))==1
+    assert matrix.main(args(tmp_path/'out'))==0
     summary=json.loads((tmp_path/'out/summary.json').read_text())
-    assert summary['interrupted'] and not terminated
-    assert sorted(r['status'] for r in summary['rows'])==['cli_exited','not_started']
+    assert not summary['interrupted'] and not terminated
+    assert sorted(r['status'] for r in summary['rows'])==['cli_exited','cli_exited']
+    assert (tmp_path/'out/web-tunnel-interruption.json').exists()
+    assert not (tmp_path/'out/balance-paused.json').exists()

@@ -17,7 +17,8 @@ def needed(benchmark,task,backend,run):
     if record.get('status') not in {'cli_exited','native_condition_unverified'}:
         return False
     if benchmark=='kramabench':
-        return not (run/'summary.json').exists()
+        path = run / 'summary.json'
+        return not path.exists() or json.loads(path.read_text()).get('offline_evaluation_pending', False)
     predictions=run/'predictions.jsonl'
     if not predictions.exists():
         return True

@@ -145,7 +145,9 @@ def print_web(action,value):
         print(text)
 
 
-def run_sql(path, sql, *, limit=200, operations=10000000):
+def run_sql(path, sql, *, limit=200, operations=None):
+    if operations is not None and (type(operations) is not int or operations <= 0):
+        raise ValueError('SQL operation limit must be a positive integer')
     uri = Path(path).resolve(strict=True).as_uri() + "?mode=ro"
     with sqlite3.connect(uri, uri=True, timeout=10) as connection:
         connection.execute("PRAGMA query_only=ON")
@@ -162,9 +164,17 @@ def run_sql(path, sql, *, limit=200, operations=10000000):
             nonlocal remaining
             remaining -= 1000
             return int(remaining <= 0)
-        connection.set_progress_handler(progress, 1000)
-        cursor = connection.execute(sql)
-        rows = cursor.fetchmany(limit + 1)
+        if operations is not None:
+            connection.set_progress_handler(progress, 1000)
+        try:
+            cursor = connection.execute(sql)
+            rows = cursor.fetchmany(limit + 1)
+        except sqlite3.OperationalError as error:
+            if operations is not None and remaining <= 0:
+                raise sqlite3.OperationalError(
+                    f'SQL operation limit ({operations}) exceeded; increase --operations or omit it. '
+                    'The solver wall-clock deadline still applies.') from error
+            raise
         return dict(columns=[col[0] for col in cursor.description or ()], rows=rows[:limit], truncated=len(rows) > limit)
 
 
@@ -174,6 +184,7 @@ def main(argv=None):
     sql = sub.add_parser("sql")
     sql.add_argument("--db", required=True, type=Path)
     sql.add_argument("--query", required=True)
+    sql.add_argument("--operations", type=int, help="Optional SQLite VM operation limit; no default cap")
     search = sub.add_parser("search")
     search.add_argument("--query", required=True)
     fetch = sub.add_parser("fetch")
@@ -195,7 +206,7 @@ def main(argv=None):
 
 def run_tool(args):
     if args.tool == "sql":
-        value = run_sql(args.db, args.query)
+        value = run_sql(args.db, args.query, operations=args.operations)
     else:
         if os.environ.get("MAS_BENCHMARK_WEB") != "1":
             raise ValueError("Web access is not enabled for this task")

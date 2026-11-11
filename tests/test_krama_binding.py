@@ -8,6 +8,8 @@ import pytest
 from benchmarks.kramabench.tasks import Task
 from common.io import fingerprint
 from harness.runtime_support.inference import configuration
+from harness.runtime_support.proof import runtime_configuration
+from harness._claude_hooks import SINGLE_TOOLS, SUBAGENT_TOOLS
 from scripts.kramabench import cli_runtime as runtime
 from scripts.kramabench import run
 
@@ -16,6 +18,8 @@ def bound_proof(backend):
     single = backend.endswith("single-agent")
     binding = dict(image_id="fixture-image", binary_sha256="fixture-binary-hash")
     proof = dict(backend=backend, passed=True, network="none", paid_calls=0,
+                 native_surface=dict(tools=list(SINGLE_TOOLS if single else SUBAGENT_TOOLS), skills=[], slash_commands=[]),
+                 runtime_configuration_sha256=runtime_configuration(backend, 'max'),
                  requested_effort='max', request_effort_verified=True,
                  inference_policy=configuration('max'), request_configuration_verified=True,
                  runtime_binding=binding, shell_verified=True, tool_exposure_verified=True)

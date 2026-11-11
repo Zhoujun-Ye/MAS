@@ -15,7 +15,7 @@ from harness.runtime_support.proof import validate
 def workflow(tmp_path, monkeypatch, request):
     from harness.runtime_support import preflight
     monkeypatch.setattr(preflight,'check',lambda *a,**kw:dict(paid_calls=0))
-    monkeypatch.setattr('harness.runtime_support.web_fetch.check_ready',lambda:dict(tls_verified=True,model_calls=0))
+    monkeypatch.setattr('harness.runtime_support.web_fetch.check_ready',lambda *a, **kw:dict(tls_verified=True,model_calls=0))
     benchmark = request.param
     monkeypatch.setattr(run, "verify_sources", lambda *args: None)
     monkeypatch.setattr(score, "verify_sources", lambda *args: None)
@@ -72,7 +72,11 @@ def workflow(tmp_path, monkeypatch, request):
     binary = tmp_path / "fake-claude"
     binary.write_text("fake executable, never launched")
     proof = tmp_path / "proof.json"
+    from harness._claude_hooks import SUBAGENT_TOOLS
+    from harness.runtime_support.proof import runtime_configuration
     proof.write_text(json.dumps(dict(passed=True, paid_calls=0, network="none",
+        native_surface=dict(tools=list(SUBAGENT_TOOLS), skills=[], slash_commands=[]),
+        runtime_configuration_sha256=runtime_configuration('claude-code-subagents'),
         requested_effort=run.runtime.DEFAULT_EFFORT, request_effort_verified=True,
         inference_policy=run.runtime.inference_configuration(), request_configuration_verified=True,
         backend="claude-code-subagents", native_subagents=dict(passed=True, subagent_starts=1,
@@ -244,7 +248,7 @@ def test_gateway_cleanup_failure_preserves_terminal_report(workflow, monkeypatch
 
 def test_web_loss_between_standalone_tasks_blocks_next_dispatch(workflow, monkeypatch):
     if workflow.benchmark!='hybriddeepresearch':return
-    def ready():
+    def ready(*args, **kwargs):
         if workflow.calls:raise TimeoutError('untrusted network details')
         return dict(tls_verified=True,model_calls=0)
     monkeypatch.setattr('harness.runtime_support.web_fetch.check_ready', ready)

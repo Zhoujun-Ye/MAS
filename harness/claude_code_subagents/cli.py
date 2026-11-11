@@ -3,6 +3,7 @@
 from dataclasses import dataclass
 
 from .._claude_cli import command, run_print
+from .._claude_hooks import SUBAGENT_TOOLS
 
 
 @dataclass(frozen=True)
@@ -10,7 +11,8 @@ class ClaudeCodeSubagentsCLI:
     executable: str = "claude"
 
     def command(self, model, **options):
-        return command(self.executable, model, **options)
+        return [*command(self.executable, model, **options),
+                "--tools", ",".join(SUBAGENT_TOOLS), "--disable-slash-commands"]
 
     def run(self, prompt, *, model, workspace, output, timeout=3600, allowed_tools=(),
             disallowed_tools=(), max_budget_usd=None, settings=None, isolated_settings=False,

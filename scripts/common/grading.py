@@ -7,6 +7,12 @@ from common.io import read_json
 from benchmarks.kramabench.semantic_judge import judge_once
 
 
+def krama_judge_eligible(record):
+    return (record.get('status') in {'cli_exited', 'native_condition_unverified'}
+            and record.get('condition_status') != 'single_agent_condition_violated'
+            and (record.get('grade') or {}).get('status') == 'pending_judge')
+
+
 def needs_judge(benchmark, task, run, judge_enabled):
     if not judge_enabled:
         return False
@@ -14,8 +20,7 @@ def needs_judge(benchmark, task, run, judge_enabled):
         return False
     if benchmark == 'kramabench':
         rows = read_json(run / 'summary.json', {}).get('rows', [])
-        return bool(rows and rows[0].get('status') in {'cli_exited', 'native_condition_unverified'}
-                    and (rows[0].get('grade') or {}).get('status') == 'pending_judge')
+        return bool(rows and krama_judge_eligible(rows[0]))
     path = run / 'predictions.jsonl'
     return (path.exists() and (benchmark == 'dataclawbench' or task.category != 'search_to_sql')
             and any(p['final_answer'].strip() for p in jsonl(path)))
@@ -40,7 +45,7 @@ def grade_attempt(benchmark, task, backend, run, *, data_root, grades_root,
                       pipeline_answer_matches_submission=record.get("pipeline_answer_matches_submission"))
         # Lifecycle evidence and answer eligibility are separate. judge_once
         # validates the retained submission before any authorized dispatch.
-        if record.get("status") in {"cli_exited","native_condition_unverified"} and result["status"] == "pending_judge" and judge_enabled:
+        if krama_judge_eligible(record) and judge_enabled:
             judged = judge_once(upstream=data_root / benchmark / "upstream", task_id=task.id, backend=backend,
                 submission_path=run / task.id / backend / "submission.json", question=task.query,
                 key=key, output=target)

@@ -2,7 +2,8 @@ from copy import deepcopy
 
 import pytest
 
-from harness.runtime_support.proof import validate, validate_runtime
+from harness.runtime_support.proof import validate, validate_runtime, runtime_configuration
+from harness._claude_hooks import SINGLE_TOOLS
 
 
 def claude_proof():
@@ -11,6 +12,8 @@ def claude_proof():
         native_single_agent=dict(passed=True, subagent_starts=0, executed_delegation_tools=0),
         delegation_rejections_observed=2,
         runtime_binding=dict(image_id="sha256:image", binary_sha256="binary-hash"),
+        native_surface=dict(tools=list(SINGLE_TOOLS), skills=[], slash_commands=[]),
+        runtime_configuration_sha256=runtime_configuration('claude-code-single-agent'),
     )
 
 

@@ -15,13 +15,13 @@ from unittest.mock import patch
 from urllib.parse import urlsplit
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
-from analysis.native_evidence import native_single_agent, native_subagents
+from analysis.native_evidence import native_single_agent, native_subagents, native_surface
 from benchmarks._external import digest
 from common.io import write_json
 from harness import ClaudeCodeSingleAgentCLI, ClaudeCodeSubagentsCLI
 from harness.runtime_support import credential_gateway
 from harness.runtime_support import runtime
-from harness.runtime_support.proof import validate_runtime
+from harness.runtime_support.proof import validate_runtime, runtime_configuration
 from harness.runtime_support.inference import proof_requests
 
 
@@ -42,9 +42,10 @@ def sse(frames):
 
 
 class Fixture:
-    def __init__(self, backend, error_status=None):
+    def __init__(self, backend, error_status=None, worker_model=None):
         self.backend = backend
         self.error_status = error_status
+        self.worker_model = worker_model
         self.single = backend.endswith("single-agent")
         self.requests = []
         self.rejections = set()
@@ -81,6 +82,8 @@ class Fixture:
             block = dict(type="tool_use", id="probe-Agent", name="Agent", input=dict(
                 name="probe-worker", description="Gateway delegation probe", subagent_type="general-purpose",
                 prompt="Complete the offline shell probe and return its result."))
+            if self.worker_model:
+                block['input']['model'] = self.worker_model
         elif index == (2 if self.single else 1):
             block = dict(type="tool_use", id="probe-shell", name="Bash", input=dict(
                 command="printf probe-ok > /workspace/probe-result.txt", description="Write offline probe marker"))
@@ -113,7 +116,8 @@ def probe(backend, root, image, key, fixture, *, effort=runtime.DEFAULT_EFFORT):
     binary = runtime.CLAUDE
     binding = dict(image_id=image, binary_sha256=digest(binary))
     proof = dict(backend=backend, passed=False, paid_calls=0, real_credentials=False, network="none",
-                 through_credential_gateway=True, runtime_binding=binding, requested_effort=effort)
+                 through_credential_gateway=True, runtime_binding=binding, requested_effort=effort,
+                 runtime_configuration_sha256=runtime_configuration(backend, effort))
     identity = None
     gateway = None
     try:
@@ -136,6 +140,9 @@ def probe(backend, root, image, key, fixture, *, effort=runtime.DEFAULT_EFFORT):
             workspace=work, output=folder / "cli", timeout=120, execute=True, **options, **transport)
         proof["cli_status"] = result["status"]
         proof["native_result"] = result
+        proof['native_surface'] = native_surface(folder)
+        proof['requested_worker_model'] = fixture.worker_model
+        proof['request_models'] = sorted({r.get('model', '') for r in fixture.requests})
         marker = work / "probe-result.txt"
         proof["shell_verified"] = marker.is_file() and not marker.is_symlink() and marker.read_text() == "probe-ok"
         name = "native_single_agent" if single else "native_subagents"
@@ -181,6 +188,8 @@ def main(argv=None):
     parser.add_argument("--image", required=True)
     parser.add_argument("--execute", action="store_true")
     parser.add_argument("--effort", choices=runtime.EFFORTS, default=runtime.DEFAULT_EFFORT)
+    parser.add_argument('--worker-model', choices=('haiku', 'fable', 'sonnet', 'opus'),
+                        help='Exercise a native worker alias against the fake provider')
     parser.add_argument('--error-status', type=int, choices=(401, 402, 429, 503),
                         help='Synthetic native failure/no-retry probe; not a launch-admission proof')
     args = parser.parse_args(argv)
@@ -191,7 +200,7 @@ def main(argv=None):
     args.output = args.output.resolve()
     args.output.mkdir(parents=True, exist_ok=False)
     image = json.loads(subprocess.check_output(["docker", "image", "inspect", args.image]))[0]["Id"]
-    fixtures = {"synthetic-" + secrets.token_hex(24): Fixture(backend, args.error_status) for backend in BACKENDS}
+    fixtures = {"synthetic-" + secrets.token_hex(24): Fixture(backend, args.error_status, args.worker_model) for backend in BACKENDS}
 
     def fake_upstream(request):
         key = request.get_header("Authorization", "").removeprefix("Bearer ")

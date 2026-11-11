@@ -10,7 +10,7 @@ import subprocess
 import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
-from analysis.native_evidence import native_single_agent, native_subagents
+from analysis.native_evidence import native_single_agent, native_subagents, native_surface
 from common.io import write_json
 from benchmarks.dataclawbench.tasks import load_tasks as dataclaw_tasks
 from benchmarks.hybriddeepresearch.tasks import load_tasks as hybrid_tasks
@@ -18,6 +18,7 @@ from harness import ClaudeCodeSingleAgentCLI, ClaudeCodeSubagentsCLI
 from harness._claude_cli import hook_settings
 from harness.runtime_support import runtime
 from harness.runtime_support.inference import proof_requests
+from harness.runtime_support.proof import runtime_configuration, validate_surface
 from scripts.common.run import mounts
 
 
@@ -87,6 +88,9 @@ def main():
             shutil.copyfile(profile / "probe/stdout.log", folder / "cli/stdout.log")
             proof = json.loads((profile / "probe/transport.json").read_text())
             proof.update(backend=backend, task_id=task.id, benchmark=task.benchmark)
+            proof.update(native_surface=native_surface(folder),
+                         runtime_configuration_sha256=runtime_configuration(backend, args.effort))
+            validate_surface(proof['native_surface'], backend)
             requests = json.loads((profile / 'probe/fake-provider-requests.json').read_text())
             proof.update(proof_requests(requests, args.effort))
             if budget:

@@ -353,6 +353,7 @@ def solver_command(args, benchmark, task, backend, output, *, execute=False):
     if backend == "claude-code-subagents" and getattr(args, "organization_prompt", None):
         command += ["--organization-prompt", str(args.organization_prompt)]
     if benchmark == "kramabench":
+        command.append('--defer-offline-evaluation')
         if hasattr(args,'output'):command+=['--asset-cache',str(args.output/'asset-digests.sqlite')]
         command += ["--concurrency", "1", "--replay-timeout", "180", "--judge-limit", "0"]
         command += ['--cpus', str(getattr(args,'cpus',runtime.DEFAULT_CPUS))]
@@ -392,6 +393,28 @@ def solver_command(args, benchmark, task, backend, output, *, execute=False):
     return command
 
 
+def order_jobs(jobs, estimates=None):
+    """Optional condition-neutral LPT order from explicit pre-run estimates."""
+    if estimates is None:
+        return list(jobs)
+    rows = json.loads(Path(estimates).read_text())
+    if not isinstance(rows, list):
+        raise ValueError('Schedule estimates must be a JSON list')
+    durations = {}
+    for row in rows:
+        if not isinstance(row, dict) or set(row) != {'benchmark', 'task_id', 'seconds'}:
+            raise ValueError('Each estimate requires benchmark, task_id and seconds')
+        key = (row['benchmark'], row['task_id'])
+        seconds = row['seconds']
+        if (key in durations or type(seconds) not in (int, float)
+                or not 0 < seconds < float('inf')):
+            raise ValueError('Schedule estimates must be unique, finite and positive')
+        durations[key] = seconds
+    if set(durations) != {(b, t.id) for b, t, _, _ in jobs}:
+        raise ValueError('Schedule estimates must cover exactly the selected tasks')
+    return sorted(jobs, key=lambda job: -durations[(job[0], job[1].id)])
+
+
 def protocol_settings(args):
     backends = getattr(args, "backends", BACKENDS)
     override = organization_override(getattr(args, "organization_prompt", None), "claude-code-subagents")
@@ -409,6 +432,9 @@ def protocol_settings(args):
     settings.update(cpu_per_attempt=getattr(args,'cpus',runtime.DEFAULT_CPUS),
                     compute_threads=getattr(args,'compute_threads',runtime.DEFAULT_COMPUTE_THREADS),
                     record_resources=getattr(args,'record_resources',False))
+    if getattr(args, 'schedule_estimates', None):
+        settings['scheduling'] = dict(policy='longest-estimate-first',
+                                      estimates_sha256=digest(args.schedule_estimates))
     if getattr(args, 'require_module', []):
         settings['required_modules'] = runtime.capability_modules(args.require_module)
     if getattr(args, 'capability_probe', []):
@@ -452,7 +478,7 @@ def runtime_preflight(args):
                                  requested_effort=args.effort, request_effort_verified=True)
     proxy=None
     if getattr(args,'web_required',False):
-        from harness.runtime_support.web_fetch import check_ready
+        from harness.runtime_support.web_fetch import check_ready_with_recovery as check_ready
         proxy=check_ready()
     return dict(image_id=image, binary_sha256=binary, proofs=proofs, paid_calls=0,web_readiness=proxy,
                 sql_evaluator=evaluator,
@@ -471,6 +497,8 @@ def main(argv=None):
                         help='Explicit benchmark scope; defaults to all three benchmarks')
     parser.add_argument("--credentials", type=Path, default=Path("/home/zhoujunye/mas/.env"))
     parser.add_argument("--concurrency", type=int, default=8, choices=range(1, 257))
+    parser.add_argument('--schedule-estimates', type=Path,
+                        help='Optional frozen per-task seconds JSON for condition-neutral longest-first scheduling')
     parser.add_argument('--cpus', type=int, choices=range(1, 129), default=runtime.DEFAULT_CPUS)
     parser.add_argument('--record-resources', action='store_true')
     parser.add_argument('--max-web-requests',type=int,choices=range(1,101),default=web_policy.DEFAULT_WEB_LIMIT)
@@ -557,6 +585,7 @@ def main(argv=None):
     args.sql_grading_required=any(b=='hybriddeepresearch' and t.category=='search_to_sql' for b,t in selected)
     jobs = [(bench, task, backend, args.output / "solvers" / bench / task.id / backend)
             for bench, task in selected for backend in args.backends]
+    jobs = order_jobs(jobs, args.schedule_estimates)
     recovery = upstream_recovery(args.recover_upstream_from, jobs, observed_settings,
                                  digest(args.task_manifest) if args.task_manifest else None)
     if args.recover_upstream_from:
@@ -592,7 +621,9 @@ def main(argv=None):
         tasks_per_benchmark=args.tasks_per_benchmark, sample_seed=args.sample_seed,
         selection_policy="authorized-upstream-5xx-recovery" if args.recover_upstream_from else "frozen-validation-manifest" if manifest else "seeded-public-strata-round-robin",
         task_offset=args.task_offset,
-        order_policy='manifest-order-unchanged' if manifest else 'seeded-public-strata-round-robin',
+        order_policy='longest-estimate-first' if args.schedule_estimates else
+                     'manifest-order-unchanged' if manifest else 'seeded-public-strata-round-robin',
+        offline_evaluation_schedule='grading-pool; CPU reservations shared with solvers',
         source_manifest=frozen_source,
         memory_per_attempt='8g',
         budget_policy=dict(estimated_cost=args.estimated_cost,currency=args.budget_currency,
@@ -637,12 +668,19 @@ def main(argv=None):
         write_json(args.output / "task-manifest.json", manifest)
     if args.protocol_settings:
         write_json(args.output / "protocol-settings.json", explicit_protocol)
+    if args.schedule_estimates:
+        estimates = json.loads(args.schedule_estimates.read_text())
+        if digest(args.schedule_estimates) != observed_settings['scheduling']['estimates_sha256']:
+            raise ValueError('Schedule estimates changed after planning')
+        write_json(args.output/'schedule-estimates.json', estimates)
     if authorization["organization_override"]:
         # Pin the validated text so every child reads the same lead instructions.
         args.organization_prompt = args.output / "organization-prompt.txt"
         args.organization_prompt.write_text(authorization["organization_override"]["text"], encoding="utf-8")
     args.image = readiness['image_id']
     active, lock, stop = set(), threading.RLock(), threading.Event()
+    # Replays and solvers share CPU8 reservations even though their pools differ.
+    compute_slots = threading.BoundedSemaphore(args.concurrency)
     paused=threading.Event()
     operator_stop=threading.Event()
     monitor_done=threading.Event()
@@ -742,7 +780,11 @@ def main(argv=None):
                         interrupt(None,None)
                         return
                     if unavailable_web_proxy(path):
-                        pause_budget('Local Clash web tunnel unavailable; no new paid dispatch')
+                        # This attempt may already contain paid model requests. Never
+                        # rerun it. Future web launches recheck TLS before claiming execution.
+                        write_json(args.output/'web-tunnel-interruption.json', dict(
+                            source=str(path), observed_at=runtime.now(), solver_retry=False,
+                            next_dispatch='bounded_free_tls_readiness'))
             except Exception as error:
                 write_json(args.output/'monitor-error.json',dict(error_type=type(error).__name__))
                 pause_budget('Provider monitor failed; preserve in-flight work')
@@ -801,8 +843,9 @@ def main(argv=None):
             binding=fingerprint(dict(task=task_fingerprint(b,t),settings=observed_settings,source=authorization['source_manifest']))
             initial=dict(benchmark=b,task_id=t.id,backend=k,run=str(out),status='dispatch_unknown')
             journal.claim('solver',(b,t.id,k),binding,initial)
-            code = command_run(solver_command(args, b, t, k, out, execute=True),
-                               args.output / "logs" / (b + "-" + t.id + "-" + k + "-solver"))
+            with compute_slots:
+                code = command_run(solver_command(args, b, t, k, out, execute=True),
+                                   args.output / "logs" / (b + "-" + t.id + "-" + k + "-solver"))
             actual_backend=runtime_backend(k)
             report = out / t.id / actual_backend / "report.json"
             row = dict(benchmark=b, task_id=t.id, backend=k, runtime_backend=actual_backend,
@@ -810,6 +853,7 @@ def main(argv=None):
             if report.exists():
                 record = json.loads(report.read_text())
                 row["status"] = record["status"]
+                row.update({key: record.get(key) for key in ('infra_degraded', 'upstream_5xx')})
                 if record.get("fatal_provider_error"):
                     stop.set()
                 row['status']=reconcile_solver_status(row['status'],report.parent)
@@ -826,6 +870,11 @@ def main(argv=None):
             if solver_row['status'] in {'not_started','dispatch_unknown'}:
                 return dict(benchmark=b,task_id=t.id,backend=k,judge_calls=None,status='solver_outcome_unknown')
             actual_backend=runtime_backend(k)
+            if b == 'kramabench' and (out / 'summary.json').exists():
+                from scripts.kramabench.run import finalize_deferred
+                with compute_slots:
+                    finalize_deferred(out, args.root / b / 'upstream', args.image,
+                                      asset_cache=args.output / 'asset-digests.sqlite')
             grades_root=args.output/'grades'
             if k == 'native':
                 grades_root=grades_root/k

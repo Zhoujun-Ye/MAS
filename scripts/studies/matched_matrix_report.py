@@ -14,6 +14,33 @@ from benchmarks._external import jsonl
 from common.io import read_json as read
 from analysis.request_accounting import model_receipts, gateway_tokens
 from scripts.common.prompts.conditions import runtime_backend
+from harness.runtime_support.admission import infrastructure_health
+from analysis.native_evidence import single_agent_violated
+
+SINGLE_VIOLATION = 'single_agent_condition_violated'
+COMPLIANCE_POLICY = ('Confirmed Single violations receive zero compliant score with the selected-task '
+                     'denominator unchanged; raw answer scores and incurred costs are retained. '
+                     'Missing lifecycle evidence alone is not a confirmed violation.')
+
+
+def confirmed_single_violation(backend, records, *, audit=None, accounting=None):
+    return backend == 'claude-code-single-agent' and (
+        any(r.get('status') == SINGLE_VIOLATION or r.get('condition_status') == SINGLE_VIOLATION
+            or single_agent_violated(r.get('single_agent_audit') or r.get('native_audit') or {},
+                                     r.get('accounting')) for r in records)
+        or single_agent_violated(audit or {}, accounting))
+
+
+def normalize_compliance(report):
+    """Correct derived exports without changing raw evidence or answer grades."""
+    result = copy.deepcopy(report)
+    for row in result['rows']:
+        if confirmed_single_violation(row.get('runtime_backend', row['backend']), [row],
+                audit=row, accounting=dict(by_role=row.get('by_role') or {})):
+            row.update(condition_status=SINGLE_VIOLATION, compliant_score=0, protocol_accepted=False)
+    result['groups'] = summarize(result['rows'])
+    result['compliance_policy'] = COMPLIANCE_POLICY
+    return result
 
 
 def lines(path):
@@ -80,6 +107,7 @@ def collect(root):
             elif grade.get('judge_calls') == 0:
                 judge_cost = 0
         accounting = report.get('accounting', {})
+        native_row = report
         audit = report.get('native_audit', report.get('single_agent_audit', report.get('subagents_audit', {})))
         if b == 'kramabench':
             native_summary = read(out / 'summary.json', {})
@@ -114,6 +142,8 @@ def collect(root):
             prompt = dict(organization_characters=len(plan['backend_instructions'].get(actual_backend, '')))
         costs = [model_cost, web_cost, judge_cost]
         result.append(dict(benchmark=b, task_id=t, backend=k, runtime_backend=actual_backend, status=item['status'], score=score,
+            **infrastructure_health(folder / 'gateway-requests.jsonl'),
+            native_surface=report.get('native_surface'),
             resources=report.get('resources'),
             grade_status=grade_status, seconds=report.get('cli', {}).get('elapsed_seconds'),
             model_requests=len(dispatched), model_responses=sum(r.get('event') == 'finished' for r in model),
@@ -138,7 +168,10 @@ def collect(root):
         gate = report.get('decision_gate')
         result[-1].update(raw_score=score, compliant_score=0 if gate and not gate['accepted'] else score,
                           protocol_accepted=gate.get('accepted') if gate else None)
-    return dict(run=root.name, authorization=summary['authorization'], account_delta=summary.get('account_delta'),
+        if confirmed_single_violation(actual_backend, [item, report, native_row, grade],
+                audit=audit, accounting=accounting):
+            result[-1]['condition_status'] = SINGLE_VIOLATION
+    return normalize_compliance(dict(run=root.name, authorization=summary['authorization'], account_delta=summary.get('account_delta'),
         groups=summarize(result), rows=result,
         limitations=['One attempt per task and condition; descriptive validation set, not a general superiority claim.',
             'Full-score counts include all selected tasks in denominator; unknown grades are reported separately.',
@@ -146,7 +179,7 @@ def collect(root):
             'Usage from failed or unobserved requests is unknown; a run token does not authenticate process origin.',
             'Native lifecycle evidence does not establish substantive worker contribution.',
             'DataClaw scores use adapted per-part rubric; process metrics remain unavailable.'],
-        price_source='https://api-docs.deepseek.com/quick_start/pricing/')
+        price_source='https://api-docs.deepseek.com/quick_start/pricing/'))
 
 
 def summarize(result):
@@ -157,12 +190,17 @@ def summarize(result):
             if not selected:
                 continue
             known = [r['score'] for r in selected if r['score'] is not None]
+            compliant = [0 if confirmed_single_violation(r.get('runtime_backend', r['backend']), [r],
+                audit=r, accounting=dict(by_role=r.get('by_role') or {})) else
+                r.get('compliant_score', r['score']) for r in selected]
             elapsed = [r['seconds'] for r in selected if r['seconds'] is not None]
             costs = [r['total_usd_offpeak'] for r in selected]
             groups.append(dict(benchmark=b, backend=k, attempts=len(selected), graded=len(known),
+                infra_degraded=sum(r.get('infra_degraded') is True for r in selected),
+                infra_health_unknown=sum(r.get('infra_degraded') is None for r in selected),
+                upstream_5xx=sum(len(r.get('upstream_5xx', [])) for r in selected),
                 raw_accuracy=sum(known)/len(selected) if len(known)==len(selected) else None,
-                compliant_accuracy=sum(r.get('compliant_score',r['score']) for r in selected)/len(selected)
-                    if all(r.get('compliant_score',r['score']) is not None for r in selected) else None,
+                compliant_accuracy=sum(compliant)/len(selected) if all(v is not None for v in compliant) else None,
                 protocol_accepted=sum(r.get('protocol_accepted') is True for r in selected),
                 protocol_measured=sum(r.get('protocol_accepted') is not None for r in selected),
                 full_score=sum(s == 1 for s in known),
@@ -238,9 +276,10 @@ def replace_upstream_failures(original, recovery):
 
 def write_report(report, output):
     """Export public operational metadata without copying private run artifacts."""
+    report = normalize_compliance(report)
     output.mkdir(parents=True, exist_ok=False)
     columns = ['benchmark', 'task_id', 'backend', 'status', 'native_audit_passed', 'grade_status', 'score',
-               'raw_score','compliant_score','protocol_accepted',
+               'raw_score','compliant_score','protocol_accepted','condition_status',
                'seconds', 'model_requests', 'model_usd_offpeak', 'web_usd_estimate', 'judge_usd_offpeak',
                'total_usd_offpeak', 'evidence']
     with (output / 'task-results.csv').open('w', newline='') as stream:
@@ -256,8 +295,8 @@ def write_report(report, output):
             f"Effort: {auth['effort']}; solver concurrency: {auth['solver_concurrency']}; grading concurrency: {auth['judge_concurrency']}.",
             f"Protocol source: {auth.get('protocol_settings_source', 'historical authorization')}; "
             f"protocol SHA-256: {auth.get('protocol_settings_sha256') or 'not separately recorded'}.", '',
-            '| Benchmark | Condition | Graded | Mean Score | Full Score | Mean Min | USD Estimate | Native Audit |',
-            '| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: |']
+            '| Benchmark | Condition | Graded | Raw Mean | Compliant Mean | Raw Full Score | Mean Min | USD Estimate | Native Audit |',
+            '| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |']
     for group in report['groups']:
         if group['benchmark'] == 'all':
             continue
@@ -267,7 +306,7 @@ def write_report(report, output):
                       'observations':'Observation','full':'Full'}.get(group['backend']) or
                      ('Single' if group['backend'].endswith('single-agent') else report.get('condition_label', 'Subagents')))
         text.append(f"| {group['benchmark']} | {condition} | {group['graded']}/{count} | {fmt(group['mean_score'])} | "
-                    f"{group['full_score']}/{count} | {fmt(group['mean_minutes'], '.2f')} | "
+                    f"{fmt(group['compliant_accuracy'])} | {group['full_score']}/{count} | {fmt(group['mean_minutes'], '.2f')} | "
                     f"{fmt(group['total_usd_offpeak'], '.6f')} | {group['native_audit_passes']}/{count} |")
     text += ['', '## Audit Exceptions', '']
     for row in report['rows']:
@@ -286,7 +325,7 @@ def write_report(report, output):
             text.append(f"| {group['backend']} | {group['attempts']} | {group['cost_coverage']} | "
                 f"{fmt(group['known_usd_offpeak_subtotal'], '.6f')} | {fmt(group['total_usd_offpeak'], '.6f')} | "
                 f"{fmt(seconds/60 if seconds is not None else None, '.2f')} |")
-    text += ['', '## Limits', ''] + ['- ' + value for value in report['limitations']]
+    text += ['', '## Limits', '', '- ' + report['compliance_policy']] + ['- ' + value for value in report['limitations']]
     (output / 'REPORT.md').write_text('\n'.join(text) + '\n')
 
 
@@ -306,13 +345,14 @@ if __name__ == '__main__':
         raise ValueError('Report already exists')
     if args.report_dir and (args.report_dir.exists() or (args.run and args.report_dir.resolve().is_relative_to(args.run.resolve()))):
         raise ValueError('Use a fresh report directory outside immutable run evidence')
-    report = collect(args.run) if args.run else read(args.from_report)
+    report = collect(args.run) if args.run else normalize_compliance(read(args.from_report))
     if args.upstream_recovery_report:
         report = replace_upstream_failures(report, read(args.upstream_recovery_report))
     if args.condition_label:
         report['condition_label'] = args.condition_label
     if args.timeout_as_zero:
         report = timeout_zero(report)
+    report = normalize_compliance(report)
     if args.report_dir:
         write_report(report, args.report_dir)
     args.output.write_text(json.dumps(report, indent=2) + '\n')

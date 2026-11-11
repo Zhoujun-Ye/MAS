@@ -1,6 +1,7 @@
 """One explicitly authorized tool-free semantic verdict, never an agent loop."""
 
 import json
+import re
 from pathlib import Path
 import urllib.error
 import urllib.request
@@ -61,8 +62,9 @@ def _judge_once(*, upstream, task_id, backend, submission_path, question, key, o
             payload = call(body)
         write_json(output / "response.json", payload)
         text = "".join(block["text"] for block in payload["content"] if block.get("type") == "text")
-        verdict = json.loads(text)
-        if set(verdict) != {"equivalent"} or type(verdict["equivalent"]) is not bool:
+        fenced = re.fullmatch(r'\s*```(?:json)?\s*\n(.*?)\n\s*```\s*', text, re.DOTALL | re.IGNORECASE)
+        verdict = json.loads(fenced.group(1) if fenced else text)
+        if not isinstance(verdict, dict) or set(verdict) != {"equivalent"} or type(verdict["equivalent"]) is not bool:
             raise ValueError("Judge verdict must be exactly one boolean equivalent field")
         grade = grade_answer(upstream, task_id, submission_path,
                              paraphrase=lambda predicted, target: verdict["equivalent"])

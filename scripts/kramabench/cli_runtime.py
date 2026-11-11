@@ -24,7 +24,8 @@ from harness import ClaudeCodeSubagentsCLI, ClaudeCodeSingleAgentCLI
 from harness.runtime_support.runtime import (CLAUDE, THREADS, container, native_env, now, options, snapshot, source_files, source_manifest, stop_container)
 from scripts.kramabench.prepare import verify_inputs
 from harness.runtime_support.credential_gateway import CredentialGateway
-from analysis.native_evidence import native_single_agent, native_subagents
+from analysis.native_evidence import native_single_agent, native_subagents, native_surface, single_agent_violated
+from harness.runtime_support.admission import infrastructure_health
 from analysis.run_integrity import inspect_run
 
 
@@ -108,19 +109,36 @@ def run_attempt(task, backend, args, key, stop, active, lock):
         result = adapter.run(prompt, workspace=work, output=folder / "cli", timeout=args.timeout,
                              execute=True, **terminal_options, **opts)
         report.update(status=result["status"], cli=result, finished_at=now())
+        # docker exec exiting (including timeout) does not stop its container.
+        # Quiesce the solver before reading hooks, submissions or accounting.
+        try:
+            if result['status'] != 'cli_exited':
+                report['cleanup'] = stop_container(identity)
+            if resources is not None:
+                report['resources'] = resources.close(final_sample=result['status'] == 'cli_exited')
+        finally:
+            if not report.get('cleanup', {}).get('stopped'):
+                report["cleanup"] = stop_container(identity)
         write_json(folder / "report.json", report)
+        report['native_surface'] = native_surface(folder)
         if backend == "claude-code-subagents":
             report["subagents_audit"] = native_subagents(folder)
             if report["subagents_audit"]["native_team_configs"] or report["subagents_audit"]["teammate_idle_events"]:
                 stop.set()
-                report["status"] = "native_mode_violation"
+                report['condition_status'] = 'native_mode_violation'
+                if result['status'] == 'cli_exited':
+                    report["status"] = "native_mode_violation"
             elif result["status"] == "cli_exited" and not report["subagents_audit"]["passed"]:
                 report["status"] = "native_condition_unverified"
         if backend == "claude-code-single-agent":
             report["single_agent_audit"] = native_single_agent(folder)
-            if not report["single_agent_audit"]["passed"]:
+            audit = report['single_agent_audit']
+            violated = single_agent_violated(audit)
+            if violated:
                 stop.set()
-                report["status"] = "single_agent_policy_unverified"
+                report['condition_status'] = 'single_agent_condition_violated'
+            if result['status'] == 'cli_exited' and not audit['passed']:
+                report['status'] = 'single_agent_condition_violated' if violated else 'native_condition_unverified'
         from harness.runtime_support.admission import fatal_provider_record
         # Transcript text includes untrusted data/tool output; only the host
         # ledger's upstream status is fatal evidence (as for DataClaw/HDR).
@@ -151,10 +169,13 @@ def run_attempt(task, backend, args, key, stop, active, lock):
             if identity is not None:
                 try:
                     try:
+                        if not report.get('cleanup', {}).get('stopped'):
+                            report['cleanup'] = stop_container(identity)
                         if resources is not None:
-                            report['resources'] = resources.close()
+                            report['resources'] = resources.close(final_sample=False)
                     finally:
-                        report["cleanup"] = stop_container(identity)
+                        if not report.get('cleanup', {}).get('stopped'):
+                            report["cleanup"] = stop_container(identity)
                         if resources is not None:
                             report['resources']=resources.record_exit()
                     write_json(folder / "frozen-files.json", snapshot(work))
@@ -175,6 +196,7 @@ def run_attempt(task, backend, args, key, stop, active, lock):
                     report.update(status='cleanup_failed',gateway_cleanup_error=type(error).__name__)
                     stop.set()
             report['finished_at']=now()
+            report.update(infrastructure_health(folder / 'gateway-requests.jsonl'))
             report["integrity_audit"] = inspect_run(folder, backend)
             write_json(folder / "report.json", report)
     return report
@@ -197,10 +219,12 @@ def collect_attempt(folder, report, args):
             report["single_agent_transcript_audit"] = dict(member_messages=report["accounting"].get(
                 "by_role", {}).get("member", {}).get("observed_messages", 0))
             if report["single_agent_transcript_audit"]["member_messages"]:
-                report["status"] = "single_agent_condition_violated"
+                report['condition_status'] = 'single_agent_condition_violated'
+                if report['status'] in {'cli_exited', 'native_condition_unverified'}:
+                    report["status"] = "single_agent_condition_violated"
     else:
         report["accounting_error"] = evidence.stderr[-2000:]
-        if backend == "claude-code-single-agent":
+        if backend == "claude-code-single-agent" and report['status'] == 'cli_exited':
             report["status"] = "single_agent_evidence_unverified"
     work = folder / "workspace"
     try:
@@ -250,6 +274,10 @@ def collect_attempt(folder, report, args):
         report["artifact_error"] = dict(type=type(error).__name__, message=str(error))
         if "grade" not in report:
             report["grade"] = grade_answer(args.upstream, task_id, None)
+    if report['status'] == 'timed_out' or report.get('cli', {}).get('status') == 'timed_out':
+        report['artifact_grade'] = report['grade']
+        report['grade'] = dict(status='incomplete_timeout', score=0, judge_calls=0,
+                               policy='Incomplete solvers receive zero; retained submission is diagnostic only')
     write_json(folder / "grade.json", report["grade"])
     write_json(folder / "report.json", report)
     return report

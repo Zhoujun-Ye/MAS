@@ -11,11 +11,14 @@ import signal
 import subprocess
 import sys
 import threading
+from types import SimpleNamespace
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from scripts.common.prompts.conditions import condition_instructions, organization_override
 from scripts.common.prompts.limits import limit_instructions
 from common.io import fingerprint, write_json
+from common.journal import exclusive
+from scripts.common.grading import krama_judge_eligible
 from benchmarks.kramabench.evaluation import scoring_contract
 from benchmarks.kramabench.semantic_judge import judge_once
 from benchmarks.kramabench.tasks import load_tasks
@@ -67,6 +70,7 @@ def freeze(args):
         raise ValueError("Expected one attempt per selected task")
     proof_digest = validate_native_proof(args, plan)
     plan.update(kind="native_cli_benchmark", backend=args.backend,
+                deferred_offline_evaluation=getattr(args, 'defer_offline_evaluation', False),
                 subagents_prompt=getattr(args, "subagents_prompt", "structured"),
                 offline_proof_sha256=proof_digest,
                 admission_task=tasks[0].id,
@@ -86,6 +90,8 @@ def validate(args):
         raise ValueError("Frozen effort changed")
     if plan.get("subagents_prompt", "structured") != getattr(args, "subagents_prompt", "structured"):
         raise ValueError("Frozen Subagents prompt preset changed")
+    if plan.get('deferred_offline_evaluation', False) != getattr(args, 'defer_offline_evaluation', False):
+        raise ValueError('Frozen offline evaluation scheduling changed')
     validate_native_proof(args, plan, frozen=True)
     if (plan.get('cpu_per_attempt', 2), plan.get('record_resources', False)) != (
             getattr(args, 'cpus', shared.DEFAULT_CPUS), getattr(args, 'record_resources', False)):
@@ -127,7 +133,8 @@ def execute(args, tasks, plan):
         json.dump(dict(started_at=shared.now(), authorized_attempts=len(tasks),
             authorized_judge_calls=args.judge_limit, retries=0, monetary_cap=None), stream)
     key = shared.credential(args.credentials)
-    before = safe_balance(key, args.output, "balance-before-solvers")
+    matrix_managed = getattr(args, 'matrix_balance_managed', False)
+    before = None if matrix_managed else safe_balance(key, args.output, "balance-before-solvers")
     if (not getattr(args,'matrix_balance_managed',False)
             and (before is None or not before.get("response", {}).get("is_available"))):
         raise RuntimeError("Balance preflight unavailable; no calls dispatched")
@@ -166,16 +173,23 @@ def execute(args, tasks, plan):
         stop.set()
         done.set()
         watcher.join(timeout=5)
-        after = safe_balance(key, args.output, "balance-after-solvers")
+        after = None if matrix_managed else safe_balance(key, args.output, "balance-after-solvers")
         billing = dict(balance_delta_by_currency=shared.observed_balance_deltas(before, after),
-                       scope="Account-wide solver interval, possibly including other account use")
+                       scope="Parent matrix owns balance observations" if matrix_managed else
+                             "Account-wide solver interval, possibly including other account use")
         write_json(args.output / "solver-billing.json", billing)
         write_json(args.output / "solver-results.json", dict(rows=reports, plan_sha256=fingerprint(plan)))
+    if getattr(args, 'defer_offline_evaluation', False):
+        write_json(args.output / 'summary.json', dict(plan=plan, rows=reports, billing=billing,
+            paid_judge_calls=0, offline_evaluation_pending=True))
+        if len(reports) != len(tasks):
+            raise RuntimeError('Admission failed; no replacement runs dispatched')
+        return
     write_json(args.output / "progress.json", dict(stage="offline_evaluation", finished=len(reports), expected=len(tasks)))
     with ThreadPoolExecutor(max_workers=min(args.concurrency, 6)) as pool:
         rows = list(pool.map(lambda r: runtime.collect_attempt(args.output / r["task_id"] / backend, r, args), reports))
     write_json(args.output / "summary-base.json", dict(plan=plan, rows=rows, billing=billing, paid_judge_calls=0))
-    pending = [r for r in rows if r.get("grade", {}).get("status") == "pending_judge"]
+    pending = [r for r in rows if krama_judge_eligible(r)]
     judgments = []
     judge_before = safe_balance(key, args.output, "balance-before-judges") if pending and args.judge_limit else None
     if judge_before is not None:
@@ -200,6 +214,34 @@ def execute(args, tasks, plan):
                                                  judge_calls=len(judgments), observed_at=shared.now()))
     if len(rows) != len(tasks):
         raise RuntimeError("Admission failed; no replacement runs dispatched")
+
+
+def finalize_deferred(output, upstream, image, *, asset_cache=None):
+    """Run only frozen offline evaluation in a grading slot, never another solver."""
+    with exclusive(output / 'offline-evaluation.lock'):
+        summary = json.loads((output / 'summary.json').read_text())
+        if not summary.get('offline_evaluation_pending'):
+            return
+        plan = summary['plan']
+        if not plan.get('deferred_offline_evaluation') or plan.get('judge_limit') != 0:
+            raise ValueError('Deferred collection requires a frozen judge-free plan')
+        if plan['source'] != shared.source_manifest() or image != plan['image_id']:
+            raise ValueError('Deferred evaluation source/image changed')
+        args = SimpleNamespace(upstream=upstream, image=image,
+            cpus=plan['cpu_per_attempt'], compute_threads=plan['compute_threads'],
+            replay_timeout=plan['replay_timeout_seconds'], asset_cache=asset_cache)
+        if fingerprint(runtime.input_inventory(args)) != plan['inputs_sha256']:
+            raise ValueError('Deferred evaluation inputs changed')
+        rows = []
+        for report in summary['rows']:
+            if report['status'] == 'cleanup_failed' or (report.get('container_id')
+                    and not report.get('cleanup', {}).get('stopped')):
+                raise ValueError('Solver cleanup must succeed before deferred evaluation')
+            rows.append(runtime.collect_attempt(output / report['task_id'] / report['backend'], report, args))
+        summary.update(rows=rows, offline_evaluation_pending=False, finished_at=shared.now())
+        write_json(output / 'summary.json', summary)
+        write_json(output / 'progress.json', dict(stage='finished', finished=len(rows), expected=len(plan['tasks']),
+            judge_calls=0, observed_at=shared.now()))
 
 
 def main(argv=None):
@@ -229,11 +271,15 @@ def main(argv=None):
     parser.add_argument("--from-plan", action="store_true")
     parser.add_argument('--asset-cache',type=Path,help='Host-only verified input digest cache')
     parser.add_argument('--matrix-balance-managed', action='store_true',
-                        help='Parent matrix owns balance admission; child snapshots are informational')
+                        help='Parent matrix owns balance admission and snapshots; omit redundant child lookups')
+    parser.add_argument('--defer-offline-evaluation', action='store_true',
+                        help='Return after solver cleanup; parent matrix must finalize in its grading pool')
     parser.add_argument("--execute", action="store_true")
     parser.add_argument("--effort", choices=shared.EFFORTS, default=shared.DEFAULT_EFFORT,
                         help="none disables thinking and fixes temperature=0; high/max explicitly enable thinking")
     args = parser.parse_args(argv)
+    if args.defer_offline_evaluation and args.judge_limit:
+        parser.error('Deferred offline evaluation cannot own paid judges')
     args.require_module = shared.capability_modules(args.require_module)
     if args.compute_threads > args.cpus:
         parser.error('Compute threads cannot exceed the container CPU quota')

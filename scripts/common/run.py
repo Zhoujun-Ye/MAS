@@ -28,7 +28,8 @@ from harness.runtime_support.credential_gateway import CredentialGateway
 from harness.runtime_support.proof import validate as validate_proof, validate_runtime, validate_effort
 from benchmarks.policy import default_timeout, timeout_policy
 from harness.runtime_support import web_policy
-from analysis.native_evidence import native_single_agent, native_subagents
+from analysis.native_evidence import native_single_agent, native_subagents, native_surface, single_agent_violated
+from harness.runtime_support.admission import infrastructure_health
 from common.io import fingerprint
 from common.file_digest import DigestCache
 from common.journal import exclusive
@@ -186,7 +187,7 @@ def evaluator_manifest(upstream, benchmark):
 
 def preflight(args,tasks,frozen):
     from harness.runtime_support.preflight import check
-    from harness.runtime_support.web_fetch import check_ready
+    from harness.runtime_support.web_fetch import check_ready_with_recovery as check_ready
     if any(t.web for t in tasks):
         runtime.write_json(args.output/'web-readiness.json',check_ready())
     checks=args.output/'preflight';checks.mkdir()
@@ -273,10 +274,13 @@ def attempt(task, args, key):
             try:
                 try:
                     try:
+                        if result['status'] != 'cli_exited':
+                            result['cleanup'] = runtime.stop_container(identity)
                         if resources is not None:
-                            result['resources']=resources.close()
+                            result['resources']=resources.close(final_sample=result['status'] == 'cli_exited')
                     finally:
-                        result["cleanup"] = runtime.stop_container(identity)
+                        if not result.get('cleanup', {}).get('stopped'):
+                            result["cleanup"] = runtime.stop_container(identity)
                     if resources is not None:
                         result['resources']=resources.record_exit()
                 finally:
@@ -291,6 +295,7 @@ def attempt(task, args, key):
             except Exception as error:
                 result.update(status="cleanup_failed", gateway_cleanup_error=type(error).__name__)
         result["finished_at"] = runtime.now()
+        result.update(infrastructure_health(folder / 'gateway-requests.jsonl'))
         runtime.write_json(folder / "report.json", result)
     if interrupted is not None:
         raise interrupted
@@ -304,6 +309,7 @@ def finalize_attempt(folder,args,result):
     if result["status"] == "cleanup_failed":
         return result
     result["integrity_audit"] = inspect_run(folder, args.backend)
+    result['native_surface'] = native_surface(folder)
     try:
         native_evidence = subprocess.run([sys.executable, "-I",
             str(Path(__file__).resolve().parents[2] / ("analysis/native_evidence.py")),
@@ -317,14 +323,17 @@ def finalize_attempt(folder,args,result):
     try:
         audit = (native_single_agent if single else native_subagents)(folder)
         result["native_audit"] = audit
-        if result["status"] == "cli_exited" and not audit["passed"]:
+        accounting = result.get('accounting', {})
+        if single and single_agent_violated(audit, accounting):
+            result['condition_status'] = 'single_agent_condition_violated'
+            if result['status'] in {'cli_exited', 'native_condition_unverified'}:
+                result['status'] = 'single_agent_condition_violated'
+        elif result["status"] == "cli_exited" and not audit["passed"]:
             result["status"] = "native_condition_unverified"
         if single and result["status"] == "cli_exited":
             accounting = result.get("accounting", {})
             if not accounting.get("observed_messages"):
                 result["status"] = "single_agent_evidence_unverified"
-            elif accounting.get("by_role", {}).get("member", {}).get("observed_messages", 0):
-                result["status"] = "single_agent_condition_violated"
         submission = work / "submission.json"
         if submission.is_symlink() or not submission.is_file() or submission.stat().st_size > 1024 * 1024:
             raise ValueError("Missing, symlinked or oversized submission")
@@ -438,7 +447,7 @@ def main(argv=None, *, benchmark=None):
         if args.preflight:return 0
     with exclusive(args.output/'execution.lock'):
         if any(t.web for t in tasks):
-            from harness.runtime_support.web_fetch import check_ready
+            from harness.runtime_support.web_fetch import check_ready_with_recovery as check_ready
             runtime.write_json(args.output/'web-readiness-execution.json',check_ready())
         with (args.output/'execution-claim.json').open('x') as stream:
             json.dump(dict(plan_sha256=fingerprint(frozen),status='dispatch_unknown',retries=0),stream)
@@ -462,7 +471,7 @@ def execute_tasks(tasks, args, key):
         else:
             try:
                 if index and task.web:
-                    from harness.runtime_support.web_fetch import check_ready
+                    from harness.runtime_support.web_fetch import check_ready_with_recovery as check_ready
                     try:
                         receipt = check_ready()
                     except Exception as error:

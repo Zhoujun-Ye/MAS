@@ -1,6 +1,26 @@
 """Validate harness runtime evidence; mocks do not establish benchmark correctness."""
 
 from harness.runtime_support.inference import EFFORTS, configuration
+from harness._claude_hooks import SINGLE_TOOLS, SUBAGENT_TOOLS
+from common.io import fingerprint
+
+
+def runtime_configuration(backend, effort='none'):
+    from harness.runtime_support.runtime import native_env, options
+    return fingerprint(dict(environment=native_env(backend, effort=effort),
+                            options=options(backend), slash_commands=False))
+
+
+def validate_surface(surface, backend):
+    allowed = set(SINGLE_TOOLS if backend == 'claude-code-single-agent' else SUBAGENT_TOOLS)
+    # The pinned native init advertises Task while accepting Agent as its alias.
+    required = allowed - {'Task', 'Agent'}
+    tools = surface.get('tools')
+    if (not isinstance(tools, list) or not all(isinstance(t, str) for t in tools)
+            or not required <= set(tools) <= allowed
+            or (backend == 'claude-code-subagents' and not {'Agent', 'Task'} & set(tools))
+            or surface.get('skills') != [] or surface.get('slash_commands') != []):
+        raise ValueError('Native tools/skills/slash-command surface differs from the shared baseline')
 
 def validate_effort(proof, effort):
     if (effort not in EFFORTS or proof.get('requested_effort') != effort
@@ -46,3 +66,6 @@ def validate_runtime(proof, backend, image_id, binary_sha256):
     expected = dict(image_id=image_id, binary_sha256=binary_sha256)
     if proof.get("runtime_binding") != expected:
         raise ValueError("Stale native proof: image or CLI binary binding differs; regenerate offline proof")
+    validate_surface(proof.get('native_surface', {}), backend)
+    if proof.get('runtime_configuration_sha256') != runtime_configuration(backend, proof.get('requested_effort', 'none')):
+        raise ValueError('Stale native proof: environment/tool configuration changed; regenerate offline proof')

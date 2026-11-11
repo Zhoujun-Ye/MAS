@@ -23,7 +23,7 @@ sources live under `/home/zhoujunye/mas-stages/`.
 | `fdabench-single-structured-smoke4-20261110-02` | `20261110-fdabench-single-structured-smoke4-02` | Eight CPU8/thread4 attempts and offline grades, including two missing-SessionEnd audit exceptions; no retries or paid judges |
 | `threebench-infra-20261111-01` | `20261111-threebench-infra-01` | Twelve authorized Single/Structured slots across three benchmarks, including any failures/incomplete results; no retries or paid judges |
 | `threebench-infra-20261111-01-unstarted-01` | `20261111-threebench-infra-01` | First dispatch of the one zero-call TLS-blocked slot from the same twelve-slot authorization; no started attempt replay or paid judge |
-| `krama-random20-20261111-01` | Not launched; freeze after configuration review | Sixty authorized slots and at most six semantic judges; subsequent thinking-off/temperature-zero correction must be verified first |
+| `krama-random20-20261111-01` | `20261111-krama-random20-fixed-01` | Sixty finished solver slots, including seven timeouts and three native audit exceptions; five semantic judges, no retries; thinking off, temperature zero, reviewed shared tool surface; preserve every attempt and frozen source |
 
 Preserve raw attempts, submissions, ledgers, incurred costs, frozen settings,
 admission proofs, source and result reports, including failed/incomplete work.
@@ -35,6 +35,10 @@ runtime is removed from active source, not from frozen paid provenance.
 Keep current trajectory/diagnostic summaries and the latest native, credential,
 container, resource, manifest and transport verification receipts. The November
 10 paid stage remains on web-v4; later web-v5 DNS/read repairs are not retroactive.
+The current review-fix receipts are `review-fixes-20261111-01/`; see the
+[verification record](studies/infra-review-fixes-20261111.md). The retained source
+target is not itself evidence of a paid launch: use its output authorization,
+driver status and host request ledgers for actual dispatch state.
 
 ## Protected Runtime
 

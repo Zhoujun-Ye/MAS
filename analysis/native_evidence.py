@@ -9,8 +9,21 @@ from pathlib import Path
 
 def claude_delegation_tool(name):
     # Keep this evidence reader standalone under the decoder's isolated Python.
-    return (name in {"Agent", "Task", "SendMessage", "Workflow", "CronCreate", "CronDelete", "CronList", "ScheduleWakeup"}
+    return (name in {"Agent", "Task", "SendMessage", "ListAgents", "Workflow", "CronCreate", "CronDelete", "CronList", "ScheduleWakeup"}
             or "subagent" in name.lower())
+
+
+def native_surface(folder):
+    """Record the actual native init surface; absent fields remain unknown."""
+    path = Path(folder) / 'cli/stdout.log'
+    for line in path.read_text(errors='replace').splitlines() if path.exists() else ():
+        try:
+            event = json.loads(line)
+        except ValueError:
+            continue
+        if isinstance(event, dict) and event.get('type') == 'system' and event.get('subtype') == 'init':
+            return {key: event.get(key) for key in ('tools', 'skills', 'slash_commands')}
+    return dict(tools=None, skills=None, slash_commands=None)
 
 
 def child_tool_evidence(profile):
@@ -123,6 +136,13 @@ def native_subagents(folder):
                 substantive_work_status="unverified",
                 delegation_evidence_scope="Native lifecycle and retained tool-call requests only; no semantic contribution or result incorporation verification",
                 tool_count_scope="Deduplicated retained child tool-call requests, not proof of successful execution; zero calls does not imply no useful reasoning")
+
+
+def single_agent_violated(audit, accounting=None):
+    fields = ('subagent_starts', 'executed_delegation_tools', 'exposed_delegation_tools',
+              'member_transcript_files', 'native_team_configs', 'teammate_idle_events')
+    return bool(any(audit.get(field) for field in fields) or
+                (accounting or {}).get('by_role', {}).get('member', {}).get('observed_messages', 0))
 
 
 def native_single_agent(folder):

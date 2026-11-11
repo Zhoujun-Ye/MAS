@@ -40,6 +40,15 @@ transport does **not** imply synchronous subagents. Native background agents not
 the lead on completion; admission and retained transcripts establish only the
 observed structural behavior, not substantive contribution.
 
+The November 11 infrastructure review fix gives both adapters an explicit
+`--tools` surface and `--disable-slash-commands`. Single retains twelve base tools;
+Subagents adds only Agent/Task aliases, SendMessage and ListAgents. Native init
+advertises Task (Agent remains an accepted alias), for fifteen observed tools,
+zero skills and zero slash commands. Native and Structured share this surface.
+Proof admission checks the observed surface and the environment/options digest,
+in addition to image/binary identity and lifecycle evidence. Old proofs cannot
+admit the updated configuration.
+
 The Subagents baseline uses current orchestrator-worker lead prompt, frozen by the user
 on 2026-11-04 ([frozen prompts](../scripts/common/prompts/README.md)). The lead plans, splits the
 work between itself and subagents (at least one, scaled to complexity) and synthesizes. It specifies
@@ -88,6 +97,13 @@ temperature zero (`--effort none`); actual reasoning effort is not applicable.
 High/max explicitly enable thinking and are not silent defaults. Main/worker
 request fields and remaining nondeterminism are documented in
 [Reproducibility](reproducibility.md).
+
+OPUS, SONNET, HAIKU and FABLE aliases all map to `deepseek-flash[1m]`.
+Both conditions use a 600,000 ms default/max native Bash timeout. This reduces
+implicit background handoffs; explicit background work or shorter tool-selected
+timeouts remain native behavior, not a guarantee of SessionEnd or quiescence.
+The outer solver deadline is unchanged. See the
+[review fix record](studies/infra-review-fixes-20261111.md) for all dispositions.
 
 All adapters expose `command(model, ...)` and `run(..., execute=False)`.
 Default planning starts no subprocess and writes no output. Execution needs an

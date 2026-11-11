@@ -13,11 +13,13 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
-from common.io import write_json
+from common.io import fingerprint, write_json
 from benchmarks.kramabench.tasks import load_tasks
 from harness.runtime_support import credential_gateway
+from harness.runtime_support.proof import validate_surface
 from scripts.common.prompts.conditions import condition_instructions, runtime_backend
 from scripts.kramabench import cli_runtime as krama
+from scripts.kramabench.run import finalize_deferred
 from scripts.probes.external_workflow import WorkflowFixture
 from scripts.probes.offline_gateway import Fixture as ErrorFixture
 
@@ -71,7 +73,8 @@ def main(argv=None):
         options = SimpleNamespace(output=args.output / condition, upstream=upstream, image=image,
             subagents_prompt="native" if condition == "native" else "structured",
             timeout=180, replay_timeout=180, effort=args.effort, cpus=krama.runtime.DEFAULT_CPUS,
-            compute_threads=krama.runtime.DEFAULT_COMPUTE_THREADS, record_resources=True)
+            compute_threads=krama.runtime.DEFAULT_COMPUTE_THREADS, record_resources=True,
+            asset_cache=args.output / 'asset-digests.sqlite')
         jobs.append((condition, backend, fixture, key, options))
 
     def fake(request):
@@ -85,24 +88,35 @@ def main(argv=None):
         report = krama.run_attempt(task, backend, options, key, threading.Event(), set(), threading.Lock())
         folder = options.output / task.id / backend
         if not args.error_status:
-            report = krama.collect_attempt(folder, report, options)
+            plan = dict(deferred_offline_evaluation=True, judge_limit=0, source=krama.source_manifest(),
+                image_id=image, cpu_per_attempt=options.cpus, compute_threads=options.compute_threads,
+                replay_timeout_seconds=options.replay_timeout, tasks=[task.id],
+                inputs_sha256=fingerprint(krama.input_inventory(options)))
+            write_json(options.output / 'summary.json', dict(plan=plan, rows=[report],
+                offline_evaluation_pending=True, paid_judge_calls=0))
+            finalize_deferred(options.output, upstream, image, asset_cache=options.asset_cache)
+            report = json.loads((options.output / 'summary.json').read_text())['rows'][0]
         prompt = (folder / "cli/prompt.txt").read_text()
         expected = task.query + "\n\n" + krama.INSTRUCTIONS + krama.limit_instructions(options.timeout) + "\n" + condition_instructions(options, backend)
         audit = report.get("single_agent_audit", report.get("subagents_audit", {}))
+        validate_surface(report.get('native_surface', {}), backend)
         if args.error_status:
             records = [json.loads(line) for line in (folder / 'gateway-requests.jsonl').read_text().splitlines()]
             sent = [r for r in records if r.get('event') == 'dispatched' and r.get('route') == '/anthropic/v1/messages']
             done = [r for r in records if r.get('event') == 'finished' and r.get('upstream_attempted')
                     and r.get('route') == '/anthropic/v1/messages']
             passed = (report['status'] == 'cli_error' and prompt == expected and len(fixture.requests) == 1
-                      and len(sent) == len(done) == 1 and done[0].get('http_status') == args.error_status)
+                      and len(sent) == len(done) == 1 and done[0].get('http_status') == args.error_status
+                      and report.get('infra_degraded') is True)
             return dict(condition=condition, backend=backend, passed=passed, status=report['status'],
                 injected_http_status=args.error_status, model_requests=len(sent), native_retry_count=len(sent)-1,
+                infra_degraded=report.get('infra_degraded'),
                 prompt_exact=prompt == expected, cli_timing=report.get('cli', {}).get('timing'),
                 cleanup=report.get('cleanup'))
         passed = (report["status"] == "cli_exited" and audit.get("passed") is True
             and report.get("submission", {}).get("answer") == 2 and report.get("pipeline_exit_code") == 0
             and report.get("pipeline_answer_matches_submission") is True and prompt == expected and not fixture.errors
+            and report.get('resources', {}).get('capture_complete') is True
             and all((folder / "workspace" / name).read_text() == krama.INSTRUCTIONS for name in ("AGENTS.md", "CLAUDE.md")))
         return dict(condition=condition, backend=backend, passed=passed, status=report["status"],
             native_audit_passed=audit.get("passed"), subagent_starts=audit.get("subagent_starts"),
