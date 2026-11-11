@@ -20,6 +20,7 @@ sources live under `/home/zhoujunye/mas-stages/`.
 | `threebench2-20261109-01` | `20261109-threebench2-01` | Eighteen attempts; original SQL grading failures and separate deterministic regrades |
 | `full-infra-paid4-20261110-01` | `20261110-full-infra-01` | Four FULL attempts in three benchmark directories, two paid grades, no retries |
 | `fdabench-single-structured-smoke4-20261110-01` | `20261110-fdabench-single-structured-smoke4-01` | Eight completed choice attempts, offline grades, actual 2-CPU/thread1 diagnostic profile; no retries or paid judges |
+| `fdabench-single-structured-smoke4-20261110-02` | `20261110-fdabench-single-structured-smoke4-02` | Eight CPU8/thread4 attempts and offline grades, including two missing-SessionEnd audit exceptions; no retries or paid judges |
 
 Preserve raw attempts, submissions, ledgers, incurred costs, frozen settings,
 admission proofs, source and result reports, including failed/incomplete work.

@@ -9,6 +9,7 @@ task limits, not Structured lead organization. Tests pin the exact baseline.
 
 - [Active Single/Structured infrastructure](evidence-infra.md)
 - [FDABench Single/Structured four-question smoke](fdabench-smoke4-20261110.md)
+- [FDABench CPU8 matched rerun](fdabench-cpu8-rerun-20261110.md)
 - [Full manifests, crash recovery and resource admission](fullscale-infra.md)
 - [Web transport, shared successful-call budget and empty-answer scoring](web-infra.md)
 - [Retired intermediate and decision contracts](intermediate-full.md)

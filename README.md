@@ -25,17 +25,20 @@ request. Paid comparisons and their frozen source/accounting are retained under
 the explicit [retention policy](docs/archive.md).
 
 ## Retained Results
-The FDABench four-question diagnostic completed all eight authorized attempts:
-Single 4/4 and Structured 4/4, with offline scoring, no retries and no paid judge.
-Mean CLI times were 4.19 and 3.67 minutes respectively. This batch mistakenly used
-2 CPUs/thread1, not the previously adopted CPU8/thread4 profile; it is not a
-validation of the corrected resource profile or an infra speedup comparison.
-See [scope, limitations and follow-up repairs](docs/studies/fdabench-smoke4-20261110.md).
+The FDABench CPU8/thread4 rerun repeated the four fixed questions in Single and
+Structured, eight explicitly authorized attempts, no retries or paid judges.
+Both raw scores remain 4/4, but two missing SessionEnd records leave only 6/8
+native audits passing. Against the preceding 2-CPU/thread1 diagnostic, mean CLI
+time fell 16.5% for Single and rose 41.7% for Structured. Common-rate estimated
+API cost fell 21.2% for Single and was essentially unchanged for Structured.
+This is not an overall speedup or an isolated causal CPU experiment. See
+[the matched comparison](docs/studies/fdabench-cpu8-rerun-20261110.md) and
+[the original diagnostic](docs/studies/fdabench-smoke4-20261110.md).
 
 Current defaults are 8 CPUs and 4 numerical threads across all four benchmarks
 and both conditions. The shared image includes native PDF rendering. These
-repairs have separate free runtime verification; the paid diagnostic was not
-silently changed or repeated.
+repairs have free runtime verification and the bounded paid rerun above. The
+original paid diagnostic remains unchanged, including its actual 2-CPU profile.
 
 Earlier paid Structured/FULL results remain historical evidence in
 [current results](docs/current-results.md) and [retention](docs/archive.md).

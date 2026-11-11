@@ -166,6 +166,10 @@ See `docs/cli-adapters.md` for pinned versions, references and limitations.
   judges. This is not standing authorization for further paid experiments.
   Shared infra is documented in `docs/studies/evidence-infra.md`. Keep the
   Structured baseline exact and never hardcode answers or reference-specific logic.
+- A subsequent authorization permits one CPU8/thread4 rerun of those same four
+  FDABench choices in Single/Structured: eight new solvers, no retries or paid
+  judges, compared with the retained 2-CPU diagnostic. See
+  `docs/studies/fdabench-cpu8-rerun-20261110.md`; this is not standing authorization.
 - Hook emissions, evidence reads, semantic correctness and actual model
   incorporation are distinct measurements.
   Native scheduling remains external; never add automatic semantic selection,

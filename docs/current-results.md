@@ -5,7 +5,17 @@ below are historical evidence, not active launch choices. Current conditions
 are only strict Single and frozen Structured.
 
 Paid batches and their exact source/accounting are listed in [retention](archive.md).
-The latest FDABench diagnostic used four fixed public local choices, once per
+The CPU8/thread4 FDABench rerun repeated the same eight authorized task/condition
+slots without retries or paid judges. Both raw scores remain 4/4, but only 6/8
+native organization audits passed because two SessionEnd records are absent.
+Single mean CLI time changed 4.186 to 3.494 minutes (-16.5%); Structured changed
+3.667 to 5.197 minutes (+41.7%). At common rates, estimated API cost changed
+CNY 0.7905 to 0.6231 for Single and 1.1494 to 1.1510 for Structured. Overall mean
+CLI time rose 10.7%, so this does not establish an overall infra speedup. Shared
+account deltas of CNY 4.29/1.66 also cross peak/off-peak pricing and are not an
+infra cost attribution. See [the matched comparison](studies/fdabench-cpu8-rerun-20261110.md).
+
+The preceding FDABench diagnostic used four fixed public local choices, once per
 Single/Structured condition. Both scored 4/4, all eight native audits passed,
 offline judge calls and retries were zero. Mean CLI times were 4.19/3.67 minutes.
 Its actual profile was mistakenly 2 CPUs/thread1, not CPU8/thread4, so it cannot
