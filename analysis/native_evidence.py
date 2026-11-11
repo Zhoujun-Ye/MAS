@@ -44,6 +44,24 @@ def child_tool_evidence(profile):
             for child in children.values()]
 
 
+def background_shell_evidence(rows):
+    handed_off = set()
+    last_stop = None
+    for event in rows:
+        response = event.get('tool_response')
+        if (event.get('tool_name') == 'Bash' and isinstance(response, dict)
+                and response.get('backgroundTaskId')):
+            handed_off.add(str(response['backgroundTaskId']))
+        if event.get('hook_event_name') == 'Stop' and not event.get('agent_id'):
+            last_stop = event
+    tasks = last_stop.get('background_tasks') if last_stop is not None else None
+    running = [t for t in tasks if isinstance(t, dict) and t.get('type') == 'shell'
+               and t.get('status') == 'running'] if isinstance(tasks, list) else None
+    return dict(bash_background_handoffs=len(handed_off),
+                running_shells_at_last_stop=len(running) if running is not None else None,
+                scope='Native hook observations, not completed work or post-exit process quiescence')
+
+
 def native_subagents(folder):
     events = Path(folder)/"native-profile/observer/events.jsonl"
     rows = [json.loads(line) for line in events.read_text().splitlines()] if events.exists() else []
@@ -99,6 +117,7 @@ def native_subagents(folder):
                 lifecycle_basis="hooks_and_native_termination_counts" if termination else "hooks",
                 native_termination_accounting=termination,
                 workspace_quiescence="unverified",
+                background_shells=background_shell_evidence(rows),
                 child_tool_evidence=children,
                 child_tool_evidence_status="observed_transcripts" if children else "unavailable",
                 substantive_work_status="unverified",
@@ -131,6 +150,7 @@ def native_single_agent(folder):
               and not native["subagent_starts"] and not executed and not member_files
               and not native["native_team_configs"] and not native["teammate_idle_events"])
     return dict(passed=bool(passed), policy_verified=policy, session_start=bool(start),
+                background_shells=native['background_shells'],
                 session_end=native["session_end"], subagent_starts=native["subagent_starts"],
                 executed_delegation_tools=executed, exposed_delegation_tools=exposed,
                 member_transcript_files=member_files, native_team_configs=native["native_team_configs"],

@@ -42,6 +42,14 @@ a misleadingly live master. Lifecycle events have UTC timestamps in `stdout.log`
 Service reconnects never retry a model/search/page request.
 A loaded service or live master alone does not establish public-site connectivity.
 
+The November 11 audit found an owned but refused local SSH control socket after
+an earlier disconnect. OpenSSH continued without multiplexing, so `status` falsely
+reported no master while the acknowledged tunnel still carried traffic. Startup
+now checks this socket under the owner lock and removes only a stale owned socket;
+live endpoints, symlinks and non-sockets fail closed. This repairs reconnect/status
+behavior, not intermittent downstream TLS EOF. Reinstall only after paid jobs are
+quiescent; frozen paid source remains unchanged.
+
 Server endpoints are `~/.cache/mas-web/clash.sock` and `dns.sock`, in an owned
 mode-0700 directory with mode-0600 sockets. Only refused stale owned sockets may
 be removed; live listeners, foreign files and symlinks are rejected. There is no

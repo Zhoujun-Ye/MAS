@@ -58,7 +58,8 @@ class Fixture:
                 raise ValueError("Offline fixture request ceiling exceeded")
             self.requests.append(body)
             if self.error_status is not None:
-                kind = {401: 'authentication_error', 402: 'billing_error', 429: 'rate_limit_error'}[self.error_status]
+                kind = {401: 'authentication_error', 402: 'billing_error', 429: 'rate_limit_error',
+                        503: 'api_error'}[self.error_status]
                 error = dict(type='error', error=dict(type=kind, message='Synthetic offline failure; do not retry'))
                 raise urllib.error.HTTPError(request.full_url, self.error_status, 'Synthetic',
                     {'Content-Type': 'application/json', 'Retry-After': '2'}, io.BytesIO(json.dumps(error).encode()))
@@ -181,7 +182,7 @@ def main(argv=None):
     parser.add_argument("--image", required=True)
     parser.add_argument("--execute", action="store_true")
     parser.add_argument("--effort", choices=("high", "max"), default="max")
-    parser.add_argument('--error-status', type=int, choices=(401, 402, 429),
+    parser.add_argument('--error-status', type=int, choices=(401, 402, 429, 503),
                         help='Synthetic native failure/no-retry probe; not a launch-admission proof')
     args = parser.parse_args(argv)
     if not args.execute:

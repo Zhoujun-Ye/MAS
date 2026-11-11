@@ -19,6 +19,7 @@ from harness._claude_hooks import BLOCKED_TOOLS
 
 DEFAULT_CPUS = 8
 DEFAULT_COMPUTE_THREADS = 4
+DEFAULT_SOLVER_IMAGE = 'mas/research-benchmarks:20261111-sqlite-v2'
 
 CLAUDE = Path("/home/zhoujunye/.local/bin/claude").resolve()
 
@@ -210,7 +211,8 @@ def container(work, profile, dataset, image, key=None, network="bridge", backend
                            MAS_WEB_BASE_URL=gateway.url)
         # The Unix gateway is the only provider/web route, including shell tools.
         network = "none"
-    args = ["docker", "run", "-d", "--pull", "never", "--name", container_name,
+    # An init forwards stop signals and reaps children; bare PID 1 sleep ignores SIGTERM.
+    args = ["docker", "run", "-d", "--init", "--pull", "never", "--name", container_name,
             "--label", "purpose=mas-cli6", "--network", network, "--cpus", str(cpus),
             "--memory", "8g", "--pids-limit", "512", "--cap-drop", "ALL",
             "--security-opt", "no-new-privileges", "--user", f"{os.getuid()}:{os.getgid()}",
@@ -270,10 +272,11 @@ def container(work, profile, dataset, image, key=None, network="bridge", backend
     return identity
 
 def stop_container(identity):
+    started = time.monotonic()
     result = subprocess.run(["docker", "stop", "--time", "2", identity], capture_output=True, text=True, timeout=15)
     if result.returncode:
         raise RuntimeError("Could not stop owned container: " + identity)
-    return dict(stopped=True, container_id=identity)
+    return dict(stopped=True, container_id=identity, elapsed_seconds=time.monotonic()-started)
 
 def safe_balance(key, root, name):
     try:

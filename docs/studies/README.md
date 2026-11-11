@@ -10,6 +10,7 @@ task limits, not Structured lead organization. Tests pin the exact baseline.
 - [Active Single/Structured infrastructure](evidence-infra.md)
 - [FDABench Single/Structured four-question smoke](fdabench-smoke4-20261110.md)
 - [FDABench CPU8 matched rerun](fdabench-cpu8-rerun-20261110.md)
+- [Three-benchmark infra check](threebench-infra-20261111.md)
 - [Full manifests, crash recovery and resource admission](fullscale-infra.md)
 - [Web transport, shared successful-call budget and empty-answer scoring](web-infra.md)
 - [Retired intermediate and decision contracts](intermediate-full.md)
@@ -22,6 +23,6 @@ task limits, not Structured lead organization. Tests pin the exact baseline.
 - [Frozen validation questions](validation20.md)
 - [Retention and deletion boundaries](../archive.md)
 
-New FULL behavior is decision-v4, separate from the retained decision-v3 results.
-Native organization remains separate from the unchanged Structured prompt.
+FULL and OBS are retired; their documents above describe retained history only.
+Active launch choices are strict Single and the unchanged Structured prompt.
 No document or offline proof authorizes paid execution.

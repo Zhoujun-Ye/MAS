@@ -74,6 +74,28 @@ def test_tunnel_is_reverse_unix_not_a_public_tcp_proxy():
     assert '-NT' not in command and command[-1].endswith(' 60')
 
 
+@pytest.mark.parametrize('mode',['absent','stale','live','symlink','file'])
+def test_only_stale_owned_local_control_socket_is_removed(tmp_path,mode):
+    path=tmp_path/'control';listener=None
+    target=tmp_path/'protected';target.write_text('unchanged')
+    if mode in {'stale','live'}:
+        listener=socket.socket(socket.AF_UNIX);listener.bind(str(path))
+        if mode=='live':listener.listen(1)
+        else:listener.close()
+    elif mode=='symlink':path.symlink_to(target)
+    elif mode=='file':path.write_text('not a socket')
+    try:
+        result=subprocess.run([sys.executable,'-c',
+            'import sys;from pathlib import Path;from scripts.server import web_tunnel;'
+            'web_tunnel.STATE=Path(sys.argv[1]);web_tunnel.clear_stale_control()',str(tmp_path)],
+            capture_output=True,text=True,timeout=5)
+        assert (result.returncode==0)==(mode in {'absent','stale'})
+        assert path.exists()==(mode not in {'absent','stale'})
+        assert target.read_text()=='unchanged'
+    finally:
+        if listener:listener.close()
+
+
 def test_remote_watchdog_exits_without_heartbeats():
     child=subprocess.Popen([sys.executable,'-c',web_tunnel.WATCHDOG,'0.1'],stdin=subprocess.PIPE)
     try:

@@ -13,8 +13,16 @@ def test_current_project_and_runtime_names_are_mas():
     assert tomllib.loads((ROOT/'pyproject.toml').read_text())['project']['name'] == 'mas'
     assert (ROOT/'README.md').read_text().splitlines()[0] == '# MAS'
     assert 'purpose=mas-cli6' in (ROOT/'harness/runtime_support/runtime.py').read_text()
-    for name in ('external_workflow',):
-        assert 'mas/research-benchmarks:' in (ROOT/'scripts/probes'/(name+'.py')).read_text()
+    from harness.runtime_support.runtime import DEFAULT_SOLVER_IMAGE
+    assert DEFAULT_SOLVER_IMAGE.startswith('mas/research-benchmarks:')
+    for name in ('external_workflow','web_tools','cpu_compute','memory_oom'):
+        assert 'DEFAULT_SOLVER_IMAGE' in (ROOT/'scripts/probes'/(name+'.py')).read_text()
+    tree=ast.parse((ROOT/'scripts/kramabench/run.py').read_text())
+    image=next(node for node in ast.walk(tree) if isinstance(node,ast.Call)
+               and isinstance(node.func,ast.Attribute) and node.func.attr=='add_argument'
+               and node.args and isinstance(node.args[0],ast.Constant) and node.args[0].value=='--image')
+    default=next(option.value for option in image.keywords if option.arg=='default')
+    assert isinstance(default,ast.Attribute) and default.attr=='DEFAULT_SOLVER_IMAGE'
 
 
 def test_temporary_three_question_runners_are_retired():

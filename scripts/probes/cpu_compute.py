@@ -8,7 +8,7 @@ import sys
 
 sys.path.insert(0,str(Path(__file__).resolve().parents[2]))
 from common.io import write_json
-from harness.runtime_support.runtime import container, stop_container
+from harness.runtime_support.runtime import container, stop_container, DEFAULT_SOLVER_IMAGE
 from harness.runtime_support.resources import ContainerResources
 
 
@@ -29,7 +29,7 @@ print(json.dumps(dict(seconds=elapsed,cpu_seconds=cpu,checksum=float(out[0,0]),
 def main():
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--output',type=Path,required=True)
-    parser.add_argument('--image',default='mas/research-benchmarks:20261111-pdf-v1')
+    parser.add_argument('--image',default=DEFAULT_SOLVER_IMAGE)
     parser.add_argument('--execute',action='store_true')
     args=parser.parse_args()
     if not args.execute:

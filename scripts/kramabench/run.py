@@ -209,7 +209,7 @@ def main(argv=None):
     parser.add_argument("--organization-prompt", type=Path,
                         help="Explicit Subagents study instruction override; frozen with its SHA-256")
     parser.add_argument("--credentials", type=Path, default=Path("/home/zhoujunye/mas/.env"))
-    parser.add_argument("--image", default="mas/kramabench:20261101-v1")
+    parser.add_argument("--image", default=shared.DEFAULT_SOLVER_IMAGE)
     parser.add_argument("--concurrency", type=int, default=12)
     parser.add_argument('--cpus', type=int, choices=range(1, 129), default=shared.DEFAULT_CPUS)
     parser.add_argument('--record-resources', action='store_true')

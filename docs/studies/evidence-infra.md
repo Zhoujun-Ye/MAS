@@ -34,10 +34,23 @@ per run, and bounded concurrency counts total solver jobs across conditions.
 The shared defaults are 8 CPUs and 4 numerical threads for every benchmark and
 both conditions. Plans and child commands record the values explicitly.
 
-The shared image includes Poppler so native PDF reads do not fail and trigger
-repeated environment probing. SQLite helper failures return a compact typed error,
+The shared image includes Poppler to eliminate the observed missing-renderer
+failure in native PDF reads. SQLite helper failures return a compact typed error,
 not a Python traceback. Successful SQL results, prompts, model requests and scoring
 are unchanged; no automatic tool or model retry is introduced.
+
+The current image uses SQLite 3.54.1, with baseline compile features and
+UPDATE/DELETE LIMIT parser support verified. Identical read-only query replay is
+separate from stochastic paid solver timing; it does not establish compatibility
+with every possible query or accelerate all SQL. See the
+[November 11 infra check](threebench-infra-20261111.md).
+
+Containers use Docker's init process to forward shutdown signals and reap
+children, avoiding the idle PID 1's fixed forced-kill delay. This does not change
+native delegation or mark outstanding work complete. Resource records include
+sampled core use and cgroup CPU/I/O/memory pressure, with unavailable counters
+unknown. Stop hooks record outstanding background shells; a missing SessionEnd
+remains an audit gap, not a passing lifecycle inferred from CLI exit.
 
 `--require-module NAME` requires successful import. Explicit capability probes run
 in network-disabled preflight containers, without provider keys, with source

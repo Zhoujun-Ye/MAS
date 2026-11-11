@@ -7,7 +7,7 @@ import subprocess
 import sys
 
 sys.path.insert(0,str(Path(__file__).resolve().parents[2]))
-from harness.runtime_support.runtime import container,stop_container
+from harness.runtime_support.runtime import container,stop_container,DEFAULT_SOLVER_IMAGE
 from harness.runtime_support.resources import ContainerResources
 from common.io import write_json
 
@@ -15,7 +15,7 @@ from common.io import write_json
 def main():
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--output',type=Path,required=True)
-    parser.add_argument('--image',default='mas/research-benchmarks:20261111-pdf-v1')
+    parser.add_argument('--image',default=DEFAULT_SOLVER_IMAGE)
     parser.add_argument('--execute',action='store_true')
     args=parser.parse_args()
     if not args.execute:
@@ -24,7 +24,7 @@ def main():
     args.output.mkdir(parents=True,exist_ok=False)
     work=args.output/'workspace';profile=args.output/'native-profile'
     work.mkdir();(profile/'home').mkdir(parents=True)
-    identity=container(work,profile,work,args.image,network='none',cpus=1)
+    identity=container(work,profile,work,args.image,network='none',cpus=1,compute_threads=1)
     collector=None
     try:
         subprocess.run(['docker','update','--memory','64m','--memory-swap','64m',identity],check=True,capture_output=True,timeout=15)

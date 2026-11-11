@@ -18,7 +18,7 @@ from harness.runtime_support import runtime,credential_gateway as cg,web_fetch
 def main():
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--output',required=True,type=Path)
-    parser.add_argument('--image',default='mas/research-benchmarks:20261111-pdf-v1')
+    parser.add_argument('--image',default=runtime.DEFAULT_SOLVER_IMAGE)
     parser.add_argument('--execute',action='store_true')
     parser.add_argument('--public-fetch',action='store_true',help='One non-paid Wikipedia GET via the local tunnel')
     args=parser.parse_args()

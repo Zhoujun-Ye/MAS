@@ -4,6 +4,7 @@ import subprocess
 import sys
 
 from analysis import native_evidence
+from analysis.native_evidence import background_shell_evidence
 
 def test_payload_rejection_is_not_hidden_by_native_is_error_false(tmp_path):
     events = [dict(message=dict(content=[dict(type="tool_use", id="a", name="Bash", input={})])),
@@ -47,3 +48,15 @@ def test_evidence_decoder_remains_standalone_under_isolated_python(tmp_path):
     assert result.returncode == 0, result.stderr
     assert json.loads(result.stdout)['team_correctness_verified'] is False
     assert not profile.exists()
+
+
+def test_background_handoff_does_not_establish_completion():
+    rows = [dict(tool_name='Bash', tool_response=dict(backgroundTaskId='one'))] * 2
+    assert background_shell_evidence(rows)['bash_background_handoffs'] == 1
+    assert background_shell_evidence(rows)['running_shells_at_last_stop'] is None
+    rows.append(dict(hook_event_name='Stop', background_tasks=[dict(type='shell', status='running')]))
+    assert background_shell_evidence(rows)['running_shells_at_last_stop'] == 1
+    rows.append(dict(hook_event_name='Stop', agent_id='worker', background_tasks=[]))
+    assert background_shell_evidence(rows)['running_shells_at_last_stop'] == 1
+    rows.append(dict(hook_event_name='Stop', background_tasks=[]))
+    assert background_shell_evidence(rows)['running_shells_at_last_stop'] == 0

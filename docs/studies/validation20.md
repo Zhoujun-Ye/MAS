@@ -6,7 +6,7 @@ never replace failures or sample based on results. This is a repeatedly used
 development set, not an independent held-out final test.
 
 The frozen Single/Structured baseline profile is `validation20-final-protocol.json`;
-it is not the current FULL resource profile. The frozen lead prompt lives
+it is not the current CPU8/thread4 infra profile. The frozen lead prompt lives
 in `scripts/common/prompts/structured_subagents.py`. Both conditions use high effort, native
 output defaults, identical task limits, solver concurrency 6 and judge
 concurrency 2. One attempt per task per condition, zero retries.

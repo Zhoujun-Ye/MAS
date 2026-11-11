@@ -44,6 +44,25 @@ def test_orphan_grader_prevents_continuation(tmp_path,flag,relative):
         child.terminate();child.wait(timeout=5)
 
 
+@pytest.mark.parametrize('state',['absent','stopped','running','daemon-error','inspect-error','malformed'])
+def test_container_quiescence_does_not_parse_docker_error_wording(tmp_path,monkeypatch,state):
+    write_json(tmp_path/'solvers/task/container-ownership.json',dict(container_name='mas-cli6-fixture'))
+    commands=[]
+    def run(command,**kwargs):
+        commands.append(command)
+        if command[1]=='ps':
+            assert command[-1]=='name=^/mas\\-cli6\\-fixture$'
+            return subprocess.CompletedProcess(command,1 if state=='daemon-error' else 0,
+                '' if state=='absent' else 'abc123\n','no such file: docker.sock' if state=='daemon-error' else '')
+        return subprocess.CompletedProcess(command,1 if state=='inspect-error' else 0,
+            'true\n' if state=='running' else 'unknown\n' if state=='malformed' else 'false\n','')
+    monkeypatch.setattr(matrix.subprocess,'run',run)
+    if state in {'absent','stopped'}:matrix.assert_quiescent(tmp_path)
+    else:
+        with pytest.raises(ValueError):matrix.assert_quiescent(tmp_path)
+    if state in {'absent','daemon-error'}:assert len(commands)==1
+
+
 @pytest.mark.parametrize('benchmark',['dataclawbench','hybriddeepresearch','kramabench'])
 def test_terminal_export_recovery_is_offline_and_preserves_original(tmp_path,monkeypatch,benchmark):
     from scripts.common import run as external

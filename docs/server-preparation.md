@@ -18,14 +18,21 @@
 - Current results: [current-results.md](current-results.md).
 
 Claude Code is pinned to 2.1.286. The current solver image is
-`mas/research-benchmarks:20261111-pdf-v1`, ID
-`sha256:57a1e27dcdcb49b28d7a0c0e38ec4bde624d3baf32ff9bb006184b3521ff1489`.
-It extends the retained November 3 image with Poppler for native PDF reading;
-the base image is unchanged and remains required for historical paid provenance.
-Build/package receipts are under
-`fdabench-single-structured-smoke4-20261110-01/pdf-image-03/` in the receipt root.
+`mas/research-benchmarks:20261111-sqlite-v2`, ID
+`sha256:feef15526fd3f6e35e55573ac991aa6b6c2e381d7b95ef92557a98cf1e88eec4`.
+It retains Poppler and upgrades Python's SQLite to 3.54.1, built from the hashed
+official full source with the preceding compile options and UPDATE/DELETE LIMIT
+parser support. The initial amalgamation-only candidate failed that compatibility
+check and was never used for paid work. Build/package receipts are under
+`threebench-infra-20261111-01/sqlite-image-05/` in the receipt root.
 All four benchmarks default to 8 CPUs and 4 numerical threads per solver.
-The existing KramaBench base image is retained for builds.
+Probe and standalone Krama defaults share `runtime.DEFAULT_SOLVER_IMAGE`;
+shared/matrix launchers still require an explicit image, and paid execution
+requires a runtime-bound proof. The validated replacement is now active; six old
+MAS tags (four image IDs) were removed with zero container references. Their
+recorded IDs and paid evidence remain, not active old-image defaults. Keep layers needed
+by the new image or other projects' images. See the
+[infra check](studies/threebench-infra-20261111.md) for validation and retirement receipts.
 
 ## Data And Environment Provenance
 

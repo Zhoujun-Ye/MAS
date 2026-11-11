@@ -21,6 +21,8 @@ sources live under `/home/zhoujunye/mas-stages/`.
 | `full-infra-paid4-20261110-01` | `20261110-full-infra-01` | Four FULL attempts in three benchmark directories, two paid grades, no retries |
 | `fdabench-single-structured-smoke4-20261110-01` | `20261110-fdabench-single-structured-smoke4-01` | Eight completed choice attempts, offline grades, actual 2-CPU/thread1 diagnostic profile; no retries or paid judges |
 | `fdabench-single-structured-smoke4-20261110-02` | `20261110-fdabench-single-structured-smoke4-02` | Eight CPU8/thread4 attempts and offline grades, including two missing-SessionEnd audit exceptions; no retries or paid judges |
+| `threebench-infra-20261111-01` | `20261111-threebench-infra-01` | Twelve authorized Single/Structured slots across three benchmarks, including any failures/incomplete results; no retries or paid judges |
+| `threebench-infra-20261111-01-unstarted-01` | `20261111-threebench-infra-01` | First dispatch of the one zero-call TLS-blocked slot from the same twelve-slot authorization; no started attempt replay or paid judge |
 
 Preserve raw attempts, submissions, ledgers, incurred costs, frozen settings,
 admission proofs, source and result reports, including failed/incomplete work.
@@ -39,6 +41,19 @@ Datasets/checkouts, the evaluation environment, existing environments and requir
 Docker images, mode-0600 credentials, frozen Validation20 IDs/hashes and unrelated
 user work are not cleanup targets. FDABench preparation inputs/receipts stay
 protected. Never touch `/home/zhoujunye/agent-team` or rewrite Git history.
+
+On November 11 the user conditionally authorized retirement of unused old MAS
+images after validating their SQLite/PDF-capable replacement. This supersedes
+old-image retention only. Keep historical image IDs, build receipts, frozen
+sources and paid traces; never prune other projects' images or required shared layers.
+The accepted November 11 replacement is the `20261111-sqlite-v2` shared image.
+Six obsolete MAS tags (four image IDs) were removed; no old image had a container
+reference. `threebench-infra-20261111-01/old-image-retirement.json` records the
+exact tags, IDs, retained layers and Docker results. Regenerable SQLite source
+expansions and current project bytecode/test caches were also removed: 2,440 files,
+156,746,045 logical bytes. The official source archive, Dockerfiles, build logs,
+package/environment receipts and paid sources/results remain. Exact paths and
+hashes are in that receipt root's `cleanup.json`; no global Docker prune was used.
 
 Keep the local `io.mas.web-tunnel` launch agent, installed private runner/VPN/DNS
 helpers, control directory and owned live server sockets. Runtime caches are

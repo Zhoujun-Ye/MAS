@@ -76,6 +76,25 @@ def ssh_command():
         'python3 -c '+shlex.quote(WATCHDOG)+' 60']
 
 
+def clear_stale_control():
+    path=STATE/'control'
+    try:value=path.lstat()
+    except FileNotFoundError:return
+    if not stat.S_ISSOCK(value.st_mode) or value.st_uid!=os.getuid():
+        raise ValueError('Refuse unowned or non-socket SSH control path')
+    client=socket.socket(socket.AF_UNIX,socket.SOCK_STREAM)
+    try:
+        client.settimeout(1)
+        try:client.connect(str(path))
+        except ConnectionRefusedError:
+            current=path.lstat()
+            if (current.st_dev,current.st_ino)!=(value.st_dev,value.st_ino):
+                raise ValueError('SSH control path changed during inspection')
+            path.unlink()
+        else:raise ValueError('SSH control endpoint is already live')
+    finally:client.close()
+
+
 def serve():
     local_state()
     helper = (STATE/'dns_transport.py' if Path(__file__).name=='runner.py' else
@@ -110,6 +129,7 @@ def serve_ssh():
     local_state()
     with (STATE/'owner.lock').open('a') as lock:
         fcntl.flock(lock,fcntl.LOCK_EX|fcntl.LOCK_NB)
+        clear_stale_control()
         with socket.create_connection(('127.0.0.1',7897),timeout=2):pass
         subprocess.run([SSH,'-o','BatchMode=yes','-o','ConnectTimeout=10',SERVER,
             'python3 - '+shlex.quote(REMOTE_SOCKET)+' '+shlex.quote(REMOTE_DNS_SOCKET)],input=PREPARE,text=True,check=True,timeout=20)

@@ -30,6 +30,32 @@ def memory_sample(cgroup):
     return result
 
 
+def pressure_sample(cgroup):
+    result = {}
+    for resource in ('cpu', 'io', 'memory'):
+        try:
+            rows = [line.split() for line in (cgroup / (resource + '.pressure')).read_text().splitlines()]
+            result[resource] = {row[0]: int(dict(item.split('=') for item in row[1:])['total'])
+                                for row in rows}
+        except (OSError, ValueError, KeyError):
+            result[resource] = None
+    return result
+
+
+def pressure_summary(samples):
+    result = {}
+    for resource in ('cpu', 'io', 'memory'):
+        values = [s.get('pressure', {}).get(resource) for s in samples]
+        complete = len(values) >= 2 and all(isinstance(v, dict) and 'some' in v for v in values)
+        delta = None
+        if complete and values[0].keys() == values[-1].keys():
+            delta = {k: (values[-1][k] - values[0][k]) / 1e6 for k in values[0]}
+            if any(v < 0 for v in delta.values()):
+                delta = None
+        result[resource] = dict(capture_complete=complete and delta is not None, stalled_seconds=delta)
+    return result
+
+
 def memory_summary(samples):
     values=[s.get('memory',{}) for s in samples]
     current=[v.get('current_bytes') for v in values if v.get('current_bytes') is not None]
@@ -57,8 +83,12 @@ def summarize(samples, cpus):
     if any(v < 0 for v in delta.values()):
         return dict(available=False, reason='counter_reset')
     cores = delta['usage_usec'] / 1e6 / elapsed
+    intervals = [(b['usage_usec'] - a['usage_usec']) / 1e6 / (b['elapsed_seconds'] - a['elapsed_seconds'])
+                 for a, b in zip(samples, samples[1:])
+                 if b['elapsed_seconds'] > a['elapsed_seconds'] and b['usage_usec'] >= a['usage_usec']]
     return dict(available=True, measured_seconds=elapsed, cpu_seconds=delta['usage_usec'] / 1e6,
         average_cores=cores, quota_utilization_percent=100 * cores / cpus,
+        maximum_sample_interval_cores=max(intervals) if intervals else None,
         throttled_seconds=delta['throttled_usec'] / 1e6,
         throttled_periods=delta['nr_throttled'], periods=delta['nr_periods'],
         throttled_period_fraction=delta['nr_throttled'] / delta['nr_periods'] if delta['nr_periods'] else None,
@@ -82,6 +112,7 @@ class ContainerResources:
         try:
             row = cpu_sample(self.cgroup, time.monotonic() - self.started)
             row['memory']=memory_sample(self.cgroup)
+            row['pressure']=pressure_sample(self.cgroup)
             self.samples.append(row)
             with (self.output / 'cpu-samples.jsonl').open('a', encoding='utf-8') as stream:
                 stream.write(json.dumps(row) + '\n')
@@ -137,6 +168,7 @@ class ContainerResources:
                       sample_count=len(self.samples), sample_errors=self.errors,
                       capture_complete=not self.errors)
         result['memory']=memory_summary(self.samples)
+        result['pressure']=pressure_summary(self.samples)
         result['container_exit']=self.exit_state() if self.thread is not None else None
         write_json(self.output / 'cpu-summary.json', result)
         self.result = result

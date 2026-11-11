@@ -6,6 +6,7 @@ from concurrent.futures import ThreadPoolExecutor, wait, FIRST_COMPLETED
 import json
 import os
 from pathlib import Path
+import re
 import signal
 import subprocess
 import sys
@@ -242,11 +243,17 @@ def assert_quiescent(path):
         name=json.loads(receipt.read_text()).get('container_name','')
         if not name.startswith('mas-cli6-'):
             raise ValueError('Invalid owned container receipt')
-        result=subprocess.run(['docker','inspect','--format','{{.State.Running}}',name],capture_output=True,text=True,timeout=15)
-        if result.returncode==0 and result.stdout.strip()=='true':
-            raise ValueError('Owned container is still running; reconcile it before resuming')
-        if result.returncode and 'No such' not in result.stderr:
+        listed=subprocess.run(['docker','ps','-aq','--filter','name=^/'+re.escape(name)+'$'],
+                              capture_output=True,text=True,timeout=15)
+        if listed.returncode:
             raise ValueError('Cannot verify prior container quiescence')
+        if not listed.stdout.strip():
+            continue
+        result=subprocess.run(['docker','inspect','--format','{{.State.Running}}',name],capture_output=True,text=True,timeout=15)
+        if result.returncode or result.stdout.strip() not in {'true','false'}:
+            raise ValueError('Cannot verify prior container quiescence')
+        if result.stdout.strip()=='true':
+            raise ValueError('Owned container is still running; reconcile it before resuming')
 
 
 def prior_grade(path, identity):

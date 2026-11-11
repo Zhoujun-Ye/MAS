@@ -170,6 +170,17 @@ See `docs/cli-adapters.md` for pinned versions, references and limitations.
   FDABench choices in Single/Structured: eight new solvers, no retries or paid
   judges, compared with the retained 2-CPU diagnostic. See
   `docs/studies/fdabench-cpu8-rerun-20261110.md`; this is not standing authorization.
+- On November 11 the user authorized two existing Validation20 tasks each from
+  DataClaw, HybridDeepResearch and KramaBench, once per Single/Structured: twelve
+  solvers, zero retries and zero paid judges. SQLite image upgrade is authorized
+  after compatibility validation. Once the replacement is validated, use it for
+  active runs and remove unused MAS old images; retain historical image IDs,
+  frozen sources and paid traces. This overrides old-image retention only, not
+  paid-evidence retention or protection of other projects' images/resources.
+- Later on November 11 the user gated further broad repo/server cleanup on infra
+  verification and declined changing the Clash node. Do not switch nodes or
+  claim the observed intermittent downstream TLS EOF is fixed. Previously
+  authorized old-image/cache retirement remains recorded; paid evidence stays protected.
 - Hook emissions, evidence reads, semantic correctness and actual model
   incorporation are distinct measurements.
   Native scheduling remains external; never add automatic semantic selection,

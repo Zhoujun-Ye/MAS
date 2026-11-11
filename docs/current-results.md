@@ -5,6 +5,13 @@ below are historical evidence, not active launch choices. Current conditions
 are only strict Single and frozen Structured.
 
 Paid batches and their exact source/accounting are listed in [retention](archive.md).
+The November 11 shared-image check completed twelve Single/Structured solvers
+across DataClaw/HDR/Krama, with 12/12 native audits, no retries or paid judges,
+CPU8/thread4, zero quota throttling/OOM and verified container cleanup. One slot
+was first dispatched separately after a zero-call TLS readiness failure; three
+native-cancelled streams retain unknown final usage. See the
+[current infra results and limits](studies/threebench-infra-20261111.md).
+
 The CPU8/thread4 FDABench rerun repeated the same eight authorized task/condition
 slots without retries or paid judges. Both raw scores remain 4/4, but only 6/8
 native organization audits passed because two SessionEnd records are absent.
@@ -65,9 +72,10 @@ accuracy or attribute shared-account deltas as per-condition invoices.
 | `hdr2-network-20261107-01` | Four Structured/FULL HDR attempts | Both conditions 0/2; old textual-format rejection later diagnosed |
 | `threebench2-20261109-01` | 18 Single/Structured/FULL attempts | DataClaw 1/1/0.75, HDR all 0, Krama all 0.953846; VPN disruption and separate deterministic SQL regrade |
 | `full-infra-paid4-20261110-01` | Four FULL attempts, two paid grades | Both DataClaw tasks and Krama score 1, HDR SQL 0; eight overflow captures verified; later DNS/read repairs were free validation only |
+| `threebench-infra-20261111-01` plus `-unstarted-01` | Twelve Single/Structured attempts, no paid judge | All CLI/native audits passed; HDR SQL 0, Krama 0.953846 mean in both conditions; text answers ungraded and three stream costs unknown |
 
 Later raw evidence is server-side; local `outputs/` contains only the small
-retained CPU8/smoke reports. All eight frozen paid stages and original failures
+retained CPU8/smoke reports. All listed frozen paid stages and original failures
 remain protected. No new paid run follows from an offline cleanup or proof.
 
 - [Retained run configuration and accounting](studies/krama-cpu8-paired.md)

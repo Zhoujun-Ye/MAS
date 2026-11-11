@@ -82,7 +82,9 @@ does not directly shorten provider generation or remove model reasoning tokens.
   child commands always pass both, and plans record them explicitly. Admission
   rejects total CPU reservations above host capacity. Old frozen runs are unchanged.
 - The user authorized a new shared image with Poppler, fixing observed native
-  PDF reads that previously failed repeatedly. The old image remains protected.
+  PDF reads that previously failed repeatedly. Old-image retention was later
+  superseded by the user's November 11 conditional image-retirement authorization;
+  this batch's raw evidence and recorded image ID remain protected.
 - SQLite errors retain their type/message but omit tracebacks. A deterministic
   fixture reduced stderr from 896 to 67 bytes; this is output-size evidence, not
   a measured paid token/time saving. Successful query output is unchanged.

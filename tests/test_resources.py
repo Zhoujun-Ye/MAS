@@ -7,7 +7,7 @@ import pytest
 from pathlib import Path
 
 from harness.runtime_support import runtime
-from harness.runtime_support.resources import ContainerResources, cpu_sample, summarize
+from harness.runtime_support.resources import ContainerResources, cpu_sample, summarize, pressure_sample, pressure_summary
 from scripts.studies import benchmark_matrix as matrix
 
 
@@ -23,6 +23,20 @@ def test_cgroup_cpu_units_and_quota_utilization(tmp_path):
     assert s['quota_utilization_percent'] == 25
     assert s['throttled_seconds'] == .5
     assert s['throttled_period_fraction'] == .2
+    assert s['maximum_sample_interval_cores'] == 2
+
+
+def test_pressure_missing_reset_and_complete(tmp_path):
+    assert pressure_sample(tmp_path) == dict(cpu=None, io=None, memory=None)
+    (tmp_path / 'cpu.pressure').write_text('some avg10=0.00 avg60=0.00 avg300=0.00 total=1000000\n')
+    first = pressure_sample(tmp_path)
+    (tmp_path / 'cpu.pressure').write_text('some avg10=0.00 avg60=0.00 avg300=0.00 total=2500000\n')
+    last = pressure_sample(tmp_path)
+    result = pressure_summary([dict(pressure=first), dict(pressure=last)])
+    assert result['cpu'] == dict(capture_complete=True, stalled_seconds=dict(some=1.5))
+    assert result['io']['stalled_seconds'] is None
+    assert pressure_summary([dict(pressure=last), dict(pressure=first)])['cpu']['stalled_seconds'] is None
+    assert pressure_summary([dict(pressure=first)])['cpu']['stalled_seconds'] is None
 
 
 def test_missing_metrics_are_unknown_not_zero():
@@ -85,6 +99,7 @@ def test_explicit_cpu_quota_reaches_docker(tmp_path, monkeypatch):
                         lambda command, **kwargs: commands.append(command) or 'fixture\n')
     runtime.container(tmp_path, tmp_path, tmp_path, 'fixture', cpus=8)
     assert commands[0][commands[0].index('--cpus') + 1] == '8'
+    assert '--init' in commands[0]
 
 
 def test_compute_threads_are_explicit_and_bounded(tmp_path, monkeypatch):

@@ -76,7 +76,7 @@ def main():
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--root',type=Path,required=True)
     parser.add_argument('--output',type=Path,required=True)
-    parser.add_argument('--image',default='mas/research-benchmarks:20261111-pdf-v1')
+    parser.add_argument('--image',default=run.runtime.DEFAULT_SOLVER_IMAGE)
     parser.add_argument('--execute',action='store_true')
     args=parser.parse_args()
     if not args.execute:print(json.dumps(dict(status='planned',paid_calls=0,conditions=6)));return
