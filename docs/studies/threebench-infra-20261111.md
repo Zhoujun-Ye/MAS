@@ -127,8 +127,9 @@ the original batch finished and no MAS solver containers remained. The installed
 source hash matches current source and the acknowledged SSH master is live.
 Clash node, subscription, DNS and routes were not changed. The user declined a
 node-switch comparison; intermittent downstream TLS EOF remains an explicit
-external risk, not a solved image defect. Further broad cleanup is deferred under
-the user's subsequent instruction to resolve infra issues first.
+external risk, not a solved image defect. Broad cleanup was initially deferred;
+the user subsequently authorized it after reviewing these results. See
+[retention and cleanup](../archive.md) for the separate scope and receipts.
 
 ## Completed Results
 
@@ -202,5 +203,6 @@ working infrastructure and correct answers are separate claims.
 Final verification rehashed all 192 frozen source files without changes and
 recorded 1,000 protected paid-output/source entries. The two retained FDABench
 manifests also remained unchanged (633 and 670 entries). No current paid evidence,
-dataset, environment or other project's resource was removed. Broad cleanup stays
-deferred; the earlier image/build-cache retirement has its separate receipt.
+dataset, environment or other project's resource was removed in that infra pass.
+The earlier image/build-cache retirement and subsequent broad cleanup have separate
+receipts, rather than changing this paid experiment's evidence.

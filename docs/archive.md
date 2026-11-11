@@ -78,39 +78,29 @@ Frozen paid stages/outputs are not modified to match current source.
 Receipts under `/home/zhoujunye/mas-data/receipts/` record exact paths, byte counts,
 hashes and scope rather than deleted payload copies.
 
-| Maintenance | Evidence |
-| --- | --- |
-| November 7 retirement/infra cleanup | `maintenance-20261107/`, `local-web-pipeline-20261107/cleanup.json` |
-| November 9 deep cleanup | `maintenance-20261109/cleanup.json`, `post-test-caches.json` |
-| November 10 deep cleanup | `maintenance-20261110/` |
-| November 10 FDABench completion/final cleanup | `fdabench-infra-20261110/background-mirror05/final-audit.json`, `maintenance-20261110-final-cleanup/cleanup.json` |
+| Maintenance | Evidence | Historical Verification |
+| --- | --- | --- |
+| November 7 retirement/infra cleanup | `maintenance-20261107/`, `local-web-pipeline-20261107/cleanup.json` | Exact deleted paths and protected-file digests in receipts |
+| November 9 deep cleanup | `maintenance-20261109/cleanup.json`, `post-test-caches.json` | 1,539 files / 17,295,393 bytes removed; 31,906 protected entries unchanged |
+| November 10 deep cleanup | `maintenance-20261110/` | 2,006 files / 35,056,138 bytes including the post-test sweep; 34,355 protected entries unchanged; 905 tests passed |
+| November 10 FDABench completion/final cleanup | `fdabench-infra-20261110/background-mirror05/final-audit.json`, `maintenance-20261110-final-cleanup/cleanup.json` | 7,549 entries / 293,023,135 bytes removed; 34,581 protected entries unchanged; 936 tests passed |
+| November 11 authorized repo/server cleanup | `maintenance-20261111-cleanup/` | Server: 19,026 entries / 853,059,024 bytes removed, 38,343 protected entries unchanged. Local temporary copies: 153 entries / 26,944,152 bytes removed, 168 protected entries unchanged |
 
-The November 10 cleanup removed 1,989 server files / 34,929,886 logical bytes:
-retired source, three obsolete offline stages, source caches, generated root
-metadata and superseded zero-paid synthetic payloads/test XML. Proof summaries
-and XML suite/failure metadata remain; fresh raw native proofs replace disposable
-offline workspaces. All 34,355 paid-output/frozen-source files and symlinks
-matched their original path/content hashes afterward. No paid call was made.
-The post-test bytecode sweep removed another 17 files / 126,252 bytes: 2,006
-files / 35,056,138 logical bytes removed in total.
-That source passed 905 server tests; native data/budget, gateway and FULL/OBS
-probes passed. The first free web probe failed closed with `proxy_unavailable`;
-subsequent direct fetch and complete HTML/JSON probe passed without changing
-VPN/Clash/tunnel configuration. This does not establish long-term availability.
+The November 11 sweep removed reviewed obsolete temporary source/test trees,
+one unused offline stage, superseded synthetic payloads and current-source caches.
+It retained valid tests/docs, every paid output and frozen source, active data and
+environments, credentials, the current image and private web-tunnel state. Local
+temporary FDABench release copies were hash-matched to canonical server inputs
+before removal. No paid calls, result backups or global Docker pruning occurred.
+The server's complete offline suite passed (838 tests in 44.02 seconds); its XML
+is retained in the maintenance receipt root. Newly generated test workspaces and
+current-source caches were then removed separately, without counting them toward
+the pre-existing material removed above. All 31 tracked Markdown files passed a
+relative-link check. No executable behavior or baseline prompt was changed.
 
-The November 9 cleanup removed 1,539 files / 17,295,393 bytes; all 31,906 protected
-files had identical path/content hashes afterward. Earlier offline summaries
-remain historical verification, not present-day admission or benchmark gains.
+Receipts retain original failed checks as well as successful replacements: the
+November 10 web probe first failed closed, and the final cleanup's first test run
+hit Unix-socket path-length limits before a short-path run passed. Historical test
+counts and retired-condition probes are not present-day admission or speed claims.
 Current ownership and operational contracts are in
 [Repository Layout](repository-layout.md) and [Active Infra](studies/evidence-infra.md).
-
-The final cleanup followed completed FDABench download/index/catalog audits.
-It removed 7,549 disposable cache/synthetic-test entries / 293,023,135 logical
-bytes, while all 34,581 protected output/frozen-source entries retained identical
-path/content hashes. No paid output, FDABench input/receipt, environment or live
-tunnel was removed. Obsolete downloader argument plumbing and repeated preparation
-history were consolidated; behaviorally distinct tests and retained reports remain.
-The full server suite passed 936 tests. The first invocation's long temporary
-directory caused 23 Unix-socket path-length failures; the corrected short-path
-invocation passed without suppressing tests. Both invocations' logs/XML remain
-in the final cleanup receipts; disposable test workspaces were removed afterward.

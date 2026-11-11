@@ -177,10 +177,11 @@ See `docs/cli-adapters.md` for pinned versions, references and limitations.
   active runs and remove unused MAS old images; retain historical image IDs,
   frozen sources and paid traces. This overrides old-image retention only, not
   paid-evidence retention or protection of other projects' images/resources.
-- Later on November 11 the user gated further broad repo/server cleanup on infra
-  verification and declined changing the Clash node. Do not switch nodes or
-  claim the observed intermittent downstream TLS EOF is fixed. Previously
-  authorized old-image/cache retirement remains recorded; paid evidence stays protected.
+- After reviewing the November 11 infra results, the user authorized broad MAS
+  repo/server cleanup. Remove confirmed disposable temporary sources, caches and
+  superseded synthetic payloads, preserving paid evidence and runtime resources.
+  This does not authorize new paid calls or changing the Clash node; the observed
+  intermittent downstream TLS EOF remains an external risk.
 - Hook emissions, evidence reads, semantic correctness and actual model
   incorporation are distinct measurements.
   Native scheduling remains external; never add automatic semantic selection,
