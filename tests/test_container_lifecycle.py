@@ -138,3 +138,65 @@ def test_failed_stop_still_force_removes_baseline_container(tmp_path, monkeypatc
     assert result['status']=='cleanup_failed'
     assert events==['force-removed','gateway-closed']
     assert json.loads((tmp_path/task.id/backend/'report.json').read_text())['status']=='cleanup_failed'
+
+
+@pytest.mark.parametrize('failure', [None, 'command', 'timeout', 'resources', 'stop'])
+def test_shared_preflight_preserves_receipts_and_always_removes_container(tmp_path, monkeypatch, failure):
+    from harness.runtime_support import preflight
+    events = []
+    data = ['python3', '-c', 'print("input check")']
+    mounts = [(tmp_path / 'data', '/data', True)]
+
+    def create(*args, **kwargs):
+        assert kwargs == dict(network='none', backend='claude-code-subagents',
+            dataset_mounts=mounts, effort='none', cpus=8, compute_threads=4)
+        return 'owned-preflight'
+
+    def execute(command, **kwargs):
+        if command[:2] == ['docker', 'rm']:
+            events.append('removed')
+            assert kwargs['timeout'] == 15
+        else:
+            assert command[:3] == ['docker', 'exec', 'owned-preflight']
+            assert kwargs['timeout'] == 60
+            if command[3:] == data:
+                if failure == 'timeout':
+                    raise subprocess.TimeoutExpired(command, 60)
+                if failure == 'command':
+                    return subprocess.CompletedProcess(command, 1, 'input failed', 'details')
+        return subprocess.CompletedProcess(command, 0, 'checked', '')
+
+    class Resources:
+        def __init__(self, *args): pass
+        def start(self): return self
+        def close(self):
+            events.append('resources')
+            if failure == 'resources': raise RuntimeError('resource failure')
+        def record_exit(self): events.append('exit-recorded')
+
+    def stop(identity):
+        assert identity == 'owned-preflight'
+        events.append('stopped')
+        if failure == 'stop': raise RuntimeError('stop failure')
+
+    monkeypatch.setattr(preflight, 'container', create)
+    monkeypatch.setattr(preflight.subprocess, 'run', execute)
+    monkeypatch.setattr(preflight, 'stop_container', stop)
+    monkeypatch.setattr(preflight, 'ContainerResources', Resources)
+    def check():
+        return preflight.check(tmp_path, tmp_path, 'image', mounts, 'claude-code-subagents',
+            'none', 8, 4, tmp_path, data, record_resources=True)
+    if failure:
+        with pytest.raises((RuntimeError, subprocess.CalledProcessError, subprocess.TimeoutExpired)):
+            check()
+    else:
+        assert check() == dict(paid_calls=0, network='none', checks=4)
+    assert events[-1] == 'removed'
+    assert events[:2] == ['resources', 'stopped']
+    rows = json.loads((tmp_path / 'checks.json').read_text())
+    if failure == 'timeout':
+        assert rows[-1] == dict(argv=data, status='timeout', timeout_seconds=60)
+    elif failure == 'command':
+        assert rows[-1]['returncode'] == 1 and rows[-1]['stderr'] == 'details'
+    else:
+        assert len(rows) == 4

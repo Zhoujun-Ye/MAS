@@ -17,6 +17,7 @@ from scripts.common.prompts.limits import limit_instructions
 from common.io import fingerprint, write_json
 from harness.runtime_support.resources import ContainerResources
 from harness.runtime_support import runtime
+from harness.runtime_support.preflight import check as check_container
 from benchmarks.kramabench.evaluation import grade_answer, scoring_contract
 from benchmarks.kramabench.tasks import load_tasks
 from harness import ClaudeCodeSubagentsCLI, ClaudeCodeSingleAgentCLI
@@ -180,6 +181,8 @@ def run_attempt(task, backend, args, key, stop, active, lock):
 
 
 def collect_attempt(folder, report, args):
+    if 'decision_gate' in report:
+        raise ValueError('Retired decision-gate attempts are read-only; use their recorded grades')
     backend, task_id = report["backend"], report["task_id"]
     if report["status"] == "not_started":
         return report
@@ -209,11 +212,6 @@ def collect_attempt(folder, report, args):
             raise ValueError("Submission must contain answer")
         shutil.copyfile(raw_submission, folder / "submission.json")
         report["grade"] = grade_answer(args.upstream, task_id, folder / "submission.json")
-        if 'decision_gate' in report:
-            raw = report['grade'].get('score')
-            report['accuracy'] = dict(raw_score=raw,
-                compliant_score=raw if report['decision_gate']['accepted'] else 0,
-                protocol_accepted=report['decision_gate']['accepted'], grading_calls_shared=True)
         data = submission(work)
         report["submission"] = data
         # Never execute submitted code on the host; use a fresh offline copy.
@@ -312,40 +310,12 @@ def preflight(args):
     profile.mkdir()
     (profile / "home").mkdir()
     backend = backends[0]
-    binary = CLAUDE
-    identity = container(work, profile, args.upstream / "data", args.image, backend=backend, network="none",
-                         effort=getattr(args, "effort", runtime.DEFAULT_EFFORT), cpus=getattr(args, 'cpus', runtime.DEFAULT_CPUS),
-                         compute_threads=getattr(args, 'compute_threads', runtime.DEFAULT_COMPUTE_THREADS))
-    resources = None
-    try:
-        if getattr(args, 'record_resources', False):
-            resources = ContainerResources(identity, checks, args.cpus).start()
-        commands = [[str(binary), "--version"],
-                    ["python3", "-c", "import numpy,pandas,scipy,pypdf; print('domain imports OK')"],
-                    runtime.capability_command(getattr(args, 'require_module', [])),
-                    [str(binary), "--help"]]
-        commands.extend(['python3', '-c', p['source']] for p in plan['capability_probes'])
-        receipts = []
-        for command in commands:
-            try:
-                result = subprocess.run(["docker", "exec", identity, *command], text=True,
-                                        stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=60)
-                receipts.append(dict(argv=command, stdout=result.stdout, returncode=result.returncode))
-                write_json(checks / "checks.json", receipts)
-                result.check_returncode()
-            except subprocess.TimeoutExpired:
-                receipts.append(dict(argv=command, status='timeout', timeout_seconds=60))
-                write_json(checks / "checks.json", receipts)
-                raise
-    finally:
-        try:
-            if resources is not None:
-                resources.close()
-        finally:
-            try:
-                stop_container(identity)
-            finally:
-                subprocess.run(["docker", "rm", "-f", identity], check=True, capture_output=True, timeout=15)
+    check_container(work, profile, args.image, [(args.upstream / 'data', '/data', True)],
+        backend, getattr(args, 'effort', runtime.DEFAULT_EFFORT),
+        getattr(args, 'cpus', runtime.DEFAULT_CPUS), getattr(args, 'compute_threads', runtime.DEFAULT_COMPUTE_THREADS),
+        checks, ['python3', '-c', "import numpy,pandas,scipy,pypdf; print('domain imports OK')"],
+        modules=getattr(args, 'require_module', []), probes=plan['capability_probes'],
+        record_resources=getattr(args, 'record_resources', False))
     write_json(args.output / "preflight-ok.json", dict(paid_calls=0, plan_sha256=fingerprint(plan)))
     return selected, plan
 

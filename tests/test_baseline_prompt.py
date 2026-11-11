@@ -1,8 +1,6 @@
-from scripts.common.prompts.conditions import backend_instructions
 import hashlib
 
-
-from scripts.common.prompts.conditions import backend_instructions as prompt_backend_instructions
+from scripts.common.prompts.conditions import backend_instructions
 from scripts.common.prompts.single_agent import PROMPT as SINGLE_AGENT_PROMPT
 from scripts.common.prompts.structured_subagents import PROMPT as STRUCTURED_SUBAGENTS_PROMPT
 
@@ -24,7 +22,6 @@ def test_single_does_not_receive_orchestrator_worker_prompt():
     assert "orchestrator-worker" not in backend_instructions("claude-code-single-agent")
 
 
-def test_runtime_preserves_prompt_entry_point():
-    assert backend_instructions is prompt_backend_instructions
+def test_condition_selection_preserves_exact_prompt_text():
     assert CLAUDE_PROMPT == STRUCTURED_SUBAGENTS_PROMPT
     assert backend_instructions("claude-code-single-agent") == SINGLE_AGENT_PROMPT

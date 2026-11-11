@@ -87,50 +87,33 @@ hashes and scope rather than deleted payload copies.
 | November 10 FDABench completion/final cleanup | `fdabench-infra-20261110/background-mirror05/final-audit.json`, `maintenance-20261110-final-cleanup/cleanup.json` | 7,549 entries / 293,023,135 bytes removed; 34,581 protected entries unchanged; 936 tests passed |
 | November 11 authorized repo/server cleanup | `maintenance-20261111-cleanup/` | Server: 19,026 entries / 853,059,024 bytes removed, 38,343 protected entries unchanged. Local temporary copies: 153 entries / 26,944,152 bytes removed, 168 protected entries unchanged |
 | November 11 random20 preparation cleanup | `krama-random20-preparation-20261111-01/cleanup.json` | Removed five byte-identical generated report copies (304,578 bytes) and the superseded unpaid two-condition stage/receipts; 35,521 protected regular files rehashed unchanged |
+| November 11 release cleanup | `maintenance-20261111-release-cleanup/` | 9,631 entries / 385,739,781 regular-file bytes removed; all 37,133 protected entries unchanged; 897 tests, nine synthetic workflows and sixty task preflights passed, zero paid calls |
 
-The November 11 sweep removed reviewed obsolete temporary source/test trees,
-one unused offline stage, superseded synthetic payloads and current-source caches.
-It retained valid tests/docs, every paid output and frozen source, active data and
-environments, credentials, the current image and private web-tunnel state. Local
-temporary FDABench release copies were hash-matched to canonical server inputs
-before removal. No paid calls, result backups or global Docker pruning occurred.
-The server's complete offline suite passed (838 tests in 44.02 seconds); its XML
-is retained in the maintenance receipt root. Newly generated test workspaces and
-current-source caches were then removed separately, without counting them toward
-the pre-existing material removed above. All 31 tracked Markdown files passed a
-relative-link check. No executable behavior or baseline prompt was changed.
+Historical receipts retain failed checks and successful replacements. The first
+random20 cleanup verifier mistook sixteen special paths for regular files; the
+replacement rehashed 35,521 regular files and checked the special paths remained.
+Their target identity was not hash-compared. The earliest superseded random20
+preparation lacked per-tree deletion counts; these remain unknown.
 
-The later random20 preparation removes only duplicate `*-report/summary.json`
-files whose byte-identical canonical top-level exports remain; the report Markdown,
-CSV, comparison data, raw paid attempts and frozen paid stages stay intact. The
-local small retained reports have no exact duplicate files and are unchanged.
-The superseded `20261111-krama-random20-01` source stage and
-`krama-random20-20261111-01` receipts were unpaid preparations, not interrupted
-solver attempts. Their seed and exact selection were verified against the new
-committed manifest before deletion. Per-tree byte/file counts were not persisted
-before removal and remain unknown, not reconstructed estimates.
-The first cleanup verifier incorrectly treated sixteen recorded special paths as
-regular files. Its error is retained; subsequent verification rehashed all 35,521
-regular files and confirmed the sixteen special paths still present. Their target
-identity was not hash-compared by the original snapshot. None was a deletion target.
-New synthetic task preflights stay under the preparation receipts, not `outputs/`;
-there is no paid random20 output or new model charge. Current runtime resources,
-Validation20, credentials and the installed private tunnel are not cleanup targets.
+Generated report JSON was removed only where byte-identical canonical exports
+remain. Local `outputs/` contains small retained paid reports without exact
+duplicates. Raw paid evidence and frozen paid source were not deleted. Earlier
+Krama pages are consolidated in [Krama history](studies/krama-history.md); old
+host request-reservation code was unused and removed, not replaced by a scheduler.
 
-The subsequent requested deep source cleanup consolidates four overlapping
-historical Krama pages into `studies/krama-history.md`, removes stale executable
-contract instructions from active docs, and keeps the frozen paid originals.
-Current-result summaries link to that authoritative history rather than repeat
-its ledgers. Generic request/timing analysis is shared by current and historical
-reports. The unused host `RequestBudget` reservation module and its gateway
-callbacks/tests are removed; no active runner supplied it. Native CLI budget
-flags, balance/reserve admission and the shared web-call limits are not removed.
-Superseded unpaid synthetic/test payloads are disposable after final validation;
-latest proof/workflow/preflight summaries and current source provenance remain.
+Current cleanup consolidates no-model container preflight under one runtime
+owner and removes active reconstruction of retired decision-gate scores. Read-only
+historical analysis remains. Superseded unpaid max-profile stages and synthetic
+workspaces were removed after the thinking-off replacement was verified. The
+120 repeated preflight source archives were content-checked against their source
+manifests; one latest archive remains alongside the recorded source stages,
+plans and checks. Latest proof, workflow, CPU and preflight evidence and source
+provenance remain. The two feasibility probes keep their proofs and host ledgers,
+not their superseded synthetic workspaces. Production runtime source was not
+deployed or rewritten, and no paid experiment was launched. Exact
+paths, hashes and verification are recorded in
+`/home/zhoujunye/mas-data/receipts/maintenance-20261111-release-cleanup/`.
 
-Receipts retain original failed checks as well as successful replacements: the
-November 10 web probe first failed closed, and the final cleanup's first test run
-hit Unix-socket path-length limits before a short-path run passed. Historical test
-counts and retired-condition probes are not present-day admission or speed claims.
-Current ownership and operational contracts are in
-[Repository Layout](repository-layout.md) and [Active Infra](studies/evidence-infra.md).
+Historical test counts and retired-condition probes are not present-day admission
+or speed claims. Current contracts live in [Repository Layout](repository-layout.md)
+and [Active Infra](studies/evidence-infra.md).

@@ -21,7 +21,9 @@ def check(work,profile,image,mounts,backend,effort,cpus,threads,output,data_comm
                 rows.append(dict(argv=command,returncode=r.returncode,stdout=r.stdout,stderr=r.stderr))
                 write_json(output/'checks.json',rows);r.check_returncode()
             except subprocess.TimeoutExpired:
-                rows.append(dict(argv=command,status='timeout'));write_json(output/'checks.json',rows);raise
+                rows.append(dict(argv=command,status='timeout',timeout_seconds=60))
+                write_json(output/'checks.json',rows)
+                raise
         return dict(paid_calls=0,network='none',checks=len(rows))
     finally:
         try:

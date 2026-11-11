@@ -22,12 +22,12 @@ def workspace(tmp_path):
 
 @pytest.fixture
 def stub(tmp_path):
-    def build(backend, *, version=None, stdout=None, exit_code=0, delay=0, child=False):
+    def build(*, version=None, stdout=None, exit_code=0, delay=0, child=False):
         version = version or "2.1.286 (Claude Code)"
         if stdout is None:
             stdout = json.dumps(dict(type="result", subtype="success", is_error=False,
                                      result="native reply")) + "\n"
-        script = tmp_path / ("stub-" + backend)
+        script = tmp_path / "stub-claude"
         script.write_text(f'''#!{sys.executable}
 import json, os, subprocess, sys, time
 from pathlib import Path
@@ -105,12 +105,11 @@ def test_invalid_native_budget_rejected(value):
         ClaudeCodeSubagentsCLI().command("model", max_budget_usd=value)
 
 
-@pytest.mark.parametrize("backend", ["claude"])
-def test_native_process_receipts_and_private_environment(backend, stub, workspace, tmp_path, monkeypatch):
+def test_native_process_receipts_and_private_environment(stub, workspace, tmp_path, monkeypatch):
     monkeypatch.setenv("TEST_PROVIDER_TOKEN", "must-not-appear-in-receipts")
     output = tmp_path / "output"
     prompt = "  task; $(touch DO_NOT_CREATE)\nkeep exact body  "
-    report = stub(backend).run(prompt, model="chosen-model", workspace=workspace,
+    report = stub().run(prompt, model="chosen-model", workspace=workspace,
                                output=output, execute=True)
     assert report["status"] == "cli_exited" and report["returncode"] == 0
     assert report["correctness"] == "not_evaluated" and report["team_created"] is None
@@ -130,13 +129,12 @@ def test_native_process_receipts_and_private_environment(backend, stub, workspac
     assert sum(report['timing'].values()) <= report['elapsed_seconds']
     before = {p.name: p.read_bytes() for p in output.iterdir()}
     with pytest.raises(FileExistsError):
-        stub(backend).run("new", model="model", workspace=workspace, output=output, execute=True)
+        stub().run("new", model="model", workspace=workspace, output=output, execute=True)
     assert before == {p.name: p.read_bytes() for p in output.iterdir()}
 
 
-@pytest.mark.parametrize("backend", ["claude"])
-def test_version_mismatch_stops_before_dispatch(backend, stub, workspace, tmp_path):
-    adapter = stub(backend, version="9.0.0 (Claude Code)")
+def test_version_mismatch_stops_before_dispatch(stub, workspace, tmp_path):
+    adapter = stub(version="9.0.0 (Claude Code)")
     report = adapter.run("task", model="model", workspace=workspace,
                          output=tmp_path / "out", execute=True)
     assert report["status"] == "preflight_error" and report["model_calls_started"] is False
@@ -159,14 +157,14 @@ def test_missing_cli_leaves_failure_evidence(workspace, tmp_path):
     ('{"type":"result"}\n', "cli_error"),
 ])
 def test_claude_final_text_is_not_silent_completion(stdout, status, stub, workspace, tmp_path):
-    report = stub("claude", stdout=stdout).run("task", model="model", workspace=workspace,
+    report = stub(stdout=stdout).run("task", model="model", workspace=workspace,
                                               output=tmp_path / "out", execute=True)
     assert report["status"] == status
     assert (tmp_path / "out/stdout.log").read_text() == stdout
 
 
 def test_nonzero_exit_keeps_raw_logs(stub, workspace, tmp_path):
-    report = stub("claude", exit_code=7).run("task", model="model", workspace=workspace,
+    report = stub(exit_code=7).run("task", model="model", workspace=workspace,
                                                 output=tmp_path / "out", execute=True)
     assert report["status"] == "cli_error" and report["returncode"] == 7
     assert "native reply" in (tmp_path / "out/stdout.log").read_text()
@@ -175,7 +173,7 @@ def test_nonzero_exit_keeps_raw_logs(stub, workspace, tmp_path):
 def test_native_accounting_is_preserved_without_imputing_role_coverage(stub, workspace, tmp_path):
     event = dict(type="result", subtype="success", is_error=False,
                  usage=dict(input_tokens=120, output_tokens=30), total_cost_usd=0.002)
-    report = stub("claude", stdout=json.dumps(event) + "\n").run(
+    report = stub(stdout=json.dumps(event) + "\n").run(
         "task", model="model", workspace=workspace, output=tmp_path / "out", execute=True)
     assert report["usage"] == event["usage"] and report["cost_usd"] == 0.002
     assert report["accounting_scope"] == "native_result; subagent usage coverage unverified"
@@ -184,13 +182,13 @@ def test_native_accounting_is_preserved_without_imputing_role_coverage(stub, wor
 
 def test_blank_prompt_does_not_dispatch(stub, workspace, tmp_path):
     with pytest.raises(ValueError, match="Prompt"):
-        stub("claude").run(" \n ", model="model", workspace=workspace,
+        stub().run(" \n ", model="model", workspace=workspace,
                                output=tmp_path / "out", execute=True)
     assert not (tmp_path / "out").exists()
 
 
 def test_timeout_stops_process_group_and_preserves_partial_output(stub, workspace, tmp_path):
-    report = stub("claude", delay=60, child=True).run(
+    report = stub(delay=60, child=True).run(
         "task", model="model", workspace=workspace, output=tmp_path / "out", timeout=0.5, execute=True)
     assert report["status"] == "timed_out" and report["returncode"] < 0
     assert report['timing']['native_process_seconds'] >= .5
@@ -224,7 +222,7 @@ def test_interrupt_is_recorded_and_propagated(stub, workspace, tmp_path, monkeyp
         return original(process, *args, **kwargs)
     monkeypatch.setattr(subprocess.Popen, "wait", wait)
     with pytest.raises(KeyboardInterrupt):
-        stub("claude", delay=60).run("task", model="model", workspace=workspace,
+        stub(delay=60).run("task", model="model", workspace=workspace,
                                         output=tmp_path / "out", execute=True)
     assert json.loads((tmp_path / "out/result.json").read_text())["status"] == "interrupted"
 

@@ -1,6 +1,6 @@
 # Repository Ownership
 
-Current source ownership, revised 2026-11-10. The retained paired run keeps its
+Current source ownership, revised 2026-11-11. The retained paired run keeps its
 original artifact paths; obsolete study outputs and compatibility source are removed.
 
 | Owner | Contents |
@@ -37,6 +37,10 @@ in `analysis/timing.py` and `analysis/request_accounting.py`. Historical workspa
 analysis consumes these helpers, not the reverse. The unused old host request
 reservation/price-cap implementation was removed; active balance admission,
 native explicit budget flags and shared web limits retain their existing owners.
+All benchmark container admission uses `harness/runtime_support/preflight.py`;
+benchmark runners supply only their mounts and domain checks. Retired decision-gate
+scores are read from recorded artifacts by analysis, never reconstructed by active
+runner/scoring paths.
 
 ## Active Deployment
 

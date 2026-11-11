@@ -13,9 +13,9 @@ Codex adapters and launch choices were retired at the user's request.
 Shared code in `_claude_cli.py`, `_claude_hooks.py` and `_cli.py` handles native
 arguments, observations, version preflight, stdin, process lifetime and raw logs.
 No semantic provider relay, model loop, SDK import, custom scheduler or vendored runtime
-exists. DataClaw/HDR use a host credential gateway that preserves native wire
-protocols without model orchestration. Deep Agents launchers, options, mounts and executable requirements are
-removed. Historical comparisons and retired checkpoint readers have been removed. See [retention](archive.md).
+exists. Live solvers use a host credential gateway that preserves native wire
+protocols without model orchestration. Retired launchers and checkpoint readers
+are removed; authorized paid comparisons remain read-only under [retention](archive.md).
 
 ## Strict Single
 
@@ -41,18 +41,18 @@ the lead on completion; admission and retained transcripts establish only the
 observed structural behavior, not substantive contribution.
 
 The Subagents baseline uses current orchestrator-worker lead prompt, frozen by the user
-on 2026-11-04 ([prompt versions](studies/README.md)). The lead plans, splits the
+on 2026-11-04 ([frozen prompts](../scripts/common/prompts/README.md)). The lead plans, splits the
 work between itself and subagents (at least one, scaled to complexity) and synthesizes. It specifies
 no specialist roster, judge role or cost-reduction policy.
 
 For inspection, `scripts/common/prompts/structured_subagents.py` holds this unchanged
-default as `PROMPT`. FULL/OBS, their Native alternative prompt and prompt-only
-ablations were retired on 2026-11-10. Single and Structured remain the defaults.
+default as `PROMPT`. FULL/OBS and their prompt-only ablations were retired on
+2026-11-10. Their historical lead prompts are not launch choices. Single and
+Structured remain the defaults.
 The explicitly approved Krama Native study uses `native_subagents.py`: only the
 Structured opening paragraph plus "Always deploy at least one subagent."
 It uses this same adapter and audit, not a third runtime or unprompted CLI policy.
-The Python
-files are not raw-text inputs for `--organization-prompt`.
+The Python files are not raw-text inputs for `--organization-prompt`.
 
 Native facts this relies on, observed on 2.1.286:
 - There is no TaskOutput tool. Background agents notify the lead on completion.
@@ -61,11 +61,12 @@ Native facts this relies on, observed on 2.1.286:
   result event per resumed segment; the adapter keeps the last one.
 - Isolated settings (`--setting-sources ""`) do not auto-load workspace
   `CLAUDE.md` or `AGENTS.md` for any agent. Workers learn task rules only from the
-  lead's brief and from tool output. Admission requires observed native delegation and
-completion; it does not establish semantic contribution. This is a prompted condition,
-not an entirely unprompted Claude Code run.
-Benchmark access and output requirements remain explicit. Only the current
-lead prompt remains the default; no backup prompt or specialist-judge study is active.
+  lead's brief and from tool output.
+
+Admission requires observed native delegation and completion, not semantic
+contribution. This is a prompted condition, not an entirely unprompted Claude
+Code run. Benchmark access and output requirements remain explicit. There is no
+backup prompt or specialist-judge study.
 
 Custom research organizations can define native subagent prompts, descriptions,
 tools, permission policies and handoff requirements without replacing Claude's

@@ -105,6 +105,8 @@ def main(argv=None, *, benchmark=None):
                                    or source.resolve().is_relative_to(args.output.resolve())):
             raise ValueError("Evaluation output must be separate from run and source inputs")
     frozen = json.loads((args.run / "plan.json").read_text())
+    if frozen.get('evidence'):
+        raise ValueError('Retired FULL/OBS runs are read-only; use their recorded grades')
     if benchmark is not None and frozen["benchmark"] != benchmark:
         raise ValueError("Run belongs to a different benchmark")
     args.benchmark, args.task_id = frozen["benchmark"], frozen["task_ids"]
@@ -118,6 +120,8 @@ def main(argv=None, *, benchmark=None):
     if {t.id: t.source_sha256 for t in tasks} != frozen["task_sources"]:
         raise ValueError("Task/gold inputs changed since solving")
     predicted = predictions(args.run / "predictions.jsonl", tasks)
+    if any('decision_gate' in row for row in predicted.values()):
+        raise ValueError('Retired decision-gate predictions are read-only; use their recorded grades')
     for task in tasks:
         row = predicted[task.id]
         if evaluable_prediction(row) and not row.get("submission_sha256"):
@@ -174,11 +178,6 @@ def main(argv=None, *, benchmark=None):
                         **({"base_url": base_url} if base_url else {}))
         judged = judge_rows(rows, benchmark=args.benchmark, upstream=args.upstream, model=args.judge_model,
                             output=args.output, client=client)
-        for row in judged:
-            gate = predicted[row['instance_id']].get('decision_gate')
-            if gate is not None:
-                row.update(raw_score=row['score'], compliant_score=row['score'] if gate['accepted'] else 0,
-                           protocol_accepted=gate['accepted'])
         write_jsonl(args.output / "judge-results.jsonl", judged)
         receipt["judge_calls"] = sum(row.get("attempted_calls", 0) for row in judged)
         receipt["judge_model"] = args.judge_model
@@ -213,24 +212,6 @@ def main(argv=None, *, benchmark=None):
             metrics[kind] = dict(tasks=len(values), graded=sum(v is not None for v in values),
                                  mean=sum(values) / len(values) if values and all(v is not None for v in values) else None)
         write_json(args.output / "metrics.json", dict(by_question_type=metrics, combined_accuracy=None))
-    if any('decision_gate' in row for row in predicted.values()):
-        from benchmarks._external import jsonl
-        values = {}
-        for filename, field in [('judge-results.jsonl','score'), ('s2sql-results.jsonl','match')]:
-            path = args.output / filename
-            if path.is_file():
-                for row in jsonl(path):
-                    values[row.get('instance_id', row.get('task_id', row.get('id')))] = row.get(field)
-        metrics = []
-        for identity, prediction in predicted.items():
-            gate = prediction.get('decision_gate')
-            raw = values.get(identity)
-            metrics.append(dict(instance_id=identity, raw_score=raw,
-                compliant_score=0 if gate and not gate['accepted'] else raw,
-                protocol_accepted=gate.get('accepted') if gate else None))
-        write_json(args.output / 'protocol-metrics.json', dict(rows=metrics, grading_calls_shared=True,
-            raw_accuracy=sum(r['raw_score'] for r in metrics)/len(metrics) if metrics and all(r['raw_score'] is not None for r in metrics) else None,
-            compliant_accuracy=sum(r['compliant_score'] for r in metrics)/len(metrics) if metrics and all(r['compliant_score'] is not None for r in metrics) else None))
     return 0
 
 

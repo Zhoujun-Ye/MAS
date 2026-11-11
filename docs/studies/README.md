@@ -1,28 +1,31 @@
-# Current Protocols
+# Study Index
 
-The Structured lead prompt remains frozen in
-`scripts/common/prompts/structured_subagents.py`. Its UTF-8 SHA-256 without the
-trailing newline is
-`31ff6e4176a25d961866f644adb4d7b97cb4b00228e696c0e4e38a52b9485a95`.
-The lead receives organization instructions; worker-visible rules contain shared
-task limits, not Structured lead organization. Tests pin the exact baseline.
+## Current Protocols
 
-- [Active Single/Structured infrastructure](evidence-infra.md)
-- [Prepared Krama Single/Native/Structured random20 study](krama-random20-20261111.md)
-- [FDABench Single/Structured four-question smoke](fdabench-smoke4-20261110.md)
-- [FDABench CPU8 matched rerun](fdabench-cpu8-rerun-20261110.md)
-- [Three-benchmark infra check](threebench-infra-20261111.md)
-- [Full manifests, crash recovery and resource admission](fullscale-infra.md)
-- [Web transport, shared successful-call budget and empty-answer scoring](web-infra.md)
-- [Retained Krama CPU8 results, trajectory diagnosis and paired speed checks](krama-history.md)
-- [Three-benchmark engineering smoke](threebench2-engineering.md)
-- [Single/Structured/FULL smoke and deterministic regrade](threebench2-20261109.md)
-- [Historical FULL capture, DNS and read-interface audit](full-infra-20261110.md)
-- [Frozen validation questions](validation20.md)
-- [Retention and deletion boundaries](../archive.md)
+- [Krama random20: Single / Native / Structured, prepared but not launched](krama-random20-20261111.md)
+- [Active infrastructure and baseline boundaries](evidence-infra.md)
+- [Reproducibility and current inference settings](../reproducibility.md)
+- [Manifest execution, crash recovery and resource admission](fullscale-infra.md)
+- [Web transport and request limits](web-infra.md)
+- [Frozen Validation20 questions](validation20.md)
 
-FULL and OBS are retired; their documents above describe retained history only.
-Defaults remain strict Single and the unchanged Structured prompt. The explicit
-Krama `native` study adds only the approved minimal delegation prompt, not a
-retired runtime. Its random20 selection does not replace frozen Validation20.
+Single and frozen Structured are the defaults; Native is an explicit Krama study.
+The [prompt directory](../../scripts/common/prompts/README.md) owns exact condition
+text. Organization instructions remain lead-only; all conditions share task limits.
 No document or offline proof authorizes paid execution.
+
+## Retained Evidence
+
+[Current results](../current-results.md) summarizes outcomes and limitations.
+The reports below preserve the settings actually used, not current launch defaults.
+FULL/OBS and their ablations are historical conditions only.
+
+- [November 11 three-benchmark infrastructure check](threebench-infra-20261111.md)
+- [FDABench CPU8 matched rerun](fdabench-cpu8-rerun-20261110.md) and [original diagnostic](fdabench-smoke4-20261110.md)
+- [Krama CPU8 pair, recovery, trajectory diagnosis and speed checks](krama-history.md)
+- [Three-benchmark engineering smoke](threebench2-engineering.md)
+- [HDR network retest](hdr2-network.md)
+- [Single/Structured/FULL smoke and SQL regrade](threebench2-20261109.md)
+- [Historical FULL capture and DNS audit](full-infra-20261110.md)
+
+Exact output/source retention and cleanup boundaries are in [retention](../archive.md).

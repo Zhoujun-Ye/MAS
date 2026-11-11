@@ -94,13 +94,15 @@ preparation cannot guarantee their absence or establish comparative efficacy.
 
 ## Server Planning
 
-Frozen preparation source:
-`/home/zhoujunye/mas-stages/20261111-krama-random20-ready-01`.
-Preparation receipts, synthetic workflows, sixty task/container preflights and
-the nonexecuting matrix plan:
-`/home/zhoujunye/mas-data/receipts/krama-random20-preparation-20261111-01/`.
-No paid output namespace is created. A future paid run must use a fresh namespace,
-current runtime proofs and explicit authorization, not a stale two-condition plan.
+Current thinking-off verification source:
+`/home/zhoujunye/mas-stages/20261111-krama-reproducibility-01`.
+Its native proofs, synthetic workflows, CPU checks, sixty no-model task preflights
+and nonexecuting matrix plan are recorded under
+`/home/zhoujunye/mas-data/receipts/reproducibility-20261111-01/`.
+Older max-profile preparation is superseded, not paid evidence. Cleanup details
+are in [retention](../archive.md). The post-cleanup source needs fresh source-bound
+plans before execution; do not reuse an older plan across source changes.
+No paid output namespace has been created.
 
 Planning only, from the source directory with the existing evaluation Python:
 
@@ -151,17 +153,18 @@ No paid dispatch happened before these corrections. Question IDs, fingerprints
 and the sampling seed are unchanged; only the explicit inference/settings profile
 is revised. See [reproducibility](../reproducibility.md).
 
-The prematurely named `20261111-krama-random20-paid-01` directory contains only
-unpaid source preparation; it must not launch the superseded max profile.
-Current free validation source is
-`/home/zhoujunye/mas-stages/20261111-krama-reproducibility-01`.
+The prematurely named `20261111-krama-random20-paid-01` and the earlier
+`20261111-krama-random20-ready-01` were unpaid max-profile source stages, not
+paid solver attempts. Both were removed by the release cleanup after verification.
+Post-cleanup source verification lives in
+`/home/zhoujunye/mas-stages/20261111-release-cleanup-01`, with tests, nine synthetic
+workflows and sixty no-model task preflights under
+`/home/zhoujunye/mas-data/receipts/maintenance-20261111-release-cleanup/`.
 Freeze a new paid source after configuration review; do not mutate any source
 once its paid work starts.
 Output: `/home/zhoujunye/mas/outputs/krama-random20-20261111-01`.
-Run/deployment receipts:
-`/home/zhoujunye/mas-data/receipts/krama-random20-run-20261111-01/`.
-Deployment uses source-only sync and reviewed removal of the six superseded
-source/document files, never touching frozen paid stages or runtime resources.
+Future deployment uses source-only sync and an explicit reviewed retired-file
+list, never touching frozen paid stages or runtime resources.
 The paid source remains frozen while analysis is written outside the raw run.
 
 ## Cleanup Boundaries

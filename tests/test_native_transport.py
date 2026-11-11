@@ -3,6 +3,7 @@
 import pytest
 
 from scripts.probes.native_transport import Fixture, frames
+from scripts.probes.external_workflow import WorkflowFixture
 
 
 def request(**extra):
@@ -39,3 +40,19 @@ def test_fixture_is_bounded_without_paid_fallback():
     fixture=Fixture('subagents',100)
     for _ in range(32):fixture.reply(request())
     with pytest.raises(ValueError,match='ceiling'):fixture.reply(request())
+
+
+@pytest.mark.parametrize('backend', ('claude-code-single-agent', 'claude-code-subagents'))
+def test_synthetic_native_workflow_has_bounded_baseline_steps(backend):
+    fixture = WorkflowFixture(backend, 'python3 fixture.py', '["A"]')
+    messages = [dict(role='user', content='Synthetic task')]
+    names = []
+    while True:
+        block = fixture.next(dict(messages=messages))
+        if block['type'] == 'text':
+            break
+        names.append(block['name'])
+        messages.extend([dict(role='assistant', content=[block]), dict(role='user', content=[
+            dict(type='tool_result', tool_use_id=block['id'], content='ok')])])
+        assert len(names) <= 3
+    assert names == (['Bash', 'Write'] if backend.endswith('single-agent') else ['Bash', 'Agent', 'Write'])

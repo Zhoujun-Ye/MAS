@@ -33,6 +33,8 @@ def grade_attempt(benchmark, task, backend, run, *, data_root, grades_root,
         if len(records) != 1:
             return {**result, 'status': 'missing_summary'}
         record = records[0]
+        if 'decision_gate' in record:
+            raise ValueError('Retired decision-gate attempts are read-only; use their recorded grades')
         result.update(status=record.get("grade", {}).get("status"), grade=record.get("grade"),
                       pipeline_exit_code=record.get("pipeline_exit_code"),
                       pipeline_answer_matches_submission=record.get("pipeline_answer_matches_submission"))
@@ -45,11 +47,6 @@ def grade_attempt(benchmark, task, backend, run, *, data_root, grades_root,
             result.update(status=judged["status"], grade=judged.get("grade"), judge_calls=judged["attempted_calls"])
             if judged.get('fatal'):
                 result['fatal_provider_error'] = True
-        if 'decision_gate' in record:
-            raw = (result.get('grade') or {}).get('score')
-            accepted = record['decision_gate']['accepted']
-            result['accuracy'] = dict(raw_score=raw, compliant_score=raw if accepted else 0,
-                                      protocol_accepted=accepted, grading_calls_shared=True)
         return result
     predictions = run / "predictions.jsonl"
     if not predictions.exists():
