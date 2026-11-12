@@ -30,12 +30,12 @@ def test_matrix_applies_prompt_only_to_mas_and_high_to_both(tmp_path):
         assert ("--organization-prompt" in command) == backend.endswith("subagents")
 
 
-def test_default_means_thinking_off_temperature_zero_not_max():
+def test_default_means_thinking_off_temperature_one_not_max():
     import json
     assert runtime.DEFAULT_EFFORT == 'none'
     env = runtime.native_env('claude-code-subagents')
     assert env['MAX_THINKING_TOKENS'] == '0'
-    assert json.loads(env['CLAUDE_CODE_EXTRA_BODY']) == {'thinking': {'type': 'disabled'}, 'temperature': 0}
+    assert json.loads(env['CLAUDE_CODE_EXTRA_BODY']) == {'thinking': {'type': 'disabled'}, 'temperature': 1.0}
     assert env['PYTHONHASHSEED'] == '0' and env['TZ'] == 'UTC'
     assert runtime.inference_configuration()['effort'] is None
 
@@ -50,7 +50,7 @@ def test_child_default_is_explicitly_forwarded(tmp_path):
 def test_thinking_off_admission_needs_a_sampling_proof():
     from harness.runtime_support.proof import validate_effort
     from harness.runtime_support.inference import proof_requests
-    proof = proof_requests([dict(model='deepseek-flash', thinking={'type': 'disabled'}, temperature=0)], 'none')
+    proof = proof_requests([dict(model='deepseek-flash', thinking={'type': 'disabled'}, temperature=1.0)], 'none')
     validate_effort(proof, 'none')
     proof['request_configuration_verified'] = False
     with pytest.raises(ValueError, match='thinking/temperature/effort proof'):

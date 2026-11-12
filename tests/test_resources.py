@@ -156,11 +156,15 @@ def test_solver_command_records_resource_options(tmp_path):
     assert cmd[cmd.index('--require-module') + 1] == 'numpy'
 
 
-def test_canonical_infra_profile_matches_live_protocol_without_task_ids():
+def test_historical_infra_profile_preserves_t0_without_changing_current_t1():
     settings=matrix.protocol_settings(SimpleNamespace(effort=matrix.runtime.DEFAULT_EFFORT,backends=['claude-code-subagents','claude-code-single-agent'],
         concurrency=8,judge_concurrency=2,cpus=8,compute_threads=4,record_resources=True))
     profile=Path(__file__).resolve().parents[1]/'docs/studies/cpu8-infra-protocol.json'
-    assert json.loads(profile.read_text())==settings
+    historical=json.loads(profile.read_text())
+    assert historical['inference_policy']==dict(thinking='disabled',temperature=0.0,effort=None)
+    assert settings['inference_policy']==dict(thinking='disabled',temperature=1.0,effort=None)
+    assert {k:v for k,v in historical.items() if k!='inference_policy'}=={
+        k:v for k,v in settings.items() if k!='inference_policy'}
 
 
 def test_capability_checks_import_not_merely_presence(tmp_path):

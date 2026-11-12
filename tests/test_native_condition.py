@@ -23,14 +23,17 @@ def test_native_is_exact_approved_prefix_and_delegation_requirement():
     assert hashlib.sha256(structured.encode()).hexdigest() == "31ff6e4176a25d961866f644adb4d7b97cb4b00228e696c0e4e38a52b9485a95"
 
 
-def test_committed_random20_protocol_matches_the_three_condition_runtime():
+def test_historical_random20_protocol_stays_frozen_when_current_temperature_changes():
     import random
     root = Path(__file__).resolve().parents[1]
     manifest = json.loads((root / "docs/studies/krama-random20-manifest.json").read_text())
     protocol = json.loads((root / "docs/studies/krama-random20-protocol.json").read_text())
     settings = matrix.protocol_settings(SimpleNamespace(backends=CONDITIONS, benchmarks=["kramabench"],
         effort="none", concurrency=16, judge_concurrency=2, cpus=8, compute_threads=4, record_resources=True))
-    assert protocol == manifest["baseline_settings"] == settings
+    assert protocol == manifest["baseline_settings"]
+    assert protocol['inference_policy']==dict(thinking='disabled',temperature=0.0,effort=None)
+    assert settings['inference_policy']==dict(thinking='disabled',temperature=1.0,effort=None)
+    assert {k:v for k,v in protocol.items() if k!='inference_policy'} == {k:v for k,v in settings.items() if k!='inference_policy'}
     assert manifest["sampling"]["seed"] == 6820760213620092556
     shuffled = list(manifest["sampling"]["population"]["kramabench"])
     assert len(shuffled) == 104

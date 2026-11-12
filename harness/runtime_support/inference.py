@@ -3,6 +3,7 @@
 import math
 
 DEFAULT_EFFORT = "none"
+DEFAULT_TEMPERATURE = 1.0
 EFFORTS = ("none", "high", "max")
 
 
@@ -10,7 +11,7 @@ def configuration(effort=DEFAULT_EFFORT):
     if effort not in EFFORTS:
         raise ValueError("Inference mode must be none (thinking off), high or max")
     return dict(thinking="disabled" if effort == "none" else "enabled",
-                temperature=0.0 if effort == "none" else None,
+                temperature=DEFAULT_TEMPERATURE if effort == "none" else None,
                 effort=None if effort == "none" else effort)
 
 

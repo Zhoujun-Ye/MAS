@@ -4,13 +4,16 @@
 
 `harness/runtime_support/inference.py` owns the defaults and request checks.
 Current solver defaults are `--effort none`: DeepSeek thinking disabled,
-temperature zero, effective reasoning effort null/not applicable. This replaces
+temperature 1.0, effective reasoning effort null/not applicable. This replaces
 the erroneous max default; high remains the user's requested setting if thinking
-is explicitly re-enabled. Historical actual high/max runs are not rewritten.
+is explicitly re-enabled. Historical actual high/max and T=0 runs are not rewritten.
+On November 12 the user removed the loop detector entirely, including observation
+counts, warnings, worker stops and loop-triggered host termination. Native event
+recording and strict-Single permissions remain. T=1.0 is not a guarantee against loops.
 
 The pinned Claude CLI receives `MAX_THINKING_TOKENS=0`,
 `CLAUDE_CODE_EFFORT_LEVEL=auto` and `CLAUDE_CODE_EXTRA_BODY` containing explicit
-`thinking.type=disabled` and `temperature=0`. Auto here suppresses the native
+`thinking.type=disabled` and `temperature=1.0`. Auto here suppresses the native
 effort field; it does not enable provider thinking. A free native experiment
 confirmed that merely unsetting effort still sent high, so omission alone is
 not sufficient. Do not use the unrelated display-only thinking toggle.

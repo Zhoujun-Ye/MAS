@@ -15,7 +15,14 @@ coordinator/full modes, capability catalogs, or custom scheduling semantics.
 
 - `harness/claude_code_subagents/`: print-mode ordinary native Claude subagents, with Teams disabled.
 - `harness/claude_code_single_agent/`: print-mode strict Single, with native delegation tools removed and denied.
-- `harness/_claude_cli.py` and `_claude_hooks.py`: shared native arguments/observations and opt-in Single permission policy.
+- `harness/_claude_cli.py` and `_claude_hooks.py`: shared native arguments/observations,
+  and opt-in Single permission policy only. On November 12 the user retired all
+  loop detection hooks, including observation-only counters, warnings, worker
+  stops, lead notices and host loop termination. Do not restore loop-mode launch
+  options or pilot drivers. Preserve frozen paid sources/results; historical
+  analysis may read recorded fields without executing a detector. Default solver
+  settings remain thinking disabled, T=1.0. See
+  `docs/studies/loop-guard-retirement-20261112.md`.
 - `harness/_cli.py`: CLI preflight, process lifetime, stdin and raw evidence only.
 - The November 11 review-fix request authorizes a shared explicit tool surface:
   Single's twelve tools plus Agent/Task, SendMessage and ListAgents for Subagents;
@@ -86,14 +93,22 @@ See `docs/cli-adapters.md` for pinned versions, references and limitations.
 
 ## Server Operations
 
-- Current DeepSeek reproducibility policy: thinking disabled, temperature zero,
+- Current DeepSeek reproducibility policy: thinking disabled, temperature 1.0,
   effective reasoning effort not applicable (`--effort none`). Configure this
   through the pinned CLI, not request-body rewriting in the gateway. Native
   main/worker requests must match the frozen policy before upstream dispatch.
   If the user explicitly re-enables thinking, use high unless separately
   authorized otherwise; never silently default to max. Keep historical actual
-  high/max settings unchanged. The latest request is configuration hardening and
-  free verification before paid dispatch, not permission to skip config review.
+  high/max settings unchanged. Configuration changes require free native
+  verification before any separately authorized paid dispatch.
+- The completed November 12 authorization permitted exactly three Structured solvers,
+  once each on legal-easy-11, astronomy-easy-5 and wildfire-hard-10, thinking off,
+  T=1.0, loop observation only, 900 seconds, concurrency three, CPU8/thread4,
+  zero retries and paid judges. Independent CNY20 budget; stop at CNY18 account
+  spend to leave in-flight margin, not a provider hard cap. See
+  `docs/studies/temperature1-pilot-20261112.md`. This authorization is consumed;
+  no further paid slots are authorized. The subsequent cleanup requires free
+  verification only, followed by a Git commit and push.
 - Local `/Users/zhoujun/Desktop/MAS`; server
   `zhoujunye@10.123.4.30:22`, `/home/zhoujunye/mas`.
 - External server data and evaluation environment: `/home/zhoujunye/mas-data`.

@@ -26,6 +26,56 @@ def native_surface(folder):
     return dict(tools=None, skills=None, slash_commands=None)
 
 
+def loop_guard_evidence(folder):
+    """Read retained historical intervention counts; never execute a loop detector."""
+    path = Path(folder)/'native-profile/observer/events.jsonl'
+    by_role = {role: dict(warnings=0, stops=0, errors=0, slow_calls=0) for role in ('lead', 'worker')}
+    observed, invalid, notifications, stop_notices, observer_errors = 0, 0, 0, 0, 0
+    versions, seen = set(), set()
+    if path.is_file() and not path.is_symlink():
+        with path.open(encoding='utf-8', errors='replace') as stream:
+            for line in stream:
+                try:
+                    event = json.loads(line)
+                    if not isinstance(event, dict):
+                        raise ValueError('Invalid native event')
+                except (ValueError, UnicodeError):
+                    invalid += 1
+                    continue
+                notice = event.get('loop_worker_notice')
+                if isinstance(notice, dict):
+                    notifications += 1
+                    stop_notices += event.get('hook_event_name') == 'Stop'
+                detection = event.get('loop_detection')
+                if not isinstance(detection, dict):
+                    continue
+                policy = detection.get('policy')
+                observer_errors += detection.get('status') == 'loop_observer_error'
+                if isinstance(policy, dict) and type(policy.get('version')) is int:
+                    versions.add(policy['version'])
+                    observed += 1
+                kind = {'warning': 'warnings', 'loop_detected': 'stops',
+                        'loop_guard_error': 'errors', 'loop_observer_error': 'errors',
+                        'excluded_slow_call': 'slow_calls'}.get(detection.get('status'))
+                if not kind:
+                    continue
+                identity = (event.get('session_id'), event.get('agent_id'), event.get('tool_use_id'),
+                            event.get('hook_event_name'), kind)
+                if identity in seen:
+                    continue
+                seen.add(identity)
+                role = detection.get('actor_role') or ('worker' if event.get('agent_id') else 'lead')
+                if role not in by_role:
+                    invalid += 1
+                    continue
+                by_role[role][kind] += 1
+    measured = observed > 0 and invalid == 0 and observer_errors == 0
+    return dict(measured=measured, policy_versions=sorted(versions), invalid_events=invalid,
+                by_role=by_role, worker_notifications=notifications, stop_notice_emissions=stop_notices,
+                triggered=any(r['warnings'] or r['stops'] for r in by_role.values()) if measured else None,
+                basis='Recorded guard hooks only; missing or malformed observations are unknown, not zero')
+
+
 def child_tool_evidence(profile):
     """Count retained child requests without treating tool use as semantic contribution."""
     children = {}

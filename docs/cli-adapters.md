@@ -23,7 +23,8 @@ The built-in `--tools` surface excludes native delegation. `--disallowedTools`
 also denies Agent/Task aliases, peer messaging, workflows and scheduled agents.
 Skills and ambient MCP/settings are isolated. An opt-in native PreToolUse policy
 denies delegation attempts; unexpected SubagentStart is a condition violation.
-Other modes use record-only hooks, never permission grants.
+Other modes never receive permission grants from hooks. Native observations
+remain record-only; the tool-loop detector has been retired.
 
 Admission requires native start/end and policy observations, zero workers,
 zero executed delegation and zero worker transcript evidence. Missing evidence
@@ -91,9 +92,24 @@ see [active infra](studies/evidence-infra.md). No native Team runtime is active.
 
 ## Execution And Evidence
 
+### Retired Tool-Loop Guard
+
+On November 12 the user retired the loop detector, including observation-only
+counting, warnings, worker stops, lead notices and host termination monitoring.
+There are no loop-mode launch options or active loop-pilot drivers. Native hooks
+now record events only, except for the existing strict-Single permission policy.
+Default inference remains thinking disabled, temperature 1.0. This is not a
+guarantee against repetition; ordinary task deadlines remain enforced.
+
+Preserve the paid guard/T=1 pilots, frozen sources and raw receipts under
+[retention](archive.md). Historical reporting may read recorded loop fields but
+never reconstructs or executes the removed detector. Old native admission proofs
+are stale: fresh proofs bind the current environment, tool surface and adapter
+implementation hashes. See [retirement verification](studies/loop-guard-retirement-20261112.md).
+
 DeepSeek request policy is configured by the native CLI and validated, not
 rewritten, by the host gateway. Current defaults are thinking disabled and
-temperature zero (`--effort none`); actual reasoning effort is not applicable.
+temperature 1.0 (`--effort none`); actual reasoning effort is not applicable.
 High/max explicitly enable thinking and are not silent defaults. Main/worker
 request fields and remaining nondeterminism are documented in
 [Reproducibility](reproducibility.md).

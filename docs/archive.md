@@ -24,6 +24,9 @@ sources live under `/home/zhoujunye/mas-stages/`.
 | `threebench-infra-20261111-01` | `20261111-threebench-infra-01` | Twelve authorized Single/Structured slots across three benchmarks, including any failures/incomplete results; no retries or paid judges |
 | `threebench-infra-20261111-01-unstarted-01` | `20261111-threebench-infra-01` | First dispatch of the one zero-call TLS-blocked slot from the same twelve-slot authorization; no started attempt replay or paid judge |
 | `krama-random20-20261111-01` | `20261111-krama-random20-fixed-01` | Sixty finished solver slots, including seven timeouts and three native audit exceptions; five semantic judges, no retries; thinking off, temperature zero, reviewed shared tool surface; preserve every attempt and frozen source |
+| `krama-random20-20261111-02` | `20261111-krama-random20-02` | Newly authorized sixty-slot Single/Native/Structured run from commit `642a6dd`, same frozen twenty questions, concurrency sixteen, CPU8/thread4, at most six semantic judges and zero retries; independent detached run, not replacements for `-01` |
+| `krama-loop-pilot-20261111-01` | `20261111-loop-guard-pilot-01` | Nine authorized Structured solver slots: three fixed questions times observe/warn/worker-stop, 900s each, concurrency three, CPU8/thread4, no retries or paid judges, CNY50 planning budget; preserve all attempts, source/proof/input bindings and incurred accounting, including any budget stop |
+| `krama-temperature1-pilot-20261112-01` | `20261112-temperature1-pilot-01` | Three authorized Structured solvers, thinking off/T=1.0, loop observation only, 900s, concurrency three, CPU8/thread4, no retries or paid judges, independent CNY20 budget; preserve all attempts, frozen source, admission proofs and accounting |
 
 Preserve raw attempts, submissions, ledgers, incurred costs, frozen settings,
 admission proofs, source and result reports, including failed/incomplete work.

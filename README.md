@@ -23,15 +23,17 @@ Deep Agents, Agent Teams, Codex, FULL and OBS are retired, not launch options.
 | --- | --- |
 | CLI | Claude Code 2.1.286; automatic updates disabled |
 | Model | DeepSeek Flash, native context selector `deepseek-flash[1m]` |
-| Sampling | Thinking disabled, temperature 0, effort not applicable (`--effort none`) |
+| Sampling | Thinking disabled, temperature 1.0, effort not applicable (`--effort none`) |
+| Hooks | Native observations and strict-Single permissions only; no loop detector |
 | Per solver | 8 CPUs, 4 numerical threads, 8 GiB memory |
 | Retries | 0; no automatic replacement attempts |
 | Task limits | DataClaw 1200s; HDR/FDABench 1800s; Krama 3600s |
 
-The [prepared Krama random20 study](docs/studies/krama-random20-20261111.md)
-uses the same twenty questions across all three conditions: sixty solver slots,
-concurrency sixteen, CPU8/thread4. Paid dispatch remains on hold for configuration
-review. The frozen Validation20 set is separate and unchanged.
+The [historical Krama random20 study](docs/studies/krama-random20-20261111.md)
+retains its frozen T=0 configuration, twenty questions across three conditions,
+concurrency sixteen and CPU8/thread4. It is not rewritten to match the current
+T=1.0 default. The frozen Validation20 set is separate and unchanged; new paid
+dispatch requires run-specific authorization.
 
 The host gateway rejects thinking/temperature/effort drift before provider
 dispatch; it does not rewrite requests. Inputs, source, CLI/image identity and

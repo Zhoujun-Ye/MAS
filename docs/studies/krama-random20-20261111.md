@@ -1,5 +1,34 @@
 # KramaBench Fresh Random20
 
+## Second Authorized Run
+
+After the final review and commit `642a6dd`, the user explicitly authorized a new
+run of the same frozen twenty questions once per Single/Native/Structured condition:
+sixty solver attempts, at most six one-call semantic judges and zero retries.
+This reuses the diagnostic set; it is not an independent test or a replacement
+selection from the first batch. Keep both batches and all incurred accounting.
+
+The detached driver PID is `2124655`; it runs as its own session without a
+controlling terminal or SSH/stdin dependency. Closing the local computer does not
+stop it. Krama uses server-direct model/judge APIs and no local-Mac web tunnel.
+A server reboot or process failure does not trigger an automatic restart/retry.
+
+- Frozen source: `/home/zhoujunye/mas-stages/20261111-krama-random20-02`.
+- Output: `/home/zhoujunye/mas/outputs/krama-random20-20261111-02`.
+- Authorization, fresh native proofs and planning receipts:
+  `/home/zhoujunye/mas-data/receipts/krama-random20-20261111-02/`.
+- CPU8/thread4, sixteen solver slots, two grading slots, thinking disabled,
+  temperature zero, manifest order and existing task deadlines remain unchanged.
+- Balance admission retains a CNY120 estimate, 1.5 safety factor and CNY5 reserve;
+  this is not a provider-enforced spending cap or per-condition invoice.
+
+All sixty no-model task preflights and balance admission passed. The first
+post-launch check observed sixteen running solvers and no controller failure.
+This records startup only, not completion or answer correctness. Read subsequent
+progress, host ledgers and eventual summary for outcomes. The launcher records the
+exact six eligible semantic-judge pairs; the generic sixty-slot judge-enable switch
+does not authorize sixty paid judge calls. No extra paid smoke was added.
+
 ## Current Review-Fix Launch
 
 The subsequent November 11 request authorizes fixing the infrastructure review,

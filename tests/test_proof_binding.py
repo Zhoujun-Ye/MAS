@@ -56,8 +56,21 @@ def test_legacy_validator_remains_compatible_without_runtime_binding():
     validate(proof, "claude-code-single-agent")
 
 
-def test_error_injection_proof_never_admits_paid_launch():
+@pytest.mark.parametrize('kind', ['native_error_injection', 'native_loop_injection'])
+def test_error_injection_proof_never_admits_paid_launch(kind):
     proof = claude_proof()
-    proof['proof_kind'] = 'native_error_injection'
+    proof['proof_kind'] = kind
     with pytest.raises(ValueError, match='error probe'):
         validate(proof, 'claude-code-single-agent')
+
+
+def test_hook_implementation_changes_invalidate_runtime_admission(monkeypatch):
+    from pathlib import Path
+    proof=claude_proof()
+    read_bytes=Path.read_bytes
+    def changed(path):
+        value=read_bytes(path)
+        return value+b'\n# changed adapter implementation\n' if path.name=='_claude_hooks.py' else value
+    monkeypatch.setattr(Path,'read_bytes',changed)
+    with pytest.raises(ValueError,match='environment/tool configuration changed'):
+        validate_runtime(proof,'claude-code-single-agent','sha256:image','binary-hash')

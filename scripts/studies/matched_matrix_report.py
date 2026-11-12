@@ -15,12 +15,37 @@ from common.io import read_json as read
 from analysis.request_accounting import model_receipts, gateway_tokens
 from scripts.common.prompts.conditions import runtime_backend
 from harness.runtime_support.admission import infrastructure_health
-from analysis.native_evidence import single_agent_violated
+from analysis.native_evidence import single_agent_violated, loop_guard_evidence
 
 SINGLE_VIOLATION = 'single_agent_condition_violated'
 COMPLIANCE_POLICY = ('Confirmed Single violations receive zero compliant score with the selected-task '
                      'denominator unchanged; raw answer scores and incurred costs are retained. '
                      'Missing lifecycle evidence alone is not a confirmed violation.')
+PRIMARY_POLICY = ('Primary scores exclude each loop_guard_error task from every condition, preserving pairing; raw grades, all attempts '
+                  'and all incurred costs are retained. Lead loop stops and timeouts remain in the denominator. '
+                  'Worker loop stops alone do not invalidate a lead submission. No automatic retry is authorized.')
+
+
+def guard_error(record):
+    cli = record.get('cli') or {}
+    return (record.get('status') == 'loop_guard_error' or record.get('harness_error') == 'loop_guard_error'
+            or isinstance(cli, dict) and cli.get('status') == 'loop_guard_error')
+
+
+def task_key(row):
+    return row['benchmark'], row.get('task_id', id(row))
+
+
+def loop_sensitivity(rows):
+    """Remove matched tasks across all conditions, never only the low-scoring arm."""
+    excluded = {(r['benchmark'], r['task_id']) for r in rows
+                if r.get('loop_guard', {}).get('triggered') is True or guard_error(r)}
+    retained = [r for r in rows if (r['benchmark'], r['task_id']) not in excluded]
+    if not rows or not all(r.get('loop_guard', {}).get('measured') is True for r in retained):
+        return dict(status='unavailable', reason='Complete recorded guard observations are required for every retained row')
+    return dict(status='available', excluded_tasks=[dict(benchmark=b, task_id=t) for b, t in sorted(excluded)],
+                excluded_attempts=len(rows)-len(retained), groups=summarize(retained),
+                policy='Sensitivity only: exclude any warning, stop or guard-error task from every condition; not a causal estimate')
 
 
 def confirmed_single_violation(backend, records, *, audit=None, accounting=None):
@@ -34,12 +59,24 @@ def confirmed_single_violation(backend, records, *, audit=None, accounting=None)
 def normalize_compliance(report):
     """Correct derived exports without changing raw evidence or answer grades."""
     result = copy.deepcopy(report)
+    excluded = {task_key(r) for r in result['rows'] if guard_error(r)}
     for row in result['rows']:
+        row['primary_score_eligible'] = task_key(row) not in excluded
+        if guard_error(row):
+            row['harness_error'] = 'loop_guard_error'
+        if not row['primary_score_eligible']:
+            row['primary_exclusion_reason'] = 'loop_guard_error' if guard_error(row) else 'paired_guard_error'
+        measured = row.get('loop_guard', {}).get('measured') is True
+        for role in ('lead', 'worker'):
+            for kind in ('warnings', 'stops'):
+                row[f'loop_{role}_{kind}'] = row['loop_guard']['by_role'][role][kind] if measured else None
         if confirmed_single_violation(row.get('runtime_backend', row['backend']), [row],
                 audit=row, accounting=dict(by_role=row.get('by_role') or {})):
             row.update(condition_status=SINGLE_VIOLATION, compliant_score=0, protocol_accepted=False)
     result['groups'] = summarize(result['rows'])
     result['compliance_policy'] = COMPLIANCE_POLICY
+    result['primary_score_policy'] = PRIMARY_POLICY
+    result['paired_loop_sensitivity'] = loop_sensitivity(result['rows'])
     return result
 
 
@@ -163,6 +200,9 @@ def collect(root):
             subagent_stops=audit.get('subagent_stops'),
             reconciliation=report.get('integrity_audit', {}).get('gateway_reconciliation', {}).get('status'),
             prompt=prompt, evidence=str(folder)))
+        result[-1]['loop_guard'] = loop_guard_evidence(folder)
+        if any(guard_error(r) for r in (item, report, native_row, grade)):
+            result[-1]['harness_error'] = 'loop_guard_error'
         if item.get('evidence_mode'):
             result[-1].update(evidence_mode=item['evidence_mode'],evidence_workspace=report.get('evidence_workspace'))
         gate = report.get('decision_gate')
@@ -174,7 +214,7 @@ def collect(root):
     return normalize_compliance(dict(run=root.name, authorization=summary['authorization'], account_delta=summary.get('account_delta'),
         groups=summarize(result), rows=result,
         limitations=['One attempt per task and condition; descriptive validation set, not a general superiority claim.',
-            'Full-score counts include all selected tasks in denominator; unknown grades are reported separately.',
+            'Raw full-score counts retain all selected tasks; primary metrics separately exclude loop guard harness errors.',
             'Costs are off-peak token-usage estimates plus successful-HTTP web estimates, not invoices.',
             'Usage from failed or unobserved requests is unknown; a run token does not authenticate process origin.',
             'Native lifecycle evidence does not establish substantive worker contribution.',
@@ -184,6 +224,7 @@ def collect(root):
 
 def summarize(result):
     groups = []
+    excluded = {task_key(r) for r in result if guard_error(r)}
     for b in ('dataclawbench', 'hybriddeepresearch', 'kramabench', 'fdabench', 'all'):
         for k in ('claude-code-single-agent', 'native', 'claude-code-subagents','observations','full'):
             selected = [r for r in result if r['backend'] == k and (b == 'all' or r['benchmark'] == b)]
@@ -193,6 +234,12 @@ def summarize(result):
             compliant = [0 if confirmed_single_violation(r.get('runtime_backend', r['backend']), [r],
                 audit=r, accounting=dict(by_role=r.get('by_role') or {})) else
                 r.get('compliant_score', r['score']) for r in selected]
+            eligible = [r for r in selected if task_key(r) not in excluded]
+            primary = [r['score'] for r in eligible]
+            primary_compliant = [v for r, v in zip(selected, compliant) if task_key(r) not in excluded]
+            loop_measured = [r for r in selected if r.get('loop_guard', {}).get('measured') is True]
+            loop_counts = {kind: {role: sum(r['loop_guard']['by_role'][role][kind] for r in loop_measured)
+                                 for role in ('lead', 'worker')} for kind in ('warnings', 'stops')}
             elapsed = [r['seconds'] for r in selected if r['seconds'] is not None]
             costs = [r['total_usd_offpeak'] for r in selected]
             groups.append(dict(benchmark=b, backend=k, attempts=len(selected), graded=len(known),
@@ -201,6 +248,14 @@ def summarize(result):
                 upstream_5xx=sum(len(r.get('upstream_5xx', [])) for r in selected),
                 raw_accuracy=sum(known)/len(selected) if len(known)==len(selected) else None,
                 compliant_accuracy=sum(compliant)/len(selected) if all(v is not None for v in compliant) else None,
+                primary_denominator=len(eligible), excluded_harness_errors=sum(guard_error(r) for r in selected),
+                paired_harness_excluded_attempts=len(selected)-len(eligible),
+                primary_accuracy=sum(primary)/len(primary) if primary and all(v is not None for v in primary) else None,
+                primary_compliant_accuracy=sum(primary_compliant)/len(primary_compliant)
+                    if primary_compliant and all(v is not None for v in primary_compliant) else None,
+                loop_observed_attempts=len(loop_measured),
+                loop_counts=loop_counts if len(loop_measured) == len(selected) else None,
+                loop_known_count_subtotals=loop_counts,
                 protocol_accepted=sum(r.get('protocol_accepted') is True for r in selected),
                 protocol_measured=sum(r.get('protocol_accepted') is not None for r in selected),
                 full_score=sum(s == 1 for s in known),
@@ -222,7 +277,7 @@ def summarize(result):
 def timeout_zero(report):
     revised = copy.deepcopy(report)
     for row in revised['rows']:
-        if row['status'] == 'timed_out' and row['score'] is None:
+        if row['status'] == 'timed_out' and row['score'] is None and not guard_error(row):
             row.update(score=0.0, raw_score=0.0, compliant_score=0.0, grade_status='timeout_zero_by_user_policy')
     revised['groups'] = summarize(revised['rows'])
     revised['score_policy'] = 'Timeouts score zero; other unknown scores remain unknown.'
@@ -280,6 +335,8 @@ def write_report(report, output):
     output.mkdir(parents=True, exist_ok=False)
     columns = ['benchmark', 'task_id', 'backend', 'status', 'native_audit_passed', 'grade_status', 'score',
                'raw_score','compliant_score','protocol_accepted','condition_status',
+               'primary_score_eligible','primary_exclusion_reason','harness_error','loop_lead_warnings','loop_worker_warnings',
+               'loop_lead_stops','loop_worker_stops',
                'seconds', 'model_requests', 'model_usd_offpeak', 'web_usd_estimate', 'judge_usd_offpeak',
                'total_usd_offpeak', 'evidence']
     with (output / 'task-results.csv').open('w', newline='') as stream:
@@ -295,8 +352,8 @@ def write_report(report, output):
             f"Effort: {auth['effort']}; solver concurrency: {auth['solver_concurrency']}; grading concurrency: {auth['judge_concurrency']}.",
             f"Protocol source: {auth.get('protocol_settings_source', 'historical authorization')}; "
             f"protocol SHA-256: {auth.get('protocol_settings_sha256') or 'not separately recorded'}.", '',
-            '| Benchmark | Condition | Graded | Raw Mean | Compliant Mean | Raw Full Score | Mean Min | USD Estimate | Native Audit |',
-            '| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |']
+            '| Benchmark | Condition | Graded | Raw Mean | Compliant Mean | Primary Compliant Mean | Primary N | Raw Full Score | Mean Min | USD Estimate | Native Audit |',
+            '| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |']
     for group in report['groups']:
         if group['benchmark'] == 'all':
             continue
@@ -306,12 +363,35 @@ def write_report(report, output):
                       'observations':'Observation','full':'Full'}.get(group['backend']) or
                      ('Single' if group['backend'].endswith('single-agent') else report.get('condition_label', 'Subagents')))
         text.append(f"| {group['benchmark']} | {condition} | {group['graded']}/{count} | {fmt(group['mean_score'])} | "
-                    f"{fmt(group['compliant_accuracy'])} | {group['full_score']}/{count} | {fmt(group['mean_minutes'], '.2f')} | "
+                    f"{fmt(group['compliant_accuracy'])} | {fmt(group['primary_compliant_accuracy'])} | {group['primary_denominator']} | "
+                    f"{group['full_score']}/{count} | {fmt(group['mean_minutes'], '.2f')} | "
                     f"{fmt(group['total_usd_offpeak'], '.6f')} | {group['native_audit_passes']}/{count} |")
     text += ['', '## Audit Exceptions', '']
     for row in report['rows']:
         if row['native_audit_passed'] is not True:
             text.append(f"- {row['benchmark']} / {row['task_id']} / {row['backend']}: {row['status']}; score {row['score']}.")
+    text += ['', '## Loop Guard', '', PRIMARY_POLICY, '',
+             '| Benchmark | Condition | Observed Attempts | Lead Warnings | Worker Warnings | Lead Stops | Worker Stops | Harness Errors |',
+             '| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: |']
+    for group in report['groups']:
+        if group['benchmark'] == 'all':
+            continue
+        counts = group['loop_counts']
+        values = [str(counts[kind][role]) if counts is not None else 'unknown'
+                  for kind in ('warnings', 'stops') for role in ('lead', 'worker')]
+        text.append(f"| {group['benchmark']} | {group['backend']} | {group['loop_observed_attempts']}/{group['attempts']} | "
+                    + ' | '.join(values) + f" | {group['excluded_harness_errors']} |")
+    sensitivity = report['paired_loop_sensitivity']
+    text += ['', '## Paired Loop Sensitivity', '']
+    if sensitivity['status'] != 'available':
+        text.append(sensitivity['reason'])
+    else:
+        text += [sensitivity['policy'], f"Excluded matched tasks: {len(sensitivity['excluded_tasks'])}.", '',
+                 '| Benchmark | Condition | Primary N | Primary Compliant Mean |', '| --- | --- | ---: | ---: |']
+        for group in sensitivity['groups']:
+            if group['benchmark'] != 'all':
+                text.append(f"| {group['benchmark']} | {group['backend']} | {group['primary_denominator']} | "
+                            f"{fmt(group['primary_compliant_accuracy'])} |")
     if report.get('upstream_replacement'):
         recovery = report['upstream_replacement']
         text += ['', '## Upstream Recovery', '',

@@ -1,5 +1,8 @@
 """Validate harness runtime evidence; mocks do not establish benchmark correctness."""
 
+import hashlib
+from pathlib import Path
+
 from harness.runtime_support.inference import EFFORTS, configuration
 from harness._claude_hooks import SINGLE_TOOLS, SUBAGENT_TOOLS
 from common.io import fingerprint
@@ -7,8 +10,11 @@ from common.io import fingerprint
 
 def runtime_configuration(backend, effort='none'):
     from harness.runtime_support.runtime import native_env, options
+    root = Path(__file__).parents[1]
     return fingerprint(dict(environment=native_env(backend, effort=effort),
-                            options=options(backend), slash_commands=False))
+                            options=options(backend), slash_commands=False,
+                            adapter_sources={name: hashlib.sha256((root/name).read_bytes()).hexdigest()
+                                           for name in ('_claude_hooks.py', '_claude_cli.py', '_cli.py')}))
 
 
 def validate_surface(surface, backend):
@@ -34,7 +40,7 @@ def validate_effort(proof, effort):
 def validate(proof, backend):
     if proof.get('mode') in {'full','observations','full-prompt-only'} or proof.get('evidence_configuration'):
         raise ValueError('Retired FULL/OBS proofs cannot admit baseline launches')
-    if proof.get('proof_kind') == 'native_error_injection':
+    if proof.get('proof_kind') in {'native_error_injection', 'native_loop_injection'}:
         raise ValueError('A synthetic error probe cannot admit a solver launch')
     if not (proof.get("passed") is True and proof.get("paid_calls") == 0
             and proof.get("network") == "none"):

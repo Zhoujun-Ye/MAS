@@ -506,7 +506,7 @@ def main(argv=None):
     parser.add_argument('--require-module', action='append', default=[])
     parser.add_argument('--capability-probe', action='append', default=[])
     parser.add_argument("--effort", choices=runtime.EFFORTS, default=runtime.DEFAULT_EFFORT,
-                        help="none disables thinking and fixes temperature=0; high/max explicitly enable thinking")
+                        help="none disables thinking and fixes temperature=1.0; high/max explicitly enable thinking")
     parser.add_argument("--organization-prompt", type=Path)
     parser.add_argument("--backends", nargs="+", choices=BACKENDS, default=BACKENDS,
                         help="Explicit conditions to run; defaults to the matched Single/Subagents pair")
