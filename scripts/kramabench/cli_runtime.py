@@ -87,7 +87,7 @@ def replay_failure(name, code):
                 execution_origin='container_process' if executed else 'docker_or_unverified',container_state=state)
 
 
-def run_attempt(task, backend, args, key, stop, active, lock):
+def run_attempt(task, backend, args, key, stop, active, lock, *, adapter_factory=None, readonly_mounts=()):
     folder = args.output / task.id / backend
     work, profile = folder / "workspace", folder / "native-profile"
     work.mkdir(parents=True)
@@ -112,14 +112,19 @@ def run_attempt(task, backend, args, key, stop, active, lock):
                                     ledger_path=folder / "gateway-requests.jsonl",
                                     inference_policy=runtime.inference_configuration(getattr(args, 'effort', runtime.DEFAULT_EFFORT)))
         gateway.__enter__()
-        identity = container(work, profile, args.upstream / "data", args.image,
+        mounts = (dict(dataset_mounts=[(args.upstream/'data', '/data', True),
+                                      *[(source,target,True) for source,target in readonly_mounts]])
+                  if readonly_mounts else {})
+        identity = container(work, profile, args.upstream / "data", args.image, **mounts,
                              gateway=gateway, backend=backend, effort=getattr(args, "effort", runtime.DEFAULT_EFFORT),
                              cpus=getattr(args, 'cpus', runtime.DEFAULT_CPUS), compute_threads=getattr(args, 'compute_threads', runtime.DEFAULT_COMPUTE_THREADS))
         if getattr(args, 'record_resources', False):
             resources = ContainerResources(identity, folder, args.cpus).start()
         with lock:
             active.add(identity)
-        adapter = ({"claude-code-subagents": ClaudeCodeSubagentsCLI, "claude-code-single-agent": ClaudeCodeSingleAgentCLI}[backend](str(CLAUDE)))
+        adapter = (adapter_factory(backend, str(CLAUDE)) if adapter_factory else
+                   {"claude-code-subagents": ClaudeCodeSubagentsCLI,
+                    "claude-code-single-agent": ClaudeCodeSingleAgentCLI}[backend](str(CLAUDE)))
         prefix = ("docker", "exec", "-i", "--workdir", "/workspace", identity)
         terminal_options = dict(command_prefix=prefix)
         terminal_options.update(observer_dir=profile/"observer", observer_target="/native/observer",

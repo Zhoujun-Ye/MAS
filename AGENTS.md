@@ -166,6 +166,21 @@ See `docs/cli-adapters.md` for pinned versions, references and limitations.
   All 140 new solvers and fourteen judges have completed; that authorization is
   consumed. Subsequent anomaly fixes/review authorize free server validation and
   Git commit/push only, not paid replacement attempts or production deployment.
+- The subsequent Native/Single causal study excludes Structured. The user approved
+  initially five arms x twenty tasks, then explicitly expanded after review to
+  six arms x thirty frozen tasks x seeds 0/1/2 (540 solvers), ninety independent
+  recon sessions and one-call judges only for actually eligible frozen questions
+  (eligible tasks x six arms x three rounds), zero retries, no monetary cap.
+  Solver/recon share sixteen slots, with two graders and shared CPU reservations.
+  The user supplied the requested review and authorized fixing it then launching
+  thirty tasks, including the prompt-only brief arm. Require fresh free checks and
+  freeze the expanded plan before dispatch. Nonfatal 5xx and model deviations
+  remain recorded without retry and do not stop the assigned study; fatal errors,
+  confirmed leakage, integrity/cleanup failure and unknown execution still stop.
+  Keep study-only interventions under
+  `scripts/studies/causal_experiments/`; do not change baseline prompts or restore
+  loop detection. The existing `0eb2850` fixes were separately authorized for
+  production source sync; that does not authorize deployment of unfinished study code.
 - Local `/Users/zhoujun/Desktop/MAS`; server
   `zhoujunye@10.123.4.30:22`, `/home/zhoujunye/mas`.
 - External server data and evaluation environment: `/home/zhoujunye/mas-data`.
