@@ -4,7 +4,7 @@ import hashlib
 from pathlib import Path
 
 from harness.runtime_support.inference import EFFORTS, configuration
-from harness._claude_hooks import SINGLE_TOOLS, SUBAGENT_TOOLS
+from harness._claude_hooks import SINGLE_TOOLS, SUBAGENT_TOOLS, DELEGATION_POLICY
 from common.io import fingerprint
 
 
@@ -13,6 +13,7 @@ def runtime_configuration(backend, effort='none'):
     root = Path(__file__).parents[1]
     return fingerprint(dict(environment=native_env(backend, effort=effort),
                             options=options(backend), slash_commands=False,
+                            mandatory_delegation=DELEGATION_POLICY if backend == 'claude-code-subagents' else None,
                             adapter_sources={name: hashlib.sha256((root/name).read_bytes()).hexdigest()
                                            for name in ('_claude_hooks.py', '_claude_cli.py', '_cli.py')}))
 
@@ -40,7 +41,8 @@ def validate_effort(proof, effort):
 def validate(proof, backend):
     if proof.get('mode') in {'full','observations','full-prompt-only'} or proof.get('evidence_configuration'):
         raise ValueError('Retired FULL/OBS proofs cannot admit baseline launches')
-    if proof.get('proof_kind') in {'native_error_injection', 'native_loop_injection'}:
+    if proof.get('proof_kind') in {'native_error_injection', 'native_loop_injection', 'native_background_wait_injection',
+                                 'native_delegation_injection'}:
         raise ValueError('A synthetic error probe cannot admit a solver launch')
     if not (proof.get("passed") is True and proof.get("paid_calls") == 0
             and proof.get("network") == "none"):
@@ -73,5 +75,9 @@ def validate_runtime(proof, backend, image_id, binary_sha256):
     if proof.get("runtime_binding") != expected:
         raise ValueError("Stale native proof: image or CLI binary binding differs; regenerate offline proof")
     validate_surface(proof.get('native_surface', {}), backend)
+    if backend == 'claude-code-subagents':
+        mandatory = proof.get('native_subagents', {}).get('mandatory_delegation') or {}
+        if not (mandatory.get('passed') is True and mandatory.get('version') == DELEGATION_POLICY['version']):
+            raise ValueError('Native proof lacks verified mandatory delegation policy')
     if proof.get('runtime_configuration_sha256') != runtime_configuration(backend, proof.get('requested_effort', 'none')):
         raise ValueError('Stale native proof: environment/tool configuration changed; regenerate offline proof')

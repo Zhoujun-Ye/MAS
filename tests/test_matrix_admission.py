@@ -130,3 +130,35 @@ def test_fatal_judge_stops_queued_grading(tmp_path, monkeypatch):
     summary = json.loads((tmp_path/'out/summary.json').read_text())
     assert summary['interrupted'] is True
     assert sorted(g['status'] for g in summary['grades']) == ['judge_error', 'not_started']
+
+
+def test_explicit_judge_cap_is_reserved_across_parallel_graders(tmp_path, monkeypatch):
+    from pathlib import Path
+    fixture_tasks(monkeypatch)
+    monkeypatch.setattr(matrix, 'runtime_preflight', lambda *a: dict(image_id='image'))
+    monkeypatch.setattr(matrix.runtime, 'credential', lambda *a: 'synthetic')
+    monkeypatch.setattr(matrix.runtime, 'safe_balance', lambda *a: dict(response=dict(is_available=True,
+        balance_infos=[dict(currency='CNY', total_balance='100')])))
+    class Process:
+        def __init__(self, command, **kw):
+            if '--execute' in command:
+                out = Path(command[command.index('--output')+1])
+                task = command[command.index('--task-id')+1]
+                folder = out / task / 'claude-code-subagents'
+                folder.mkdir(parents=True)
+                (folder/'report.json').write_text('{"status":"cli_exited"}')
+        def wait(self, **kw):
+            return 0
+    monkeypatch.setattr(matrix.subprocess, 'Popen', Process)
+    monkeypatch.setattr(matrix, 'needs_judge', lambda *a: True)
+    graded = []
+    def grade(b, t, k, *a, **kw):
+        graded.append(t.id)
+        return dict(benchmark=b, task_id=t.id, backend=k, status='graded', judge_calls=1)
+    monkeypatch.setattr(matrix, 'grade_attempt', grade)
+    assert matrix.main(args(tmp_path, '--execute', '--authorized-attempts', '2',
+        '--authorized-judges', '1', '--judge-concurrency', '2')) == 1
+    assert len(graded) == 1
+    summary = json.loads((tmp_path/'out/summary.json').read_text())
+    assert sum(g['judge_calls'] for g in summary['grades']) == 1
+    assert any(g.get('reason') == 'authorized_judge_limit_reached' for g in summary['grades'])

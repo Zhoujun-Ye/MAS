@@ -15,12 +15,14 @@ from common.io import read_json as read
 from analysis.request_accounting import model_receipts, gateway_tokens
 from scripts.common.prompts.conditions import runtime_backend
 from harness.runtime_support.admission import infrastructure_health
-from analysis.native_evidence import single_agent_violated, loop_guard_evidence
+from benchmarks.kramabench.evaluation import declared_incomplete
+from analysis.native_evidence import single_agent_violated, loop_guard_evidence, native_subagents
 
 SINGLE_VIOLATION = 'single_agent_condition_violated'
 COMPLIANCE_POLICY = ('Confirmed Single violations receive zero compliant score with the selected-task '
                      'denominator unchanged; raw answer scores and incurred costs are retained. '
-                     'Missing lifecycle evidence alone is not a confirmed violation.')
+                     'Missing lifecycle evidence alone is not a confirmed violation. '
+                     'This Single-only score rule does not certify Native/Structured acceptance or pipeline reproducibility.')
 PRIMARY_POLICY = ('Primary scores exclude each loop_guard_error task from every condition, preserving pairing; raw grades, all attempts '
                   'and all incurred costs are retained. Lead loop stops and timeouts remain in the denominator. '
                   'Worker loop stops alone do not invalidate a lead submission. No automatic retry is authorized.')
@@ -46,6 +48,49 @@ def loop_sensitivity(rows):
     return dict(status='available', excluded_tasks=[dict(benchmark=b, task_id=t) for b, t in sorted(excluded)],
                 excluded_attempts=len(rows)-len(retained), groups=summarize(retained),
                 policy='Sensitivity only: exclude any warning, stop or guard-error task from every condition; not a causal estimate')
+
+
+def paired_audit_view(rows, authorization=None):
+    """An additional score view on identical audited tasks; never alter original rows."""
+    conditions={}
+    expected_tasks=set()
+    for r in (authorization or {}).get('selections',[]) or []:
+        conditions.setdefault(r['benchmark'],set()).add(r['backend'])
+        expected_tasks.add((r['benchmark'],r['task_id']))
+    pairs={k:{} for k in expected_tasks}
+    for r in rows:
+        if not r.get('task_id'):
+            return dict(status='unavailable',reason='Task IDs are required for pairing')
+        key=(r['benchmark'],r['task_id'])
+        group=pairs.setdefault(key,{})
+        if r['backend'] in group:
+            return dict(status='unavailable',reason='Duplicate task/condition rows cannot be paired')
+        group[r['backend']]=r
+    for r in rows:
+        if r['benchmark'] not in conditions:
+            conditions[r['benchmark']]={x['backend'] for x in rows if x['benchmark']==r['benchmark']}
+    if not rows or any(len(c)<2 for c in conditions.values()):
+        return dict(status='unavailable',reason='At least two expected conditions per benchmark are required')
+    excluded=[];keep=set()
+    for (bench,task),group in sorted(pairs.items()):
+        expected=conditions[bench]
+        if set(group)-expected:
+            return dict(status='unavailable',reason='Observed conditions differ from the authorized comparison')
+        missing=expected-set(group)
+        failed=sorted(c for c in expected & set(group) if group[c].get('native_audit_passed') is False)
+        unknown=sorted(c for c in expected & set(group) if group[c].get('native_audit_passed') is not True
+                       and group[c].get('native_audit_passed') is not False)
+        if missing or failed or unknown:
+            excluded.append(dict(benchmark=bench,task_id=task,missing_conditions=sorted(missing),
+                                 failed_audit_conditions=failed,unmeasured_audit_conditions=unknown))
+        else:
+            keep.add((bench,task))
+    retained=[r for r in rows if (r['benchmark'],r['task_id']) in keep]
+    return dict(status='available',expected_conditions={b:sorted(c) for b,c in conditions.items()},
+        excluded_tasks=excluded,retained_tasks=[dict(benchmark=b,task_id=t) for b,t in sorted(keep)],
+        excluded_attempts=len(rows)-len(retained),groups=summarize(retained),
+        policy='Additional paired view only: remove the entire task if any condition audit failed, was unmeasured or is missing. '
+               'Original scores/denominators and all incurred costs remain in the main report; not a causal estimate.')
 
 
 def confirmed_single_violation(backend, records, *, audit=None, accounting=None):
@@ -77,11 +122,41 @@ def normalize_compliance(report):
     result['compliance_policy'] = COMPLIANCE_POLICY
     result['primary_score_policy'] = PRIMARY_POLICY
     result['paired_loop_sensitivity'] = loop_sensitivity(result['rows'])
+    result['paired_native_audit'] = paired_audit_view(result['rows'],result.get('authorization'))
     return result
 
 
 def lines(path):
     return jsonl(path) if path.exists() else []
+
+
+def pipeline_diagnostic(record):
+    status = (record.get('pipeline_replay') or {}).get('status')
+    if status:
+        return status
+    code = record.get('pipeline_exit_code')
+    if code is not None and code != 0:
+        return 'execution_origin_unverified' if code in (125,126,127) else 'runtime_error'
+    if code == 0:
+        matched = record.get('pipeline_answer_matches_submission')
+        return 'matched' if matched is True else 'answer_mismatch' if matched is False else 'invalid_output'
+    return None
+
+
+def cost_display(group):
+    """Render a known subtotal as a lower bound, never as a complete invoice."""
+    exact=group.get('total_usd_offpeak')
+    if exact is not None:
+        return f'${exact:.6f}'
+    subtotal=group.get('known_total_usd_offpeak_subtotal')
+    if subtotal is None or (subtotal==0 and group.get('known_model_usd_offpeak_subtotal') is None):
+        return 'unknown'
+    unknown=group.get('requests_with_unknown_cost')
+    count=str(unknown) if type(unknown) is int else 'unmeasured'
+    other=group.get('other_unknown_cost_components',0)
+    suffix=f'; {other} other cost components unknown' if other else ''
+    noun='request' if unknown==1 else 'requests'
+    return f'>= ${subtotal:.6f} ({count} unknown model {noun}{suffix})'
 
 
 def price(usage):
@@ -153,6 +228,16 @@ def collect(root):
                 native_row = native_rows[0]
                 accounting = native_row.get('accounting', accounting)
                 audit = native_row.get('single_agent_audit', native_row.get('subagents_audit', audit))
+        recorded_audit = audit.get('passed')
+        wait_ceiling = None
+        if actual_backend == 'claude-code-subagents' and report.get('cli', {}).get('native_result'):
+            wait_ceiling = False
+            if (audit.get('mandatory_delegation') is not None
+                    or report['cli']['native_result'].get('subagent_stats', {}).get('killed', {}).get('system', 0)):
+                current_audit = native_subagents(folder)
+                if audit.get('mandatory_delegation') is not None or current_audit['background_wait_ceiling_exceeded']:
+                    audit = current_audit
+                    wait_ceiling = current_audit['background_wait_ceiling_exceeded']
         ledger = lines(folder / 'gateway-requests.jsonl')
         receipts = model_receipts(ledger)
         model, dispatched = receipts['terminal'], receipts['dispatched']
@@ -197,10 +282,21 @@ def collect(root):
             total_usd_offpeak=sum(costs) if all(v is not None for v in costs) else None,
             accounting=accounting.get('observed_totals'), by_role=accounting.get('by_role'),
             native_audit_passed=audit.get('passed'), subagent_starts=audit.get('subagent_starts'),
+            recorded_native_audit_passed=recorded_audit, native_wait_ceiling_exceeded=wait_ceiling,
+            pipeline_replay_status=pipeline_diagnostic(native_row or report),
+            pipeline_exit_code=(native_row or report).get('pipeline_exit_code'),
+            pipeline_answer_matches_submission=(native_row or report).get('pipeline_answer_matches_submission'),
+            timeout_lead_idle_waiting=(native_row or report).get('timeout_diagnostic',{}).get('lead_idle_waiting'),
+            timeout_submission_present_at_deadline=(native_row or report).get('timeout_diagnostic',{}).get('submission_present_at_deadline'),
+            timeout_waiting_with_valid_submission=(native_row or report).get('timeout_diagnostic',{}).get('lead_waiting_with_valid_submission'),
             subagent_stops=audit.get('subagent_stops'),
             reconciliation=report.get('integrity_audit', {}).get('gateway_reconciliation', {}).get('status'),
             prompt=prompt, evidence=str(folder)))
         result[-1]['loop_guard'] = loop_guard_evidence(folder)
+        result[-1]['transport_failure_count'] = len(result[-1]['transport_failures'])
+        if b == 'kramabench' and declared_incomplete(read(folder/'submission.json', {})):
+            result[-1]['recorded_pipeline_replay_status'] = result[-1]['pipeline_replay_status']
+            result[-1]['pipeline_replay_status'] = 'incomplete_submission'
         if any(guard_error(r) for r in (item, report, native_row, grade)):
             result[-1]['harness_error'] = 'loop_guard_error'
         if item.get('evidence_mode'):
@@ -242,10 +338,19 @@ def summarize(result):
                                  for role in ('lead', 'worker')} for kind in ('warnings', 'stops')}
             elapsed = [r['seconds'] for r in selected if r['seconds'] is not None]
             costs = [r['total_usd_offpeak'] for r in selected]
+            subtotals=[]
+            for r in selected:
+                if r['total_usd_offpeak'] is not None:
+                    subtotals.append(r['total_usd_offpeak'])
+                else:
+                    values=[r.get('known_model_usd_offpeak_subtotal'),r.get('web_usd_estimate'),r.get('judge_usd_offpeak')]
+                    if any(v is not None for v in values):
+                        subtotals.append(sum(v for v in values if v is not None))
             groups.append(dict(benchmark=b, backend=k, attempts=len(selected), graded=len(known),
                 infra_degraded=sum(r.get('infra_degraded') is True for r in selected),
                 infra_health_unknown=sum(r.get('infra_degraded') is None for r in selected),
                 upstream_5xx=sum(len(r.get('upstream_5xx', [])) for r in selected),
+                transport_failures=sum(len(r.get('transport_failures') or []) for r in selected),
                 raw_accuracy=sum(known)/len(selected) if len(known)==len(selected) else None,
                 compliant_accuracy=sum(compliant)/len(selected) if all(v is not None for v in compliant) else None,
                 primary_denominator=len(eligible), excluded_harness_errors=sum(guard_error(r) for r in selected),
@@ -264,6 +369,9 @@ def summarize(result):
                 mean_minutes=sum(elapsed)/len(elapsed)/60 if elapsed else None,
                 time_coverage=len(elapsed), cost_coverage=sum(c is not None for c in costs),
                 known_usd_offpeak_subtotal=sum(c for c in costs if c is not None),
+                known_total_usd_offpeak_subtotal=sum(subtotals) if subtotals else None,
+                other_unknown_cost_components=sum(r.get(k) is None for r in selected if r['total_usd_offpeak'] is None
+                    for k in ('web_usd_estimate','judge_usd_offpeak')),
                 total_usd_offpeak=sum(costs) if all(c is not None for c in costs) else None,
                 model_requests=sum(r['model_requests'] for r in selected),
                 known_model_usd_offpeak_subtotal=sum(r.get('known_model_usd_offpeak_subtotal') or 0 for r in selected)
@@ -334,10 +442,15 @@ def write_report(report, output):
     report = normalize_compliance(report)
     output.mkdir(parents=True, exist_ok=False)
     columns = ['benchmark', 'task_id', 'backend', 'status', 'native_audit_passed', 'grade_status', 'score',
+               'recorded_native_audit_passed','native_wait_ceiling_exceeded','pipeline_replay_status',
+               'recorded_pipeline_replay_status','infra_degraded','transport_failure_count',
+               'pipeline_exit_code','pipeline_answer_matches_submission',
+               'timeout_lead_idle_waiting','timeout_submission_present_at_deadline','timeout_waiting_with_valid_submission',
                'raw_score','compliant_score','protocol_accepted','condition_status',
                'primary_score_eligible','primary_exclusion_reason','harness_error','loop_lead_warnings','loop_worker_warnings',
                'loop_lead_stops','loop_worker_stops',
                'seconds', 'model_requests', 'model_usd_offpeak', 'web_usd_estimate', 'judge_usd_offpeak',
+               'known_model_usd_offpeak_subtotal','requests_with_unknown_cost',
                'total_usd_offpeak', 'evidence']
     with (output / 'task-results.csv').open('w', newline='') as stream:
         writer = csv.DictWriter(stream, fieldnames=columns, extrasaction='ignore')
@@ -352,7 +465,7 @@ def write_report(report, output):
             f"Effort: {auth['effort']}; solver concurrency: {auth['solver_concurrency']}; grading concurrency: {auth['judge_concurrency']}.",
             f"Protocol source: {auth.get('protocol_settings_source', 'historical authorization')}; "
             f"protocol SHA-256: {auth.get('protocol_settings_sha256') or 'not separately recorded'}.", '',
-            '| Benchmark | Condition | Graded | Raw Mean | Compliant Mean | Primary Compliant Mean | Primary N | Raw Full Score | Mean Min | USD Estimate | Native Audit |',
+            '| Benchmark | Condition | Scored | Raw Mean | Single-Policy Mean | Primary Single-Policy Mean | Primary N | Raw Full Score | Mean Min | USD Estimate | Native Audit |',
             '| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |']
     for group in report['groups']:
         if group['benchmark'] == 'all':
@@ -365,11 +478,34 @@ def write_report(report, output):
         text.append(f"| {group['benchmark']} | {condition} | {group['graded']}/{count} | {fmt(group['mean_score'])} | "
                     f"{fmt(group['compliant_accuracy'])} | {fmt(group['primary_compliant_accuracy'])} | {group['primary_denominator']} | "
                     f"{group['full_score']}/{count} | {fmt(group['mean_minutes'], '.2f')} | "
-                    f"{fmt(group['total_usd_offpeak'], '.6f')} | {group['native_audit_passes']}/{count} |")
+                    f"{cost_display(group)} | {group['native_audit_passes']}/{count} |")
+    paired=report['paired_native_audit']
+    text+=['','## Paired Native-Audit View','']
+    if paired['status']!='available':
+        text.append(paired['reason'])
+    else:
+        text+=[paired['policy'],f"Excluded whole tasks: {len(paired['excluded_tasks'])}.",'',
+               '| Benchmark | Condition | Same-Task N | Raw Mean | Full Score |',
+               '| --- | --- | ---: | ---: | ---: |']
+        for g in paired['groups']:
+            if g['benchmark']!='all':
+                text.append(f"| {g['benchmark']} | {g['backend']} | {g['attempts']} | {fmt(g['raw_accuracy'])} | {g['full_score']} |")
+        for item in paired['excluded_tasks']:
+            text.append(f"- Excluded {item['benchmark']} / {item['task_id']}: failed {item['failed_audit_conditions']}; "
+                        f"unmeasured {item['unmeasured_audit_conditions']}; missing {item['missing_conditions']}.")
     text += ['', '## Audit Exceptions', '']
     for row in report['rows']:
         if row['native_audit_passed'] is not True:
             text.append(f"- {row['benchmark']} / {row['task_id']} / {row['backend']}: {row['status']}; score {row['score']}.")
+            if row.get('native_wait_ceiling_exceeded'):
+                text.append('  Native print background-wait ceiling terminated pending work; recorded raw audit retained separately.')
+    text += ['', '## Pipeline Diagnostics', '',
+             'Answer metrics are unchanged. Pipeline success is a separate observation; missing measurements are unknown.', '']
+    for row in report['rows']:
+        status = row.get('pipeline_replay_status')
+        if status and status != 'matched':
+            text.append(f"- {row['benchmark']} / {row['task_id']} / {row['backend']}: {status}; "
+                        f"exit {row.get('pipeline_exit_code')}; answer match {row.get('pipeline_answer_matches_submission')}.")
     text += ['', '## Loop Guard', '', PRIMARY_POLICY, '',
              '| Benchmark | Condition | Observed Attempts | Lead Warnings | Worker Warnings | Lead Stops | Worker Stops | Harness Errors |',
              '| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: |']

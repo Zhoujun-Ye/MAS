@@ -60,13 +60,13 @@ class WorkflowFixture:
         if errors:
             self.errors.extend(errors)
             return dict(type='text',text='Offline workflow failed; do not retry.')
+        if not worker and not self.single and not done('delegate'):
+            return tool('delegate','Agent',dict(description='Offline native worker',subagent_type='general-purpose',
+                prompt='OFFLINE_WORKER_INPUT_PROBE: inspect mounted inputs with the supplied tools. Return findings only.'))
         if not done('read'):return tool('read','Bash',dict(command=self.command,description='Verify mounted inputs'))
         if self.pdf and not done('pdf'):
             return tool('pdf','Read',dict(file_path='/workspace/pdf-probe.pdf',pages='1'))
         if worker:return dict(type='text',text='Offline worker input check complete.')
-        if not self.single and not done('delegate'):
-            return tool('delegate','Agent',dict(description='Offline native worker',subagent_type='general-purpose',
-                prompt='OFFLINE_WORKER_INPUT_PROBE: inspect mounted inputs with the supplied tools. Return findings only.'))
         if not done('submit'):return tool('submit','Write',dict(file_path='/workspace/submission.json',
             content=json.dumps({'final_answer':self.answer})))
         return dict(type='text',text='Offline workflow complete.')

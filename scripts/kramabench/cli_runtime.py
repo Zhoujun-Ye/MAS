@@ -1,6 +1,7 @@
 """KramaBench-specific submission, pipeline replay and preparation lifecycle."""
 
 from dataclasses import asdict
+from datetime import datetime
 import hashlib
 import json
 import os
@@ -18,13 +19,13 @@ from common.io import fingerprint, write_json
 from harness.runtime_support.resources import ContainerResources
 from harness.runtime_support import runtime
 from harness.runtime_support.preflight import check as check_container
-from benchmarks.kramabench.evaluation import grade_answer, scoring_contract
+from benchmarks.kramabench.evaluation import declared_incomplete, grade_answer, scoring_contract
 from benchmarks.kramabench.tasks import load_tasks
 from harness import ClaudeCodeSubagentsCLI, ClaudeCodeSingleAgentCLI
 from harness.runtime_support.runtime import (CLAUDE, THREADS, container, native_env, now, options, snapshot, source_files, source_manifest, stop_container)
 from scripts.kramabench.prepare import verify_inputs
 from harness.runtime_support.credential_gateway import CredentialGateway
-from analysis.native_evidence import native_single_agent, native_subagents, native_surface, single_agent_violated
+from analysis.native_evidence import native_single_agent, native_subagents, native_surface, single_agent_violated, timeout_waiting_evidence
 from harness.runtime_support.admission import infrastructure_health
 from analysis.run_integrity import inspect_run
 
@@ -50,10 +51,12 @@ def submission(work):
     if path.is_symlink() or not path.is_file() or path.stat().st_size > 1024 * 1024:
         raise ValueError("Missing, nonregular or oversized submission.json")
     data = json.loads(path.read_text())
-    if set(data) != {"answer", "pipeline_path", "evidence", "unfinished"}:
+    if not isinstance(data, dict) or set(data) != {"answer", "pipeline_path", "evidence", "unfinished"}:
         raise ValueError("Invalid submission fields")
     if not isinstance(data["evidence"], str) or not isinstance(data["unfinished"], list):
         raise ValueError("Invalid evidence/unfinished fields")
+    if declared_incomplete(data):
+        return data
     relative = data["pipeline_path"]
     if not isinstance(relative, str) or Path(relative).is_absolute() or ".." in Path(relative).parts:
         raise ValueError("Missing or unsafe pipeline path")
@@ -64,6 +67,24 @@ def submission(work):
     if not candidate.is_relative_to(work.resolve()) or candidate.suffix != ".py":
         raise ValueError("Pipeline must be a workspace .py file")
     return data
+
+
+def replay_failure(name, code):
+    """Docker's exit status alone cannot distinguish a launch error from sys.exit(125)."""
+    state = None
+    try:
+        inspected = subprocess.run(['docker','inspect','--format','{{json .State}}',name],
+                                   capture_output=True,text=True,timeout=15)
+        if inspected.returncode==0:
+            state=json.loads(inspected.stdout)
+        started = datetime.fromisoformat(state['StartedAt'].replace('Z','+00:00')) if isinstance(state,dict) else None
+        executed = (started is not None and started.year>1 and state.get('Error')==''
+                    and state.get('Running') is False and state.get('Status')=='exited'
+                    and type(state.get('ExitCode')) is int and state['ExitCode']==code)
+    except (OSError,ValueError,KeyError,TypeError,subprocess.TimeoutExpired):
+        executed=False
+    return dict(status='runtime_error' if executed else 'harness_error',exit_code=code,
+                execution_origin='container_process' if executed else 'docker_or_unverified',container_state=state)
 
 
 def run_attempt(task, backend, args, key, stop, active, lock):
@@ -227,9 +248,14 @@ def collect_attempt(folder, report, args):
         if backend == "claude-code-single-agent" and report['status'] == 'cli_exited':
             report["status"] = "single_agent_evidence_unverified"
     work = folder / "workspace"
+    submission_valid=False
+    submission_mtime=None
+    report['pipeline_replay'] = dict(status='not_run', stage='submission_validation')
     try:
         raw_submission = work / "submission.json"
         if raw_submission.is_symlink() or not raw_submission.is_file() or raw_submission.stat().st_size > 1024 * 1024:
+            report['pipeline_replay']['status'] = ('missing_submission' if not raw_submission.exists()
+                and not raw_submission.is_symlink() else 'invalid_submission')
             raise ValueError("Submission is missing, oversized or nonregular")
         candidate = json.loads(raw_submission.read_text())
         if not isinstance(candidate, dict) or "answer" not in candidate:
@@ -237,44 +263,84 @@ def collect_attempt(folder, report, args):
         shutil.copyfile(raw_submission, folder / "submission.json")
         report["grade"] = grade_answer(args.upstream, task_id, folder / "submission.json")
         data = submission(work)
+        submission_valid=data['answer'] is not None
+        submission_mtime=raw_submission.stat().st_mtime
         report["submission"] = data
-        # Never execute submitted code on the host; use a fresh offline copy.
-        replay = folder / "replay-workspace"
-        shutil.copytree(work, replay, symlinks=True, ignore=shutil.ignore_patterns(".git"))
-        name = "mas-cli6-replay-" + uuid.uuid4().hex[:10]
-        write_json(folder/'replay/container-ownership.json',dict(container_name=name,status='creating'))
-        command = ["docker", "run", "--rm", "--pull", "never", "--name", name, "--network", "none",
-                   "--cpus", str(getattr(args,'cpus',runtime.DEFAULT_CPUS)), "--memory", "8g", "--pids-limit", "256", "--cap-drop", "ALL",
-                   "--security-opt", "no-new-privileges", "--user", f"{os.getuid()}:{os.getgid()}",
-                   "--workdir", "/workspace", "--mount", f"type=bind,src={replay},dst=/workspace",
-                   "--mount", f"type=bind,src={args.upstream / 'data'},dst=/data,readonly"]
-        for key in THREADS:
-            command += ["--env", key + "=" + str(getattr(args,'compute_threads',runtime.DEFAULT_COMPUTE_THREADS))]
-        for key, value in runtime.REPRODUCIBLE_ENV.items():
-            command += ["--env", key + "=" + value]
-        command += [args.image, "python3", data["pipeline_path"]]
-        try:
+        if declared_incomplete(data):
+            report['pipeline_replay']['status'] = 'incomplete_submission'
+        else:
+            # Never execute submitted code on the host; use a fresh offline copy.
+            report['pipeline_replay']['stage'] = 'workspace_copy'
+            replay = folder / "replay-workspace"
+            shutil.copytree(work, replay, symlinks=True, ignore=shutil.ignore_patterns(".git"))
+            name = "mas-cli6-replay-" + uuid.uuid4().hex[:10]
+            write_json(folder/'replay/container-ownership.json',dict(container_name=name,status='creating'))
+            command = ["docker", "run", "--pull", "never", "--name", name, "--network", "none",
+                       "--cpus", str(getattr(args,'cpus',runtime.DEFAULT_CPUS)), "--memory", "8g", "--pids-limit", "256", "--cap-drop", "ALL",
+                       "--security-opt", "no-new-privileges", "--user", f"{os.getuid()}:{os.getgid()}",
+                       "--workdir", "/workspace", "--mount", f"type=bind,src={replay},dst=/workspace",
+                       "--mount", f"type=bind,src={args.upstream / 'data'},dst=/data,readonly"]
+            for key in THREADS:
+                command += ["--env", key + "=" + str(getattr(args,'compute_threads',runtime.DEFAULT_COMPUTE_THREADS))]
+            for key, value in runtime.REPRODUCIBLE_ENV.items():
+                command += ["--env", key + "=" + value]
+            command += [args.image, "python3", data["pipeline_path"]]
+            report['pipeline_replay']['stage'] = 'execution'
             try:
-                executed = subprocess.run(command, capture_output=True, timeout=getattr(args, "replay_timeout", 180))
-            except subprocess.TimeoutExpired as error:
-                (folder / "pipeline-stdout.log").write_bytes(error.stdout or b"")
-                (folder / "pipeline-stderr.log").write_bytes(error.stderr or b"")
-                raise
-            (folder / "pipeline-stdout.log").write_bytes(executed.stdout)
-            (folder / "pipeline-stderr.log").write_bytes(executed.stderr)
-            report["pipeline_exit_code"] = executed.returncode
-            lines = executed.stdout.decode(errors="replace").strip().splitlines()
-            printed = json.loads(lines[-1]) if lines else None
-            report["pipeline_printed_answer"] = printed
-            report["pipeline_answer_matches_submission"] = (
-                isinstance(printed, dict) and set(printed) == {"answer"} and printed["answer"] == data["answer"])
-        finally:
-            subprocess.run(["docker", "rm", "-f", name], capture_output=True)
+                try:
+                    executed = subprocess.run(command, capture_output=True, timeout=getattr(args, "replay_timeout", 180))
+                except subprocess.TimeoutExpired as error:
+                    report['pipeline_replay'].update(status='timed_out', timeout_seconds=getattr(args, 'replay_timeout', 180))
+                    (folder / "pipeline-stdout.log").write_bytes(error.stdout or b"")
+                    (folder / "pipeline-stderr.log").write_bytes(error.stderr or b"")
+                    raise
+                (folder / "pipeline-stdout.log").write_bytes(executed.stdout)
+                (folder / "pipeline-stderr.log").write_bytes(executed.stderr)
+                report["pipeline_exit_code"] = executed.returncode
+                if executed.returncode:
+                    failure=replay_failure(name,executed.returncode)
+                    report['pipeline_replay'].update(failure)
+                    report['artifact_error'] = dict(type='PipelineExecutionError' if failure['status']=='runtime_error' else 'DockerExecutionError',
+                        message=f"Replay exit {executed.returncode}, origin {failure['execution_origin']}; see pipeline-stderr.log")
+                else:
+                    report['pipeline_replay']['stage'] = 'output_validation'
+                    lines = executed.stdout.decode(errors="replace").strip().splitlines()
+                    printed = json.loads(lines[-1]) if lines else None
+                    report["pipeline_printed_answer"] = printed
+                    valid = isinstance(printed, dict) and set(printed) == {"answer"}
+                    report["pipeline_answer_matches_submission"] = valid and printed["answer"] == data["answer"]
+                    report['pipeline_replay']['status'] = ('invalid_output' if not valid else
+                        'matched' if report['pipeline_answer_matches_submission'] else 'answer_mismatch')
+            finally:
+                subprocess.run(["docker", "rm", "-f", name], capture_output=True)
     except Exception as error:
         report["artifact_error"] = dict(type=type(error).__name__, message=str(error))
+        diagnostic = report['pipeline_replay']
+        if diagnostic['status'] == 'not_run':
+            diagnostic['status'] = {'submission_validation':'invalid_submission',
+                'output_validation':'invalid_output'}.get(diagnostic['stage'], 'harness_error')
         if "grade" not in report:
             report["grade"] = grade_answer(args.upstream, task_id, None)
     if report['status'] == 'timed_out' or report.get('cli', {}).get('status') == 'timed_out':
+        cutoff=report.get('cli',{}).get('timeout_observed_at')
+        waiting=timeout_waiting_evidence(folder,cutoff)
+        present=None
+        if not submission_valid:
+            present=False
+        elif cutoff and submission_mtime is not None:
+            try:
+                stamp=datetime.fromisoformat(cutoff)
+                if stamp.tzinfo is not None:
+                    present=submission_mtime<=stamp.timestamp()
+            except (ValueError,TypeError):
+                pass
+        idle=waiting['lead_idle_waiting']
+        report['timeout_diagnostic']=dict(waiting,host_timeout_at=cutoff,submission_schema_valid=submission_valid,
+            submission_present_at_deadline=present,
+            lead_waiting_with_valid_submission=(False if idle is False or present is False else
+                                              True if idle is True and present is True else None),
+            submission_timing_basis='Post-cleanup file mtime compared to host timeout; cooperative evidence, not tamper protection',
+            scoring_policy='Diagnostic only; timeout primary score remains zero')
         report['artifact_grade'] = report['grade']
         report['grade'] = dict(status='incomplete_timeout', score=0, judge_calls=0,
                                policy='Incomplete solvers receive zero; retained submission is diagnostic only')

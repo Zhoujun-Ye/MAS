@@ -70,7 +70,8 @@ def main():
                 write_json(folder / "data-check.json", json.loads(checked))
                 adapter = (ClaudeCodeSingleAgentCLI if mode == "single-agent" else ClaudeCodeSubagentsCLI)(str(runtime.CLAUDE))
                 options = runtime.options(backend)
-                options["settings"] = dict(hooks=hook_settings("/native/observer", "/adapter-hooks.py", single_agent=mode == "single-agent"))
+                options["settings"] = dict(hooks=hook_settings("/native/observer", "/adapter-hooks.py",
+                    single_agent=mode == "single-agent", require_delegation=mode == 'subagents'), disableAllHooks=False)
                 if budget:
                     options["max_budget_usd"] = 0.01
                 command = adapter.command(**options)

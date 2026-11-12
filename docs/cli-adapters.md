@@ -24,7 +24,7 @@ also denies Agent/Task aliases, peer messaging, workflows and scheduled agents.
 Skills and ambient MCP/settings are isolated. An opt-in native PreToolUse policy
 denies delegation attempts; unexpected SubagentStart is a condition violation.
 Other modes never receive permission grants from hooks. Native observations
-remain record-only; the tool-loop detector has been retired.
+remain free of loop detection; Subagents now enforce the user-approved delegation gate.
 
 Admission requires native start/end and policy observations, zero workers,
 zero executed delegation and zero worker transcript evidence. Missing evidence
@@ -97,7 +97,7 @@ see [active infra](studies/evidence-infra.md). No native Team runtime is active.
 On November 12 the user retired the loop detector, including observation-only
 counting, warnings, worker stops, lead notices and host termination monitoring.
 There are no loop-mode launch options or active loop-pilot drivers. Native hooks
-now record events only, except for the existing strict-Single permission policy.
+retain strict-Single permissions and the mandatory-delegation policy below, but no loop detection.
 Default inference remains thinking disabled, temperature 1.0. This is not a
 guarantee against repetition; ordinary task deadlines remain enforced.
 
@@ -106,6 +106,22 @@ Preserve the paid guard/T=1 pilots, frozen sources and raw receipts under
 never reconstructs or executes the removed detector. Old native admission proofs
 are stale: fresh proofs bind the current environment, tool surface and adapter
 implementation hashes. See [retirement verification](studies/loop-guard-retirement-20261112.md).
+
+### Mandatory Delegation
+
+The user's later November 12 request requires actual native delegation for future
+Native/Structured runs. Before a matching lead Agent/Task call has produced native
+`SubagentStart`, hooks permit read-only Read/Glob/Grep and task planning but deny
+Bash, Write, Edit and other non-planning tools; Stop blocks normal completion.
+An attempted/failed call or internal summarizer event does not unlock the gate.
+Worker tools/stops are unaffected. After a worker starts, original permissions
+resume. No worker is created by the harness and frozen prompts remain exact.
+This establishes structural delegation only, not useful worker contribution.
+Refusal to delegate can still fail or reach the existing outer deadline; there
+is no automatic solver retry or guaranteed model compliance. Record policy
+version/decisions in native evidence; corrupt state stops rather than unlocks.
+New proofs bind this policy and stale/pre-gate proofs cannot admit new launches.
+The stopped 180-slot batch retains its old protocol; a new paid run needs confirmation.
 
 DeepSeek request policy is configured by the native CLI and validated, not
 rewritten, by the host gateway. Current defaults are thinking disabled and
@@ -120,6 +136,13 @@ implicit background handoffs; explicit background work or shorter tool-selected
 timeouts remain native behavior, not a guarantee of SessionEnd or quiescence.
 The outer solver deadline is unchanged. See the
 [review fix record](studies/infra-review-fixes-20261111.md) for all dispositions.
+
+Both adapters and solver containers set `CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS=0`.
+This removes the native print-mode ten-minute idle ceiling while preserving the
+shared outer task deadline. It does not poll, resume or send feedback to agents.
+Confirmed native ceiling termination is not completed delegation, even when the
+CLI reports success. See the [anomaly audit](studies/krama-anomaly-audit-20261112.md)
+for pinned-native control/fix/deadline checks and the unchanged paid evidence.
 
 All adapters expose `command(model, ...)` and `run(..., execute=False)`.
 Default planning starts no subprocess and writes no output. Execution needs an

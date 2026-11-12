@@ -10,6 +10,7 @@ import secrets
 import subprocess
 import sys
 import threading
+import time
 import urllib.error
 from unittest.mock import patch
 from urllib.parse import urlsplit
@@ -42,10 +43,15 @@ def sse(frames):
 
 
 class Fixture:
-    def __init__(self, backend, error_status=None, worker_model=None):
+    def __init__(self, backend, error_status=None, worker_model=None, background_wait=None, delegation_check=None):
         self.backend = backend
         self.error_status = error_status
         self.worker_model = worker_model
+        self.background_wait = background_wait
+        self.delegation_check = delegation_check
+        self.lead_steps = 0
+        self.worker_finished = False
+        self.lead_marker_sent = False
         self.single = backend.endswith("single-agent")
         self.requests = []
         self.rejections = set()
@@ -73,7 +79,11 @@ class Fixture:
                 if block.get("type") == "tool_result" and block.get("is_error"):
                     self.rejections.add(block.get("tool_use_id"))
         index = len(self.requests) - 1
-        if self.single and index < 2:
+        if self.delegation_check:
+            block = self.delegation_block(body)
+        elif self.background_wait:
+            block = self.background_block(body, index)
+        elif self.single and index < 2:
             name = ("Agent", "Task")[index]
             block = dict(type="tool_use", id="probe-" + name, name=name, input=dict(
                 description="Forbidden delegation probe", subagent_type="general-purpose",
@@ -106,6 +116,69 @@ class Fixture:
                     dict(type="message_delta", delta=dict(stop_reason=stop, stop_sequence=None), usage=dict(output_tokens=10)),
                     dict(type="message_stop")])
 
+    def delegation_block(self, body):
+        prompt = 'MANDATORY_DELEGATION_PROBE_WORKER: write the worker marker and return.'
+        worker = any(b.get('type') == 'text' and b.get('text') == prompt
+            for m in body.get('messages', []) if m.get('role') == 'user'
+            for b in m.get('content', []) if isinstance(b, dict))
+        if worker:
+            done = any(b.get('type') == 'tool_result' and b.get('tool_use_id') == 'probe-worker-marker'
+                for m in body.get('messages', []) for b in m.get('content', []) if isinstance(b, dict))
+            return (dict(type='text', text='Worker complete.') if done else
+                dict(type='tool_use', id='probe-worker-marker', name='Bash', input=dict(
+                    command='printf worker-ok > /workspace/worker-result.txt', description='Worker marker')))
+        step = self.lead_steps
+        self.lead_steps += 1
+        denied = dict(type='tool_use', id=f'probe-before-worker-{step}', name='Bash', input=dict(
+            command='printf forbidden > /workspace/forbidden-before-delegation.txt', description='Must be denied'))
+        if self.delegation_check == 'refuse':
+            return denied if step % 2 == 0 else dict(type='text', text='Finish without delegation.')
+        if step == 0 and self.delegation_check == 'failed-call':
+            return dict(type='tool_use', id='probe-missing-agent', name='Agent', input=dict(
+                description='Invalid worker must not unlock execution', subagent_type='nonexistent-probe-agent', prompt=prompt))
+        if step == 0 or (step == 1 and self.delegation_check == 'failed-call'):
+            return denied
+        if step == 1:
+            return dict(type='text', text='Finish without delegation.')
+        if step == 2:
+            return dict(type='tool_use', id='probe-real-worker', name='Task', input=dict(
+                description='Required native worker', subagent_type='general-purpose', prompt=prompt,
+                **({'run_in_background': True} if self.delegation_check == 'async-order' else {})))
+        if step == 3:
+            if self.delegation_check == 'async-order':
+                time.sleep(1)
+            return dict(type='tool_use', id='probe-after-worker', name='Bash', input=dict(
+                command='printf probe-ok > /workspace/probe-result.txt', description='Unlocked lead marker'))
+        return dict(type='text', text='Offline mandatory delegation probe complete.')
+
+    def background_block(self, body, index):
+        prompt = 'Complete the delayed offline background check.'
+        worker = any(b.get('type') == 'text' and b.get('text') == prompt
+                     for m in body.get('messages', []) if m.get('role') == 'user'
+                     for b in m.get('content', []) if isinstance(b, dict))
+        if index == 0:
+            return dict(type='tool_use', id='probe-Agent', name='Agent', input=dict(
+                description='Delayed offline worker', subagent_type='general-purpose',
+                run_in_background=True, prompt=prompt))
+        if worker:
+            done = any(b.get('type') == 'tool_result' and b.get('tool_use_id') == 'probe-delayed-shell'
+                       for m in body.get('messages', []) for b in m.get('content', []) if isinstance(b, dict))
+            if not done:
+                return dict(type='tool_use', id='probe-delayed-shell', name='Bash', input=dict(
+                    command=('printf worker-ok > /workspace/worker-result.txt; sleep 60; '
+                             'printf late > /workspace/late-shell-result.txt' if self.background_wait == 'shell' else
+                             'sleep 12; printf worker-ok > /workspace/worker-result.txt'),
+                    **({'run_in_background': True} if self.background_wait == 'shell' else {}),
+                    description='Offline background timing probe'))
+            self.worker_finished = True
+            return dict(type='text', text='Offline background worker complete.')
+        if self.worker_finished and not self.lead_marker_sent:
+            self.lead_marker_sent = True
+            return dict(type='tool_use', id='probe-lead-resumed', name='Bash', input=dict(
+                command='printf probe-ok > /workspace/probe-result.txt',
+                description='Verify the native completion notification resumed the lead'))
+        return dict(type='text', text='Waiting for the offline worker.' if not self.worker_finished else 'Offline check complete.')
+
 
 def probe(backend, root, image, key, fixture, *, effort=runtime.DEFAULT_EFFORT):
     folder = root / backend
@@ -132,14 +205,29 @@ def probe(backend, root, image, key, fixture, *, effort=runtime.DEFAULT_EFFORT):
             "import os,pathlib; print(dict(os.environ)); print(pathlib.Path('/proc/1/environ').read_bytes())"], text=True)
         assert key not in environment
         proof["host_key_absent"] = True
+        proof['print_background_wait_ceiling_ms'] = subprocess.check_output(
+            ['docker', 'exec', identity, 'printenv', 'CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS'], text=True).strip()
         options = runtime.options(backend)
+        if fixture.background_wait == 'control':
+            options['settings'] = dict(env=dict(CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS='1000'))
         transport = dict(command_prefix=("docker", "exec", "-i", "--workdir", "/workspace", identity))
         transport.update(observer_dir=profile / "observer", observer_target="/native/observer",
                          hook_script="/adapter-hooks.py")
+        if fixture.delegation_check == 'async-order':
+            wrapper = profile/'observer/delayed-hooks.py'
+            wrapper.parent.mkdir(parents=True, exist_ok=True)
+            wrapper.write_text("import io,json,runpy,sys,time\n"
+                "data=sys.stdin.read()\n"
+                "if json.loads(data).get('hook_event_name')=='SubagentStart': time.sleep(0.5)\n"
+                "sys.stdin=io.StringIO(data)\nrunpy.run_path('/adapter-hooks.py',run_name='__main__')\n")
+            transport['hook_script'] = '/native/observer/delayed-hooks.py'
         result = BACKENDS[backend](str(binary)).run("Offline native gateway and shell probe. Follow the fixture instructions.",
-            workspace=work, output=folder / "cli", timeout=120, execute=True, **options, **transport)
+            workspace=work, output=folder / "cli", timeout=5 if fixture.background_wait == 'deadline' else 120,
+            execute=True, **options, **transport)
         proof["cli_status"] = result["status"]
         proof["native_result"] = result
+        if fixture.background_wait:
+            write_json(folder/'report.json',dict(cli=result))
         proof['native_surface'] = native_surface(folder)
         proof['requested_worker_model'] = fixture.worker_model
         proof['request_models'] = sorted({r.get('model', '') for r in fixture.requests})
@@ -152,11 +240,56 @@ def probe(backend, root, image, key, fixture, *, effort=runtime.DEFAULT_EFFORT):
         unchanged = digest(binary) == binding["binary_sha256"]
         proof.update(proof_requests(fixture.requests, effort))
         proof["passed"] = bool(result["status"] == "cli_exited" and proof["shell_verified"] and native_ok and unchanged
-                               and proof["request_effort_verified"] and proof['request_configuration_verified'])
-        if fixture.error_status is not None:
+                               and proof["request_effort_verified"] and proof['request_configuration_verified']
+                               and proof['print_background_wait_ceiling_ms']=='0')
+        if fixture.background_wait:
+            native_stats = result.get('native_result', {}).get('subagent_stats', {})
+            proof.update(proof_kind='native_background_wait_injection', background_wait=fixture.background_wait,
+                worker_marker=(work/'worker-result.txt').is_file(), lead_resumed=fixture.lead_marker_sent,
+                outer_deadline_seconds=5 if fixture.background_wait == 'deadline' else 120)
+            if fixture.background_wait == 'control':
+                proof['passed'] = bool(result['status']=='cli_exited' and
+                    proof[name]['background_wait_ceiling_exceeded'] and not proof[name]['passed'] and
+                    native_stats.get('killed',{}).get('system')==1 and not proof['shell_verified'])
+            elif fixture.background_wait == 'deadline':
+                proof['passed'] = result['status']=='timed_out' and not proof['shell_verified']
+            elif fixture.background_wait == 'shell':
+                proof['passed'] = bool(result['status']=='cli_exited' and proof['worker_marker']
+                    and proof['shell_verified'] and proof[name]['background_shells']['running_shells_at_last_stop']
+                    and not (work/'late-shell-result.txt').exists())
+            else:
+                proof['passed'] = bool(proof['passed'] and proof['worker_marker'] and proof['lead_resumed']
+                    and native_stats.get('completed')==1 and not proof[name]['background_wait_ceiling_exceeded'])
+            proof['passed'] = bool(proof['passed'] and unchanged and proof['request_configuration_verified']
+                                   and proof['print_background_wait_ceiling_ms']=='0')
+        elif fixture.error_status is not None:
             proof.update(proof_kind='native_error_injection', injected_http_status=fixture.error_status,
                 retry_count=max(0, len(fixture.requests)-1), passed=bool(result['status']=='cli_error'
                     and len(fixture.requests)==1 and unchanged and proof['request_effort_verified']))
+        elif fixture.delegation_check:
+            policy = proof[name].get('mandatory_delegation') or {}
+            proof.update(proof_kind='native_delegation_injection', delegation_check=fixture.delegation_check,
+                forbidden_marker_absent=not (work/'forbidden-before-delegation.txt').exists(),
+                worker_marker=(work/'worker-result.txt').is_file(),
+                failed_call_rejected='probe-missing-agent' in fixture.rejections)
+            recovered = (result['status']=='cli_exited' and proof['shell_verified']
+                and proof['worker_marker'] and policy.get('passed') is True)
+            refused = (not proof['shell_verified'] and not proof['worker_marker']
+                and proof[name]['subagent_starts']==0 and policy.get('blocked_stops',0)>0)
+            proof['passed'] = bool(proof['forbidden_marker_absent'] and policy.get('denied_tool_calls',0)>0
+                and policy.get('measured') is True and policy.get('errors') == 0
+                and (refused if fixture.delegation_check=='refuse' else recovered)
+                and (fixture.delegation_check!='recover' or policy.get('blocked_stops',0)>0)
+                and (fixture.delegation_check!='failed-call' or proof['failed_call_rejected'])
+                and unchanged and proof['request_configuration_verified'])
+            if fixture.delegation_check == 'async-order':
+                rows = [json.loads(line) for line in (profile/'observer/events.jsonl').read_text().splitlines()]
+                returned = next((i for i,r in enumerate(rows) if r.get('hook_event_name')=='PostToolUse'
+                    and r.get('tool_use_id')=='probe-real-worker'), None)
+                started = next((i for i,r in enumerate(rows) if r.get('hook_event_name')=='SubagentStart'), None)
+                proof['post_tool_before_worker_start'] = returned is not None and started is not None and returned < started
+                proof['passed'] = bool(proof['passed'] and proof['post_tool_before_worker_start']
+                                       and proof[name]['subagent_starts']==1)
         else:
             validate_runtime(proof, backend, **binding)
     except Exception as error:
@@ -192,15 +325,25 @@ def main(argv=None):
                         help='Exercise a native worker alias against the fake provider')
     parser.add_argument('--error-status', type=int, choices=(401, 402, 429, 503),
                         help='Synthetic native failure/no-retry probe; not a launch-admission proof')
+    parser.add_argument('--background-wait', choices=('control','fixed','deadline','shell'),
+                        help='Free native background-wait check; never an admission proof')
+    parser.add_argument('--delegation-check', choices=('recover', 'refuse', 'failed-call', 'async-order'),
+                        help='Free mandatory-delegation negative checks; never an admission proof')
     args = parser.parse_args(argv)
+    if sum(bool(v) for v in (args.background_wait, args.error_status, args.delegation_check)) > 1:
+        parser.error('Choose one background-wait, HTTP-error or delegation check')
     if not args.execute:
-        print(json.dumps(dict(status="planned", conditions=2, concurrency=2, paid_calls=0, network="none")))
+        count = 1 if args.background_wait or args.delegation_check else 2
+        print(json.dumps(dict(status="planned", conditions=count, concurrency=count, paid_calls=0, network="none")))
         return 0
     os.umask(0o077)
     args.output = args.output.resolve()
     args.output.mkdir(parents=True, exist_ok=False)
     image = json.loads(subprocess.check_output(["docker", "image", "inspect", args.image]))[0]["Id"]
-    fixtures = {"synthetic-" + secrets.token_hex(24): Fixture(backend, args.error_status, args.worker_model) for backend in BACKENDS}
+    backends = ['claude-code-subagents'] if args.background_wait or args.delegation_check else BACKENDS
+    fixtures = {"synthetic-" + secrets.token_hex(24): Fixture(backend, args.error_status, args.worker_model,
+                                                        args.background_wait, args.delegation_check)
+                for backend in backends}
 
     def fake_upstream(request):
         key = request.get_header("Authorization", "").removeprefix("Bearer ")
@@ -213,7 +356,7 @@ def main(argv=None):
             futures = [pool.submit(probe, fixture.backend, args.output, image, key, fixture, effort=args.effort)
                        for key, fixture in fixtures.items()]
             proofs = [future.result() for future in futures]
-    summary = dict(passed=all(p["passed"] for p in proofs), paid_calls=0, network="none", concurrency=2,
+    summary = dict(passed=all(p["passed"] for p in proofs), paid_calls=0, network="none", concurrency=len(fixtures),
                    results=[dict(backend=p["backend"], passed=p["passed"],
                                  proof=str(args.output / p["backend"] / "proof.json")) for p in proofs])
     write_json(args.output / "summary.json", summary)

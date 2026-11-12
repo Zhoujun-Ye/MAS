@@ -80,7 +80,8 @@ def workflow(tmp_path, monkeypatch, request):
         requested_effort=run.runtime.DEFAULT_EFFORT, request_effort_verified=True,
         inference_policy=run.runtime.inference_configuration(), request_configuration_verified=True,
         backend="claude-code-subagents", native_subagents=dict(passed=True, subagent_starts=1,
-        native_team_configs=0, teammate_idle_events=0),
+        native_team_configs=0, teammate_idle_events=0,
+        mandatory_delegation=dict(passed=True, version='native-delegation-v1')),
         runtime_binding=dict(image_id="sha256:fake", binary_sha256=digest(binary)))))
     monkeypatch.setattr(run.runtime, "CLAUDE", binary)
     monkeypatch.setattr(run.runtime, "source_files", lambda: iter([(Path("fake.py"), binary)]))

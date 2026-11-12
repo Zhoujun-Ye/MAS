@@ -55,4 +55,4 @@ def test_synthetic_native_workflow_has_bounded_baseline_steps(backend):
         messages.extend([dict(role='assistant', content=[block]), dict(role='user', content=[
             dict(type='tool_result', tool_use_id=block['id'], content='ok')])])
         assert len(names) <= 3
-    assert names == (['Bash', 'Write'] if backend.endswith('single-agent') else ['Bash', 'Agent', 'Write'])
+    assert names == (['Bash', 'Write'] if backend.endswith('single-agent') else ['Agent', 'Bash', 'Write'])

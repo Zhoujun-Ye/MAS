@@ -1,4 +1,4 @@
-"""Shared native Claude CLI arguments and record-only hook settings."""
+"""Shared native Claude CLI arguments, observations and explicit permission policies."""
 
 import json
 from pathlib import Path
@@ -11,16 +11,21 @@ HOOK_EVENTS = ("SessionStart", "SessionEnd", "UserPromptSubmit", "Stop", "Subage
                "SubagentStop", "TeammateIdle", "PreToolUse", "PostToolUse", "PostToolUseFailure")
 
 
-def hook_settings(target, script, python="python3", *, single_agent=False):
+def hook_settings(target, script, python="python3", *, single_agent=False, require_delegation=False):
+    if single_agent and require_delegation:
+        raise ValueError('Single cannot require delegation')
     argv = [python, "-I", str(script), "--output", str(Path(target)/"events.jsonl")]
     if single_agent:
         argv.append("--single-agent")
+    if require_delegation:
+        argv.append('--require-delegation')
     command = shlex.join(argv)
     return {event: [{"hooks": [{"type": "command", "command": command}]}] for event in HOOK_EVENTS}
 
 
 def environment():
     return {"CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS": "0",
+            "CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS": "0",
             "CLAUDE_CODE_MAX_RETRIES": "0", "DISABLE_AUTOUPDATER": "1",
             "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1"}
 
@@ -71,12 +76,13 @@ def result_event(path, *, single_agent=False):
 def run_print(adapter, prompt, *, backend, model, workspace, output, timeout=3600, allowed_tools=(),
               disallowed_tools=(), max_budget_usd=None, settings=None, isolated_settings=False,
               execute=False, command_prefix=(), observer_dir=None, observer_target=None,
-              hook_script=None, hook_python="python3", single_agent=False):
+              hook_script=None, hook_python="python3", single_agent=False, require_delegation=False):
     observer = Path(observer_dir or Path(output)/"observer")
     native = dict(settings or {})
     native["hooks"] = hook_settings(observer_target or observer,
-        hook_script or Path(__file__).with_name("_claude_hooks.py"), hook_python, single_agent=single_agent)
-    if single_agent:
+        hook_script or Path(__file__).with_name("_claude_hooks.py"), hook_python,
+        single_agent=single_agent, require_delegation=require_delegation)
+    if single_agent or require_delegation:
         native["disableAllHooks"] = False
     return run_cli(backend=backend,
         argv=adapter.command(model, allowed_tools=allowed_tools, disallowed_tools=disallowed_tools,

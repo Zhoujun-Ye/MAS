@@ -1,6 +1,7 @@
 """CLI process transport and raw evidence; no model or team orchestration."""
 
 import hashlib
+from datetime import datetime, timezone
 import json
 import math
 import os
@@ -97,6 +98,7 @@ def run_cli(*, backend, argv, version, version_pattern, environment, prompt,
                 (output / "stdout.log").open("xb") as stdout, \
                 (output / "stderr.log").open("xb") as stderr:
             process_started = time.monotonic()
+            report['native_started_at'] = datetime.now(timezone.utc).isoformat()
             process = subprocess.Popen(command, cwd=workspace, env=env, stdin=stdin,
                                        stdout=stdout, stderr=stderr, start_new_session=True)
             # Dispatch does not establish that the provider accepted any calls.
@@ -106,6 +108,7 @@ def run_cli(*, backend, argv, version, version_pattern, environment, prompt,
                 report["status"] = "cli_exited" if process.returncode == 0 else "cli_error"
             except subprocess.TimeoutExpired:
                 report["status"] = "timed_out"
+                report['timeout_observed_at'] = datetime.now(timezone.utc).isoformat()
             finally:
                 cleanup_started = time.monotonic()
                 report["timing"]["native_process_seconds"] = cleanup_started - process_started

@@ -33,6 +33,7 @@ def test_worker_aliases_and_bash_limits_are_identical(backend):
                for alias in ('OPUS', 'SONNET', 'HAIKU', 'FABLE'))
     assert env['BASH_DEFAULT_TIMEOUT_MS'] == env['BASH_MAX_TIMEOUT_MS'] == '600000'
     assert env['CLAUDE_CODE_MAX_RETRIES'] == '0'
+    assert env['CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS'] == '0'
 
 
 @pytest.mark.parametrize('field,value', [('tools', ['Bash']), ('skills', ['deep-research']),
@@ -66,10 +67,21 @@ def test_only_authoritative_upstream_5xx_marks_degradation(tmp_path):
     health = infrastructure_health(path)
     assert health['infra_degraded'] is True
     assert health['upstream_5xx'] == [dict(request_id='worker', http_status=503, route='/anthropic/v1/messages')]
+    assert [r['request_id'] for r in health['transport_failures']] == ['unknown']
+    path.write_text(json.dumps(rows[2]))
+    assert infrastructure_health(path)['infra_degraded'] is True
     path.write_text(json.dumps(rows[1]))
     assert infrastructure_health(path)['infra_degraded'] is False
     path.write_text('{partial')
     assert infrastructure_health(path)['infra_degraded'] is None
+
+
+@pytest.mark.parametrize('outcome', ['client_disconnected', 'shutdown_inflight', 'response_complete'])
+def test_native_cancellations_are_not_upstream_transport_failures(tmp_path, outcome):
+    path = tmp_path/'ledger'
+    path.write_text(json.dumps(dict(event='finished', request_id='native', upstream_attempted=True, outcome=outcome)))
+    health = infrastructure_health(path)
+    assert health['infra_degraded'] is False and not health['transport_failures']
 
 
 @pytest.mark.parametrize('status', ['cli_exited', 'timed_out', 'cli_error'])

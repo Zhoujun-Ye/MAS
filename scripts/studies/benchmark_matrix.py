@@ -30,6 +30,7 @@ from benchmarks.policy import default_timeout, timeout_policy
 from common.io import fingerprint
 from common.journal import Journal, exclusive
 from harness.runtime_support.admission import admit_balance, amount, BalanceWatch, fatal_provider_record, unavailable_web_proxy
+from harness._claude_hooks import DELEGATION_POLICY
 
 BACKENDS = ("claude-code-single-agent", "claude-code-subagents",)
 CONDITIONS = (*BACKENDS, "native")
@@ -151,6 +152,8 @@ def batch_chain(path):
     seen = set()
     while path:
         path = Path(path).resolve()
+        if (path/'evidence-pruned.json').exists():
+            raise ValueError('Intentionally pruned evidence cannot be continued or recovered')
         if path in seen:
             raise ValueError('Resume provenance cycle')
         seen.add(path)
@@ -164,6 +167,8 @@ def batch_chain(path):
 def retained_attempts(path, jobs, settings, manifest_sha, _seen=None, *, allow_grading_recovery=False):
     if path is None:
         return {}
+    if (path/'evidence-pruned.json').exists():
+        raise ValueError('Intentionally pruned evidence cannot be continued or recovered')
     seen=set() if _seen is None else set(_seen)
     if path.resolve() in seen:
         raise ValueError('Resume provenance cycle')
@@ -291,6 +296,8 @@ def upstream_recovery(path, jobs, settings, manifest_sha):
     """Select only terminal CLI failures whose last model response is upstream 5xx."""
     if path is None:
         return {}
+    if (path/'evidence-pruned.json').exists():
+        raise ValueError('Intentionally pruned evidence cannot be continued or recovered')
     previous = json.loads((path / 'summary.json').read_text())
     auth = previous['authorization']
     if (previous.get('interrupted') or auth.get('upstream_recovery_from')
@@ -393,8 +400,13 @@ def solver_command(args, benchmark, task, backend, output, *, execute=False):
     return command
 
 
-def order_jobs(jobs, estimates=None):
+def order_jobs(jobs, estimates=None, seed=None):
     """Optional condition-neutral LPT order from explicit pre-run estimates."""
+    if seed is not None:
+        if estimates is not None:
+            raise ValueError('Choose schedule seed or estimates, not both')
+        return sorted(jobs, key=lambda job: hashlib.sha256(
+            f'{seed}:{job[0]}:{job[1].id}'.encode()).hexdigest())
     if estimates is None:
         return list(jobs)
     rows = json.loads(Path(estimates).read_text())
@@ -432,9 +444,14 @@ def protocol_settings(args):
     settings.update(cpu_per_attempt=getattr(args,'cpus',runtime.DEFAULT_CPUS),
                     compute_threads=getattr(args,'compute_threads',runtime.DEFAULT_COMPUTE_THREADS),
                     record_resources=getattr(args,'record_resources',False))
+    settings['mandatory_delegation'] = {k: DELEGATION_POLICY for k in backends
+                                       if runtime_backend(k) == 'claude-code-subagents'}
     if getattr(args, 'schedule_estimates', None):
         settings['scheduling'] = dict(policy='longest-estimate-first',
                                       estimates_sha256=digest(args.schedule_estimates))
+    if getattr(args, 'schedule_seed', None) is not None:
+        settings['scheduling'] = dict(policy='seeded-task-groups-v1', seed=args.schedule_seed,
+                                     seed_scope='dispatch order only; not model sampling')
     if getattr(args, 'require_module', []):
         settings['required_modules'] = runtime.capability_modules(args.require_module)
     if getattr(args, 'capability_probe', []):
@@ -499,6 +516,8 @@ def main(argv=None):
     parser.add_argument("--concurrency", type=int, default=8, choices=range(1, 257))
     parser.add_argument('--schedule-estimates', type=Path,
                         help='Optional frozen per-task seconds JSON for condition-neutral longest-first scheduling')
+    parser.add_argument('--schedule-seed', type=int,
+                        help='Reorder frozen task groups only; not a provider sampling seed')
     parser.add_argument('--cpus', type=int, choices=range(1, 129), default=runtime.DEFAULT_CPUS)
     parser.add_argument('--record-resources', action='store_true')
     parser.add_argument('--max-web-requests',type=int,choices=range(1,101),default=web_policy.DEFAULT_WEB_LIMIT)
@@ -585,7 +604,7 @@ def main(argv=None):
     args.sql_grading_required=any(b=='hybriddeepresearch' and t.category=='search_to_sql' for b,t in selected)
     jobs = [(bench, task, backend, args.output / "solvers" / bench / task.id / backend)
             for bench, task in selected for backend in args.backends]
-    jobs = order_jobs(jobs, args.schedule_estimates)
+    jobs = order_jobs(jobs, args.schedule_estimates, args.schedule_seed)
     recovery = upstream_recovery(args.recover_upstream_from, jobs, observed_settings,
                                  digest(args.task_manifest) if args.task_manifest else None)
     if args.recover_upstream_from:
@@ -621,7 +640,8 @@ def main(argv=None):
         tasks_per_benchmark=args.tasks_per_benchmark, sample_seed=args.sample_seed,
         selection_policy="authorized-upstream-5xx-recovery" if args.recover_upstream_from else "frozen-validation-manifest" if manifest else "seeded-public-strata-round-robin",
         task_offset=args.task_offset,
-        order_policy='longest-estimate-first' if args.schedule_estimates else
+        order_policy='seeded-task-groups-v1' if args.schedule_seed is not None else
+                     'longest-estimate-first' if args.schedule_estimates else
                      'manifest-order-unchanged' if manifest else 'seeded-public-strata-round-robin',
         offline_evaluation_schedule='grading-pool; CPU reservations shared with solvers',
         source_manifest=frozen_source,
@@ -640,7 +660,7 @@ def main(argv=None):
     if args.execute:
         expected_attempts = len(jobs) if args.recover_upstream_from or args.all_tasks else len(args.benchmarks) * len(args.backends) * args.tasks_per_benchmark
         required_solvers=0 if args.recover_judge_5xx else len(jobs)
-        judge_counts=(maximum_judges,) if args.recover_judge_5xx else (0,maximum_judges)
+        judge_counts=(maximum_judges,) if args.recover_judge_5xx else range(maximum_judges+1)
         if not jobs or len(jobs) != expected_attempts or args.authorized_attempts != required_solvers or args.authorized_judges not in judge_counts:
             raise ValueError(f"Require exactly {required_solvers} authorized solvers and judge count in {judge_counts}")
         if manifest:
@@ -853,7 +873,7 @@ def main(argv=None):
             if report.exists():
                 record = json.loads(report.read_text())
                 row["status"] = record["status"]
-                row.update({key: record.get(key) for key in ('infra_degraded', 'upstream_5xx')})
+                row.update({key: record.get(key) for key in ('infra_degraded', 'upstream_5xx', 'transport_failures')})
                 if record.get("fatal_provider_error"):
                     stop.set()
                 row['status']=reconcile_solver_status(row['status'],report.parent)
@@ -862,7 +882,10 @@ def main(argv=None):
             journal.finish('solver',(b,t.id,k),binding,row)
             return row
 
+        paid_judge_claims = 0
+
         def score_attempt(job):
+            nonlocal paid_judge_claims
             b, t, k, out = job
             if operator_stop.is_set():
                 return dict(benchmark=b,task_id=t.id,backend=k,judge_calls=0,status='not_started')
@@ -911,6 +934,12 @@ def main(argv=None):
             if paid_grade and (paused.is_set() or stop.is_set()):
                 return dict(benchmark=b,task_id=t.id,backend=k,judge_calls=0,status='not_started')
             if paid_grade:
+                # Reserve before dispatch; an uncertain/failed call is never refunded.
+                with lock:
+                    if paid_judge_claims >= args.authorized_judges:
+                        return dict(benchmark=b,task_id=t.id,backend=k,judge_calls=0,
+                                    status='not_started',reason='authorized_judge_limit_reached')
+                    paid_judge_claims += 1
                 try:
                     budget_watch.check()
                 except ValueError as error:

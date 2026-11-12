@@ -27,6 +27,9 @@ sources live under `/home/zhoujunye/mas-stages/`.
 | `krama-random20-20261111-02` | `20261111-krama-random20-02` | Newly authorized sixty-slot Single/Native/Structured run from commit `642a6dd`, same frozen twenty questions, concurrency sixteen, CPU8/thread4, at most six semantic judges and zero retries; independent detached run, not replacements for `-01` |
 | `krama-loop-pilot-20261111-01` | `20261111-loop-guard-pilot-01` | Nine authorized Structured solver slots: three fixed questions times observe/warn/worker-stop, 900s each, concurrency three, CPU8/thread4, no retries or paid judges, CNY50 planning budget; preserve all attempts, source/proof/input bindings and incurred accounting, including any budget stop |
 | `krama-temperature1-pilot-20261112-01` | `20261112-temperature1-pilot-01` | Three authorized Structured solvers, thinking off/T=1.0, loop observation only, 900s, concurrency three, CPU8/thread4, no retries or paid judges, independent CNY20 budget; preserve all attempts, frozen source, admission proofs and accounting |
+| `krama-random20-20261112-01` | `20261112-krama-random20-t1-01` | Sixty authorized Single/Native/Structured slots on the same frozen Random20, thinking off/T=1.0, no loop detector, concurrency sixteen, CPU8/thread4, at most six one-call judges, zero retries; user requested no monetary cap and active monitoring |
+| `krama-random20-three-repeats-20261112-01` | `20261112-krama-three-repeats-run-01` | Stopped in its first round; user subsequently deleted only its Native/Structured result payloads. Retain the complete twenty-task Single, frozen source and common/host accounting for all incurred costs; never resume this pruned batch |
+| `krama-random20-forced-repeats-20261112-01` | `20261112-krama-forced-repeats-01` | Reuse two existing Single rounds once each; one new Single and three new Native/Structured rounds under mandatory delegation: 140 new solvers, at most 14 one-call judges, zero retries, thinking off/T=1.0, CPU8/thread4, concurrency sixteen plus two graders, no monetary cap and continuous monitoring |
 
 Preserve raw attempts, submissions, ledgers, incurred costs, frozen settings,
 admission proofs, source and result reports, including failed/incomplete work.
@@ -49,6 +52,14 @@ Datasets/checkouts, the evaluation environment, existing environments and requir
 Docker images, mode-0600 credentials, frozen Validation20 IDs/hashes and unrelated
 user work are not cleanup targets. FDABench preparation inputs/receipts stay
 protected. Never touch `/home/zhoujunye/agent-team` or rewrite Git history.
+
+On November 12 the user explicitly authorized one exception: the stale project
+`/home/zhoujunye/mas/.venv` (retired MAS-information package names, Deep Agents
+CLI, no `sqlglot`) and the retired Codex environments `codex-0.147.0`/`codex-0.159.3`,
+with their dangling `~/.local/bin/codex` launcher, were removed. The evaluation
+environment remains the only active interpreter and stays protected. The uv-managed
+Deep Agents tool in the home directory was left untouched because Agent-Team
+references Deep Agents.
 
 On November 11 the user conditionally authorized retirement of unused old MAS
 images after validating their SQLite/PDF-capable replacement. This supersedes
@@ -95,6 +106,8 @@ hashes and scope rather than deleted payload copies.
 | November 11 authorized repo/server cleanup | `maintenance-20261111-cleanup/` | Server: 19,026 entries / 853,059,024 bytes removed, 38,343 protected entries unchanged. Local temporary copies: 153 entries / 26,944,152 bytes removed, 168 protected entries unchanged |
 | November 11 random20 preparation cleanup | `krama-random20-preparation-20261111-01/cleanup.json` | Removed five byte-identical generated report copies (304,578 bytes) and the superseded unpaid two-condition stage/receipts; 35,521 protected regular files rehashed unchanged |
 | November 11 release cleanup | `maintenance-20261111-release-cleanup/` | 9,631 entries / 385,739,781 regular-file bytes removed; all 37,133 protected entries unchanged; 897 tests, nine synthetic workflows and sixty task preflights passed, zero paid calls |
+| November 12 review cleanup | `maintenance-20261112-cleanup/cleanup.json` | Five superseded unpaid tool-loop guard stages and two receipts with no document or receipt reference, plus eight production-tree files already deleted in Git: 1,521 files / 15,495,166 bytes; 72,963 protected entries rehashed unchanged; zero paid calls |
+| November 12 environment removal | `maintenance-20261112-environments/` | User-authorized removal of the stale project `.venv` and two retired Codex environments plus their launcher: 10,702 entries / 1,193,231,344 bytes, per-entry manifest retained; 69,769 protected entries including the evaluation environment rehashed unchanged; 1,060 tests passed afterwards; zero paid calls |
 
 Historical receipts retain failed checks and successful replacements. The first
 random20 cleanup verifier mistook sixteen special paths for regular files; the

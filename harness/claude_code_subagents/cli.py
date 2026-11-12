@@ -22,4 +22,5 @@ class ClaudeCodeSubagentsCLI:
             output=output, timeout=timeout, allowed_tools=allowed_tools, disallowed_tools=disallowed_tools,
             max_budget_usd=max_budget_usd, settings=settings, isolated_settings=isolated_settings,
             execute=execute, command_prefix=command_prefix, observer_dir=observer_dir,
-            observer_target=observer_target, hook_script=hook_script, hook_python=hook_python)
+            observer_target=observer_target, hook_script=hook_script, hook_python=hook_python,
+            require_delegation=True)

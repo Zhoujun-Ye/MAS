@@ -27,7 +27,8 @@ def bound_proof(backend):
         proof["native_single_agent"] = dict(passed=True, subagent_starts=0, executed_delegation_tools=0)
         proof["delegation_rejections_observed"] = 2
     else:
-        proof["native_subagents"] = dict(passed=True, subagent_starts=1, native_team_configs=0, teammate_idle_events=0)
+        proof["native_subagents"] = dict(passed=True, subagent_starts=1, native_team_configs=0, teammate_idle_events=0,
+            mandatory_delegation=dict(passed=True, version='native-delegation-v1'))
     plan = dict(image_id="fixture-image", cli_binaries={"claude": dict(sha256="fixture-binary-hash")},
                 model_catalogs={}, effort='max')
     return proof, plan

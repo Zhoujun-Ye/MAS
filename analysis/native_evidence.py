@@ -2,6 +2,7 @@
 
 import argparse
 from collections import Counter
+from datetime import datetime
 import json
 import re
 from pathlib import Path
@@ -125,6 +126,49 @@ def background_shell_evidence(rows):
                 scope='Native hook observations, not completed work or post-exit process quiescence')
 
 
+def timeout_waiting_evidence(folder, cutoff):
+    """Read hook state at the recorded host timeout; do not infer intent from prose."""
+    unknown = dict(measured=False, lead_idle_waiting=None, pending_worker_ids=None,
+                   basis='Root Stop with pending workers and no subsequent lead activity before host timeout')
+    path = Path(folder)/'native-profile/observer/events.jsonl'
+    if not cutoff or not path.is_file():
+        return unknown
+    try:
+        limit = datetime.fromisoformat(cutoff)
+        if limit.tzinfo is None:
+            return unknown
+        rows = []
+        for line in path.read_text().splitlines():
+            event = json.loads(line)
+            stamp = datetime.fromisoformat(event['observer_received_at'])
+            if stamp.tzinfo is None:
+                return unknown
+            if stamp <= limit:
+                rows.append(event)
+        root = next((e.get('session_id') for e in rows if e.get('hook_event_name')=='SessionStart'), None)
+        if not root:
+            return unknown
+        active, ended, stopped = set(), False, False
+        for event in rows:
+            kind = event.get('hook_event_name')
+            actor = event.get('agent_id') or event.get('agentId')
+            if kind=='SubagentStart' and actor:
+                active.add(actor)
+            elif kind=='SubagentStop' and actor:
+                active.discard(actor)
+            elif not actor and '/subagents/' not in str(event.get('transcript_path','')) and event.get('session_id')==root:
+                if kind=='Stop':
+                    stopped=True
+                elif kind in {'UserPromptSubmit','PreToolUse','PostToolUse','PostToolUseFailure'}:
+                    stopped=False
+                elif kind=='SessionEnd':
+                    ended=True
+        return dict(unknown, measured=True, lead_idle_waiting=bool(stopped and active and not ended),
+                    pending_worker_ids=sorted(active))
+    except (OSError, ValueError, KeyError, TypeError, AttributeError):
+        return unknown
+
+
 def native_subagents(folder):
     events = Path(folder)/"native-profile/observer/events.jsonl"
     rows = [json.loads(line) for line in events.read_text().splitlines()] if events.exists() else []
@@ -152,6 +196,8 @@ def native_subagents(folder):
     # Killed native workers may have no SubagentStop hook. Reconcile counts only
     # against the same completed root session; never infer worker identity/quiescence.
     termination = None
+    returned = set()
+    wait_ceiling_exceeded = False
     try:
         report = json.loads((Path(folder) / "report.json").read_text())
         cli = report.get("cli", {})
@@ -160,6 +206,12 @@ def native_subagents(folder):
         killed = stats.get("killed", {})
         counts = [stats.get("spawned"), stats.get("completed")]
         kills = [killed.get(k) for k in ("parent", "user", "system")]
+        stderr = Path(folder) / 'cli/stderr.log'
+        wait_ceiling_exceeded = bool(type(killed.get('system')) is int and killed['system'] > 0
+            and stderr.is_file() and re.search(
+                r'^Background tasks still running after [0-9.]+s; terminating\. '
+                r'Set CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS=0 to wait indefinitely\.$',
+                stderr.read_text(errors='replace'), flags=re.MULTILINE))
         if (active and root and root_end and cli.get("status") == "cli_exited"
                 and cli.get("returncode") == 0 and native.get("session_id") == root
                 and native.get("terminal_reason") == "completed" and native.get("is_error") is False
@@ -168,17 +220,64 @@ def native_subagents(folder):
                 and stops <= starts and counts == [len(starts), len(stops)]
                 and sum(kills) == len(active) and stats.get("failed") == 0):
             termination = dict(killed_by=killed, count=sum(kills), scope="aggregate_native_counts; identities_unverified")
+        # A completed native Agent return can outlive a missing SubagentStop
+        # (e.g. a failed worker API call). Require the same root call and identity.
+        calls = {r.get('tool_use_id') for r in rows if r.get('session_id') == root
+                 and r.get('hook_event_name') == 'PreToolUse' and r.get('tool_name') in {'Agent', 'Task'}
+                 and not r.get('agent_id') and '/subagents/' not in str(r.get('transcript_path', ''))
+                 and r.get('tool_use_id')}
+        root_starts = {r.get('agent_id') for r in rows if r.get('session_id') == root
+                       and r.get('hook_event_name') == 'SubagentStart'}
+        for event in rows:
+            response = event.get('tool_response')
+            if (event.get('session_id') == root and not event.get('agent_id')
+                    and '/subagents/' not in str(event.get('transcript_path', ''))
+                    and event.get('hook_event_name') == 'PostToolUse'
+                    and event.get('tool_name') in {'Agent', 'Task'} and event.get('tool_use_id') in calls
+                    and isinstance(response, dict) and response.get('status') == 'completed'):
+                identity = response.get('agentId') or response.get('agent_id')
+                if identity in active & root_starts:
+                    returned.add(identity)
+        if not (root and root_end and cli.get('status') == 'cli_exited' and cli.get('returncode') == 0
+                and native.get('session_id') == root and native.get('terminal_reason') == 'completed'
+                and native.get('is_error') is False and stats.get('failed') == 0
+                and start_events == len(starts) and stop_events == len(stops) and stops <= starts
+                and all(type(v) is int and v >= 0 for v in counts + kills)
+                and counts == [len(starts), len(stops | returned)] and sum(kills) == 0):
+            returned.clear()
     except (OSError, ValueError, TypeError, AttributeError):
         pass
-    complete = bool(starts) and root_end and (not active or termination is not None)
-    return dict(passed=bool(root and complete and not configs and not teammate_idle),
+    accounted = not (active - returned) or termination is not None
+    complete = bool(starts) and root_end and accounted and not wait_ceiling_exceeded
+    policy_rows = [r.get('mandatory_delegation') for r in rows]
+    mandatory = None
+    if any(isinstance(r, dict) for r in policy_rows):
+        measured = all(isinstance(r, dict) and r.get('version') == 'native-delegation-v1'
+                       for r in policy_rows)
+        errors = sum(isinstance(r, dict) and r.get('action') == 'policy_error' for r in policy_rows)
+        qualified = {r.get('agent_id') for r in rows if r.get('session_id') == root
+            and r.get('hook_event_name') == 'SubagentStart'
+            and isinstance(r.get('mandatory_delegation'), dict)
+            and r['mandatory_delegation'].get('action') == 'worker_started'} - {None}
+        mandatory = dict(version='native-delegation-v1', measured=measured,
+            passed=bool(measured and qualified and not errors), worker_ids=sorted(qualified), errors=errors,
+            denied_tool_calls=sum(isinstance(r, dict) and r.get('action') == 'tool_denied' for r in policy_rows),
+            blocked_stops=sum(isinstance(r, dict) and r.get('action') == 'stop_blocked' for r in policy_rows))
+    return dict(passed=bool(root and complete and not configs and not teammate_idle
+                           and (mandatory is None or mandatory['passed'])),
+                mandatory_delegation=mandatory,
                 subagent_starts=start_events, subagent_stops=stop_events, unique_subagents=len(starts),
                 active_subagent_ids=sorted(active),
+                native_completed_return_ids=sorted(returned),
+                unaccounted_subagent_ids=sorted(active - returned) if termination is None else [],
                 native_team_configs=len(configs), teammate_idle_events=teammate_idle, session_end=root_end,
                 structural_delegation_observed=bool(starts),
                 structural_delegation_complete=complete,
-                lifecycle_basis="hooks_and_native_termination_counts" if termination else "hooks",
+                lifecycle_basis=("hooks_and_native_termination_counts" if termination else
+                                 "hooks_and_native_completed_returns" if returned else "hooks"),
                 native_termination_accounting=termination,
+                worker_termination_accounted=accounted,
+                background_wait_ceiling_exceeded=wait_ceiling_exceeded,
                 workspace_quiescence="unverified",
                 background_shells=background_shell_evidence(rows),
                 child_tool_evidence=children,

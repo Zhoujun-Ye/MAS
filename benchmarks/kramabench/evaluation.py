@@ -23,6 +23,16 @@ NUMERIC_POLICIES = (UPSTREAM_NUMERIC_POLICY, NUMERIC_POLICY)
 NUMERIC_RELATIVE_TOLERANCE = 1e-4
 
 
+def declared_incomplete(data):
+    """Recognize the unfinished submission contract without accepting broken pipelines."""
+    return (isinstance(data, dict)
+            and set(data) == {'answer', 'pipeline_path', 'evidence', 'unfinished'}
+            and data['answer'] is None and data['pipeline_path'] is None
+            and isinstance(data['evidence'], str)
+            and isinstance(data['unfinished'], list) and bool(data['unfinished'])
+            and all(isinstance(reason, str) and reason.strip() for reason in data['unfinished']))
+
+
 def validate_numeric_policy(policy):
     if policy not in NUMERIC_POLICIES:
         raise ValueError('Unknown numeric policy: ' + str(policy))
@@ -218,9 +228,10 @@ def grade_answer(upstream, task_id, submission_path, *, paraphrase=None, numeric
     reference = next(row for row in rows if row['id'] == task_id)
     submission_bytes = Path(submission_path).read_bytes() if submission_path is not None else None
     submission = json.loads(submission_bytes) if submission_bytes is not None else {'answer': None}
+    incomplete = declared_incomplete(submission)
     result = score_answer(submission['answer'], reference['answer'], reference['answer_type'],
-                          paraphrase=paraphrase, numeric_policy=numeric_policy) if submission_bytes is not None else dict(
-        status='invalid_submission', answer_type=reference['answer_type'], metrics={name: None if name in
+                          paraphrase=paraphrase, numeric_policy=numeric_policy) if submission_bytes is not None and not incomplete else dict(
+        status='incomplete_submission' if incomplete else 'invalid_submission', answer_type=reference['answer_type'], metrics={name: None if name in
         {'mean_absolute_error', 'mean_squared_error'} else 0.0 for name in METRICS[reference['answer_type']]},
         metric=PRIMARY[reference['answer_type']], score=0.0, score_kind='binary' if reference['answer_type'] in
         {'numeric_exact', 'string_exact', 'string_approximate'} else 'continuous', judge_calls=0)

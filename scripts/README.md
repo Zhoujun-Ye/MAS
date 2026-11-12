@@ -25,3 +25,10 @@ exercises the complete benchmark runner. These complementary checks are syntheti
 not paid solver launch options or evidence of benchmark quality.
 `krama_workflow.py` reuses that fixture for Single/Native/Structured prompt binding,
 mandatory delegation, mounted data, submission and credential-free pipeline replay.
+`replay_failures.py` checks Docker replay attribution with synthetic artifacts:
+missing image or mount versus submitted processes exiting 1/125/126/127.
+
+`studies/krama_repeats.py` prepares three independent runs of the same frozen
+Krama Random20 in Single/Native/Structured (180 solvers). Seeds reorder task
+groups, not provider sampling. It defaults to a free plan; paid dispatch needs
+fresh explicit authorization. See `docs/studies/krama-three-repeats.md`.

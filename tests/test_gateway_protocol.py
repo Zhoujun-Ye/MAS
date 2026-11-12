@@ -1,4 +1,5 @@
 import io
+import http.client
 import json
 import socket
 import threading
@@ -127,7 +128,73 @@ def test_sse_usage_recorded_without_output_text(tmp_path, monkeypatch):
     assert row["origin"] == "unverified"
 
 
-def test_partial_stream_is_unknown_not_zero(tmp_path, monkeypatch):
+def test_open_transport_failure_is_not_provider_502_and_is_not_retried(tmp_path, monkeypatch):
+    calls = []
+    def upstream(request):
+        calls.append(request)
+        raise ConnectionResetError('synthetic-secret private transport detail')
+    monkeypatch.setattr(credential_gateway, 'open_upstream', upstream)
+    ledger = tmp_path/'ledger'
+    with CredentialGateway('synthetic-secret', ledger_path=ledger) as gateway:
+        with pytest.raises(urllib.error.HTTPError) as caught:
+            post(gateway)
+        assert caught.value.code == 502
+        caught.value.close()
+    row = json.loads(ledger.read_text().splitlines()[-1])
+    assert row['outcome'] == 'transport_error' and row['transport_error_class'] == 'ConnectionResetError'
+    assert len(calls) == 1 and 'synthetic-secret' not in ledger.read_text()
+
+
+@pytest.mark.parametrize('failure', ['transport', 'http', 'error_body'])
+def test_upstream_failure_is_preserved_when_error_response_is_interrupted(tmp_path, monkeypatch, failure):
+    from harness.runtime_support.admission import infrastructure_health
+    class BrokenBody(io.BytesIO):
+        def read(self, *args):
+            raise ConnectionResetError('synthetic-secret')
+    calls = []
+    def upstream(request):
+        calls.append(request)
+        if failure == 'transport':
+            raise ConnectionResetError('synthetic-secret')
+        body = BrokenBody() if failure == 'error_body' else io.BytesIO(b'{"type":"error"}')
+        raise urllib.error.HTTPError(request.full_url, 503, 'synthetic-secret', {}, body)
+    def broken_headers(self):
+        raise BrokenPipeError('synthetic-secret')
+    monkeypatch.setattr(credential_gateway, 'open_upstream', upstream)
+    ledger = tmp_path/'ledger'
+    with CredentialGateway('synthetic-secret', ledger_path=ledger) as gateway:
+        monkeypatch.setattr(gateway.server.RequestHandlerClass, 'end_headers', broken_headers)
+        with pytest.raises(http.client.RemoteDisconnected):
+            post(gateway)
+    row = json.loads(ledger.read_text().splitlines()[-1])
+    assert row['outcome'] == ('transport_error' if failure == 'transport' else 'upstream_rejected')
+    assert row['http_status'] == (502 if failure == 'transport' else 503)
+    assert row['response_delivery'] == 'interrupted'
+    health = infrastructure_health(ledger)
+    assert health['infra_degraded'] is True
+    assert bool(health['upstream_5xx']) is (failure != 'transport')
+    assert len(calls) == 1 and 'synthetic-secret' not in ledger.read_text()
+
+
+def test_observer_fault_is_not_misreported_as_upstream_transport_error(tmp_path, monkeypatch):
+    class Response(io.BytesIO):
+        status = 200
+        headers = {'Content-Type': 'application/json'}
+    def broken_observer(self, chunk):
+        raise ValueError('synthetic-secret')
+    monkeypatch.setattr(credential_gateway, 'open_upstream', lambda request: Response(b'{}'))
+    monkeypatch.setattr(credential_gateway.UsageObserver, 'feed', broken_observer)
+    ledger = tmp_path/'ledger'
+    with CredentialGateway('synthetic-secret', ledger_path=ledger) as gateway:
+        with post(gateway) as response:
+            response.read()
+    row = json.loads(ledger.read_text().splitlines()[-1])
+    assert row['outcome'] == 'gateway_error' and row['error_type'] == 'ValueError'
+    assert 'synthetic-secret' not in ledger.read_text()
+
+
+@pytest.mark.parametrize('error', [TimeoutError, ConnectionResetError, BrokenPipeError])
+def test_partial_stream_is_unknown_not_zero(tmp_path, monkeypatch, error):
     class Response:
         status = 200
         headers = {"Content-Type": "text/event-stream"}
@@ -136,7 +203,7 @@ def test_partial_stream_is_unknown_not_zero(tmp_path, monkeypatch):
             self.count += 1
             if self.count == 1:
                 return b'data: {"usage":{"input_tokens":17}}\n\n'
-            raise TimeoutError()
+            raise error('synthetic-secret must never appear in ledger')
         def __enter__(self):
             return self
         def __exit__(self, *args):
@@ -148,6 +215,8 @@ def test_partial_stream_is_unknown_not_zero(tmp_path, monkeypatch):
             response.read()
     row = json.loads(ledger.read_text().splitlines()[-1])
     assert row["outcome"] == "transport_interrupted"
+    assert row['transport_error_class'] == error.__name__
+    assert 'synthetic-secret' not in ledger.read_text()
     assert row["completion"] == "unknown"
     assert row["usage"] == {"input_tokens": 17}
     assert row["usage_status"] == "partial"

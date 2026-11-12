@@ -2,8 +2,30 @@
 
 FULL/OBS and their prompt-only ablations were retired on 2026-11-10. Results
 below are historical evidence, not active launch choices. Current conditions
-default to strict Single and frozen Structured. The [prepared Krama Native
-comparison](studies/krama-random20-20261111.md) has no paid results yet.
+default to strict Single and frozen Structured.
+
+The frozen Krama Random20 questions have two thinking-off/T=0 batches in
+Single/Native/Structured ([T=0 record](studies/krama-random20-20261111.md)) and one
+thinking-off/T=1.0 batch ([T=1.0 record](studies/krama-random20-temperature1-20261112.md)).
+The T=1.0 answer means are 53.33%/80.00%/71.67%; its
+[audit-filtered paired view](studies/krama-anomaly-audit-20261112.md#paired-native-audit-view) on the same
+eighteen tasks gives 53.70%/77.78%/79.63%. These are repeated diagnostic runs, not
+independent tests or causal organization effects. The
+[three-repeat batch](studies/krama-three-repeats.md),
+`krama-random20-three-repeats-20261112-01`, was stopped at the user's request:
+59 first-round attempts completed and one was interrupted; rounds two/three
+were not dispatched. Its partial evidence/costs remain retained, not three-round
+results. Its Native/Structured payloads were subsequently deleted at the user's
+request; Single and incurred accounting remain. The newly authorized
+`krama-random20-forced-repeats-20261112-01` reuses both complete T=1.0 Single rounds
+and runs the missing Single round plus three new Native/Structured rounds:
+140 new solvers and 14 judges, now completed without retries. The three-round
+raw means are Single 60.56%, Native 72.22%, Structured 61.11%. Nine MAS attempts
+encountered the subsequently fixed asynchronous delegation gate race; these
+results cannot be presented as free of harness effects. Read-only corrected
+lifecycle diagnostics leave one unaudited task (`wildfire-easy-3`), excluded from
+all nine cells in the additional nineteen-task paired view. Raw scores and paid
+source remain unchanged; this is not a rerun of the corrected harness.
 
 Paid batches and their exact source/accounting are listed in [retention](archive.md).
 The November 11 shared-image check completed twelve Single/Structured solvers

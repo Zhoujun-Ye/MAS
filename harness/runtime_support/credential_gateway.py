@@ -148,8 +148,8 @@ class CredentialGateway:
             def log_message(self, *args):
                 pass
 
-            def json_error(self, code, kind, message):
-                self.record.update(http_status=code, outcome="rejected", error_type=kind)
+            def json_error(self, code, kind, message, *, outcome='rejected'):
+                self.record.update(http_status=code, outcome=outcome, error_type=kind)
                 value=dict(type="error",error=dict(type=kind,message=message))
                 if kind=='host_fetch_failed':
                     value.update(fetch_failure_reason=self.record.get('fetch_failure_reason'),
@@ -171,6 +171,7 @@ class CredentialGateway:
                     http_status=None, usage=None, usage_status="unknown")
                 observer = None
                 response = None
+                phase = 'request'
                 try:
                     parsed = urllib.parse.urlsplit(self.path)
                     if parsed.path in ROUTES:
@@ -260,9 +261,13 @@ class CredentialGateway:
                     except urllib.error.HTTPError as error:
                         self.upstream_error(error)
                         return
-                    except Exception:
-                        self.json_error(502, "upstream_transport_error", "Provider transport failed; completion and charge unknown; not retried")
-                        self.record["outcome"] = "transport_error"
+                    except Exception as error:
+                        if gateway.closing.is_set():
+                            self.record.update(outcome='shutdown_inflight', completion='unknown')
+                            return
+                        self.record['transport_error_class'] = type(error).__name__
+                        self.json_error(502, "upstream_transport_error",
+                            "Provider transport failed; completion and charge unknown; not retried", outcome='transport_error')
                         return
                     with gateway.activity_lock:
                         gateway.active_responses.add(response)
@@ -281,24 +286,38 @@ class CredentialGateway:
                         self.end_headers()
                         pending = b""
                         secret = gateway.key.encode()
-                        while chunk := response.read1(65536):
+                        while True:
+                            phase = 'upstream_read'
+                            chunk = response.read1(65536)
+                            if not chunk:
+                                break
+                            phase = 'response_observation'
                             observer.feed(chunk)
                             pending = (pending + chunk).replace(secret, b"[REDACTED]")
                             keep = len(secret) - 1
                             if len(pending) > keep:
                                 cut = len(pending) - keep
+                                phase = 'downstream_write'
                                 self.wfile.write(pending[:cut])
                                 self.wfile.flush()
                                 pending = pending[cut:]
+                        phase = 'downstream_write'
                         self.wfile.write(pending.replace(secret, b"[REDACTED]"))
                         self.wfile.flush()
                         self.record["outcome"] = "response_complete"
-                except (BrokenPipeError, ConnectionResetError):
-                    self.record.update(outcome="client_disconnected", completion="unknown")
-                except (OSError, TimeoutError):
-                    self.record.update(outcome="transport_interrupted", completion="unknown")
                 except Exception as error:
-                    self.record.update(outcome="gateway_error", error_type=type(error).__name__, completion="unknown")
+                    if self.record['outcome'] in {'upstream_rejected', 'transport_error'}:
+                        # A downstream failure cannot erase an already observed upstream failure.
+                        self.record.update(response_delivery='interrupted', interruption_error_class=type(error).__name__)
+                    elif gateway.closing.is_set():
+                        self.record.update(outcome='shutdown_inflight', completion='unknown')
+                    elif phase == 'upstream_read':
+                        self.record.update(outcome='transport_interrupted', completion='unknown',
+                                           transport_error_class=type(error).__name__)
+                    elif isinstance(error, (BrokenPipeError, ConnectionResetError)):
+                        self.record.update(outcome='client_disconnected', completion='unknown')
+                    else:
+                        self.record.update(outcome='gateway_error', error_type=type(error).__name__, completion='unknown')
                 finally:
                     if response is not None:
                         with gateway.activity_lock:
@@ -369,9 +388,13 @@ class CredentialGateway:
                         self.record.update(web_success=False,estimated_cost_usd=0,cost_status='documented nonbillable HTTP failure')
                         self.upstream_error(error)
                         return
-                    except Exception:
-                        self.json_error(502,'web_transport_error','Web response unavailable or incomplete; charge unknown; not retried')
-                        self.record['outcome']='transport_error'
+                    except Exception as error:
+                        if gateway.closing.is_set():
+                            self.record.update(outcome='shutdown_inflight', completion='unknown')
+                            return
+                        self.record['transport_error_class'] = type(error).__name__
+                        self.json_error(502,'web_transport_error',
+                            'Web response unavailable or incomplete; charge unknown; not retried', outcome='transport_error')
                         return
                     finally:
                         if response is not None:
@@ -401,6 +424,7 @@ class CredentialGateway:
                             self.record["provider_request_id"] = gateway.redact(value)
 
             def upstream_error(self, error):
+                self.record.update(http_status=error.code, outcome='upstream_rejected')
                 try:
                     raw = error.read(128 * 1024 + 1)
                     truncated = len(raw) > 128 * 1024

@@ -1,0 +1,51 @@
+{
+  "effort": "none",
+  "inference_policy": {
+    "thinking": "disabled",
+    "temperature": 1,
+    "effort": null
+  },
+  "deterministic_environment": {
+    "PYTHONHASHSEED": "0",
+    "TZ": "UTC",
+    "OMP_DYNAMIC": "FALSE",
+    "MKL_DYNAMIC": "FALSE"
+  },
+  "web_policy": {
+    "protocol": "web-v5",
+    "successful_call_limit": 20,
+    "attempt_limit": 40,
+    "fetch_backend": "local-clash-unix",
+    "fetch_proxy_socket": "/home/zhoujunye/.cache/mas-web/clash.sock",
+    "dns_backend": "local-clash-dns-unix",
+    "dns_socket": "/home/zhoujunye/.cache/mas-web/dns.sock",
+    "dns_failure": "fail closed; no server resolver or public DNS fallback",
+    "fetch_proxy_failure": "fail closed; no direct fallback",
+    "fetch_timeout_seconds": 30,
+    "fetch_character_limit": 20000,
+    "fetch_content_types": "text/*, application/json|xml and +json|+xml; HTML stripped, other text verbatim",
+    "fetch_failure_reporting": "payload-free reason code and original target HTTP status",
+    "client_timeout_seconds": 45,
+    "search_results": 10,
+    "search_snippet_characters": 1500,
+    "failed_call_policy": "known failures release success reservation; no automatic retries",
+    "cost_policy": "successful nonempty provider responses only; unknown completion stays unknown",
+    "provider_unit_price_usd": 0.00075,
+    "price_source": "https://api-docs.deepseek.com/guides/search/"
+  },
+  "organization_sha256": {
+    "claude-code-single-agent": "ff771193df12b53fc2aa3593355b07847f3993728d3f850c148bb825c77c5ce6",
+    "native": "263822c47e6a931630000ae87d9a6060d9b2a396e12991f53f983efa07e5d7cf",
+    "claude-code-subagents": "31ff6e4176a25d961866f644adb4d7b97cb4b00228e696c0e4e38a52b9485a95"
+  },
+  "timeout_seconds_by_benchmark": {
+    "dataclawbench": 1200,
+    "hybriddeepresearch": 1800,
+    "kramabench": 3600
+  },
+  "solver_concurrency": 16,
+  "judge_concurrency": 2,
+  "cpu_per_attempt": 8,
+  "compute_threads": 4,
+  "record_resources": true
+}

@@ -13,6 +13,34 @@ def test_native_modes_cannot_be_switched_by_settings():
     assert 'teammateMode' not in json.loads(sub[sub.index('--settings')+1])
 
 
+@pytest.mark.parametrize('change', ['none', 'wrong_agent', 'wrong_session', 'async', 'no_pre',
+                                   'no_end', 'bad_count', 'cli_error', 'wrong_native_session'])
+def test_completed_native_agent_return_reconciles_missing_stop_conservatively(tmp_path, change):
+    path = tmp_path/'native-profile/observer/events.jsonl'; path.parent.mkdir(parents=True)
+    rows = [dict(hook_event_name='SessionStart', session_id='root'),
+            dict(hook_event_name='PreToolUse', session_id='root', tool_name='Agent', tool_use_id='spawn'),
+            dict(hook_event_name='SubagentStart', session_id='root', agent_id='worker'),
+            dict(hook_event_name='PostToolUse', session_id='root', tool_name='Agent', tool_use_id='spawn',
+                 tool_response=dict(agentId='worker', status='completed')),
+            dict(hook_event_name='SessionEnd', session_id='root')]
+    if change == 'wrong_agent': rows[3]['tool_response']['agentId'] = 'other'
+    if change == 'wrong_session': rows[3]['session_id'] = 'other'
+    if change == 'async': rows[3]['tool_response']['status'] = 'async_launched'
+    if change == 'no_pre': rows.pop(1)
+    if change == 'no_end': rows.pop()
+    native = dict(session_id='other' if change == 'wrong_native_session' else 'root', terminal_reason='completed',
+                  is_error=False, subagent_stats=dict(spawned=1, completed=0 if change == 'bad_count' else 1,
+                      failed=0, killed=dict(parent=0, user=0, system=0)))
+    (tmp_path/'report.json').write_text(json.dumps(dict(cli=dict(status='cli_exited',
+        returncode=1 if change == 'cli_error' else 0, native_result=native))))
+    path.write_text('\n'.join(map(json.dumps, rows)))
+    audit = native_subagents(tmp_path)
+    assert audit['passed'] is (change == 'none')
+    assert audit['active_subagent_ids'] == ['worker']
+    assert audit['native_completed_return_ids'] == (['worker'] if change == 'none' else [])
+    assert audit['workspace_quiescence'] == 'unverified'
+
+
 def test_subagent_audit_requires_returned_workers_and_no_team(tmp_path):
     profile = tmp_path/'native-profile'
     path = profile/'observer/events.jsonl'

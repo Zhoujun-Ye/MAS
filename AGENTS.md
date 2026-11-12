@@ -16,7 +16,13 @@ coordinator/full modes, capability catalogs, or custom scheduling semantics.
 - `harness/claude_code_subagents/`: print-mode ordinary native Claude subagents, with Teams disabled.
 - `harness/claude_code_single_agent/`: print-mode strict Single, with native delegation tools removed and denied.
 - `harness/_claude_cli.py` and `_claude_hooks.py`: shared native arguments/observations,
-  and opt-in Single permission policy only. On November 12 the user retired all
+  strict Single permissions and the newly authorized mandatory-delegation policy.
+  Native/Structured leads may read/plan, but native hooks deny command execution
+  and file writes and block Stop until a matching lead Agent/Task call produces
+  SubagentStart. Workers are not gated. Keep exact organization prompts unchanged;
+  never create a worker from the harness or restore loop detection. This is a new
+  runtime protocol; require fresh free native proofs and separate paid authorization.
+  On November 12 the user retired all
   loop detection hooks, including observation-only counters, warnings, worker
   stops, lead notices and host loop termination. Do not restore loop-mode launch
   options or pilot drivers. Preserve frozen paid sources/results; historical
@@ -24,6 +30,18 @@ coordinator/full modes, capability catalogs, or custom scheduling semantics.
   settings remain thinking disabled, T=1.0. See
   `docs/studies/loop-guard-retirement-20261112.md`.
 - `harness/_cli.py`: CLI preflight, process lifetime, stdin and raw evidence only.
+- The November 12 anomaly fix sets native print background-wait ceiling to zero
+  in both adapters/containers; the common outer task deadline still applies.
+  Do not reintroduce the native ten-minute truncation or custom continuation.
+  Preserve recorded grades and paid sources; diagnostics distinguish native
+  waiting-limit termination, model artifact errors and replay/reporting errors.
+  The anomaly investigation authorizes server free checks only, not paid reruns.
+  Follow-up diagnostics do not change timeout-zero scoring: report lead waiting
+  and valid submission timing separately, leave unknown timing unknown. Replay
+  attribution uses Docker container state, not reserved exit codes alone. An
+  additional paired native-audit view must drop each unaudited task from every
+  condition while preserving raw scores and all costs. Display known partial
+  costs as lower bounds with unknown-request counts, never complete invoices.
 - The November 11 review-fix request authorizes a shared explicit tool surface:
   Single's twelve tools plus Agent/Task, SendMessage and ListAgents for Subagents;
   disable skills/slash commands for both. Keep the frozen organization prompts exact.
@@ -79,6 +97,11 @@ coordinator/full modes, capability catalogs, or custom scheduling semantics.
   20 frozen questions per active benchmark. See `docs/studies/validation20.md`
   and its public ID/hash manifest. Do not reroll questions based on results, silently
   replace failures, or describe this repeatedly used set as an independent final test.
+- The Krama Random20 three-repeat driver uses the same frozen 20 questions in
+  Single/Native/Structured, three independent rounds (180 solvers). Its seeds
+  control dispatch order only, not provider sampling. Keep thinking off/T=1.0,
+  zero retries and equal-weight repeat reporting; see `docs/studies/krama-three-repeats.md`.
+  Implementation/free checks do not authorize paid execution of the prepared plan.
 - CooperBench is retired, not an active dependency or retained result source.
 - FDABench is opt-in and local-only: exclude missing/invalid public scoring
   references and all cloud databases. Never mount gold subtasks, reference reports,
@@ -107,8 +130,42 @@ See `docs/cli-adapters.md` for pinned versions, references and limitations.
   zero retries and paid judges. Independent CNY20 budget; stop at CNY18 account
   spend to leave in-flight margin, not a provider hard cap. See
   `docs/studies/temperature1-pilot-20261112.md`. This authorization is consumed;
-  no further paid slots are authorized. The subsequent cleanup requires free
-  verification only, followed by a Git commit and push.
+  the cleanup that followed was free verification plus Git commit/push.
+- A later November 12 request authorizes source sync and one new frozen Random20
+  attempt per Single/Native/Structured condition: 60 solvers, at most six one-call
+  semantic judges, zero retries, thinking disabled/T=1.0, no loop detector,
+  concurrency sixteen with two overlapping graders, CPU8/thread4 and unchanged
+  task limits/prompts. The user explicitly requested no monetary cap and active
+  monitoring. Preserve all failures and accounting; do not hot-change paid source
+  or retry failures. See `docs/studies/krama-random20-temperature1-20261112.md`.
+  That run has completed all 60 solver slots and six judge calls; its scope is
+  consumed and does not authorize additional paid attempts or replacements.
+- The subsequent November 12 cleanup-and-launch request authorizes one three-round
+  Krama Random20 comparison: 180 solvers, at most 18 one-call semantic judges,
+  zero retries, thinking off/T=1.0, no guard, frozen prompts/tasks, CPU8/thread4.
+  Seeds 0/1/2 affect task-group dispatch order only. Rounds run sequentially at
+  solver concurrency 16 with two overlapping graders. The user explicitly chose
+  no monetary cap and continuous monitoring. Preserve failures and all costs;
+  no replacement, expansion or hot source changes. Output prefix:
+  `krama-random20-three-repeats-20261112-01`. See `docs/studies/krama-three-repeats.md`.
+- The user subsequently stopped that batch to introduce mandatory delegation.
+  Preserve its partial first round and all incurred accounting; rounds two/three
+  were not dispatched. Do not resume or replace it under changed source. The new
+  delegation policy is authorized for implementation and free server checks only;
+  a new paid run requires separate confirmation.
+- That confirmation now authorizes `krama-random20-forced-repeats-20261112-01`:
+  reuse the two complete T=1.0 Single rounds from `krama-random20-20261112-01`
+  and the stopped repeat batch's first round, each exactly once. Run one new
+  Single round (20), plus three new Native and Structured rounds (60 each):
+  140 new solvers, at most 14 one-call judges, zero retries, CPU8/thread4,
+  thinking off/T=1.0, mandatory delegation for MAS only, unchanged frozen prompts,
+  concurrency 16 plus two graders, no monetary cap and continuous monitoring.
+  The user explicitly authorized deletion of Native/Structured results only from
+  the stopped repeat batch, retaining its Single and incurred accounting. Do not
+  delete earlier historical batches or duplicate the two retained Single rounds.
+  All 140 new solvers and fourteen judges have completed; that authorization is
+  consumed. Subsequent anomaly fixes/review authorize free server validation and
+  Git commit/push only, not paid replacement attempts or production deployment.
 - Local `/Users/zhoujun/Desktop/MAS`; server
   `zhoujunye@10.123.4.30:22`, `/home/zhoujunye/mas`.
 - External server data and evaluation environment: `/home/zhoujunye/mas-data`.

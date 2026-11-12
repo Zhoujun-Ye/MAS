@@ -92,7 +92,7 @@ def test_derived_json_csv_markdown_and_from_report_agree(tmp_path):
     with (tmp_path/'direct/task-results.csv').open() as stream:
         row = next(csv.DictReader(stream))
     assert row['raw_score'] == '1' and row['compliant_score'] == '0'
-    assert 'Raw Mean | Compliant Mean' in (tmp_path/'direct/REPORT.md').read_text()
+    assert 'Raw Mean | Single-Policy Mean' in (tmp_path/'direct/REPORT.md').read_text()
     source = tmp_path/'old.json'
     source.write_text(json.dumps(old))
     run = subprocess.run([sys.executable, '-m', 'scripts.studies.matched_matrix_report',

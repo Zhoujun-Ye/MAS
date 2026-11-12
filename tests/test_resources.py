@@ -163,8 +163,11 @@ def test_historical_infra_profile_preserves_t0_without_changing_current_t1():
     historical=json.loads(profile.read_text())
     assert historical['inference_policy']==dict(thinking='disabled',temperature=0.0,effort=None)
     assert settings['inference_policy']==dict(thinking='disabled',temperature=1.0,effort=None)
-    assert {k:v for k,v in historical.items() if k!='inference_policy'}=={
-        k:v for k,v in settings.items() if k!='inference_policy'}
+    changed = {'inference_policy', 'mandatory_delegation'}
+    assert {k:v for k,v in historical.items() if k not in changed}=={
+        k:v for k,v in settings.items() if k not in changed}
+    assert 'mandatory_delegation' not in historical
+    assert set(settings['mandatory_delegation']) == {'claude-code-subagents'}
 
 
 def test_capability_checks_import_not_merely_presence(tmp_path):

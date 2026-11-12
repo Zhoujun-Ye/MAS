@@ -56,7 +56,8 @@ def test_legacy_validator_remains_compatible_without_runtime_binding():
     validate(proof, "claude-code-single-agent")
 
 
-@pytest.mark.parametrize('kind', ['native_error_injection', 'native_loop_injection'])
+@pytest.mark.parametrize('kind', ['native_error_injection', 'native_loop_injection', 'native_background_wait_injection',
+                                'native_delegation_injection'])
 def test_error_injection_proof_never_admits_paid_launch(kind):
     proof = claude_proof()
     proof['proof_kind'] = kind

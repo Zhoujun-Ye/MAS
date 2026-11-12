@@ -179,6 +179,8 @@ def native_env(backend, *, effort=DEFAULT_EFFORT, compute_threads=DEFAULT_COMPUT
                 CLAUDE_CODE_AUTO_COMPACT_WINDOW="786432",
                 CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS="0",
                 CLAUDE_CODE_MAX_RETRIES="0",
+                # The shared host deadline owns task lifetime, not print mode's idle drain cap.
+                CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS="0",
                 BASH_DEFAULT_TIMEOUT_MS="600000", BASH_MAX_TIMEOUT_MS="600000",
                 DISABLE_AUTOUPDATER="1", CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC="1",
                 LANGSMITH_TRACING="false", LANGCHAIN_TRACING_V2="false")

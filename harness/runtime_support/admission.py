@@ -102,8 +102,8 @@ def infrastructure_health(path):
     try:
         lines = path.read_text().splitlines()
     except FileNotFoundError:
-        return dict(infra_degraded=None, upstream_5xx=[], ledger_status='missing')
-    failures = {}
+        return dict(infra_degraded=None, upstream_5xx=[], transport_failures=[], ledger_status='missing')
+    failures, transport = {}, {}
     malformed = False
     for line in lines:
         try:
@@ -120,6 +120,12 @@ def infrastructure_health(path):
                 and type(status) is int and 500 <= status <= 599):
             identity = row.get('request_id')
             failures[identity] = dict(request_id=identity, http_status=status, route=row.get('route'))
-    return dict(infra_degraded=True if failures else None if malformed else False,
-                upstream_5xx=list(failures.values()), ledger_status='malformed' if malformed else 'read',
-                basis='host_gateway_upstream_response', retries_authorized=False)
+        if (row.get('event') == 'finished' and row.get('upstream_attempted') is True
+                and row.get('outcome') in {'transport_error', 'transport_interrupted'}):
+            transport[row.get('request_id')] = dict(request_id=row.get('request_id'), route=row.get('route'),
+                outcome=row['outcome'], error_type=row.get('error_type'),
+                transport_error_class=row.get('transport_error_class'), completion='unknown')
+    return dict(infra_degraded=True if failures or transport else None if malformed else False,
+                upstream_5xx=list(failures.values()), transport_failures=list(transport.values()),
+                ledger_status='malformed' if malformed else 'read',
+                basis='host_gateway_upstream_response_or_transport', retries_authorized=False)
