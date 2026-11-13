@@ -11,7 +11,7 @@ if (( $# )); then
   for path in "$@"; do
     case "$path" in
       *..*|/*|*assets/*|*upstream/*|*__pycache__*|*.pyc) echo "Refusing $path" >&2; exit 1 ;;
-      common/*.py|harness/*.py|harness/README.md|harness/*/README.md|benchmarks/*.py|analysis/*.py|scripts/*.py|scripts/*.sh|scripts/README.md|scripts/common/prompts/README.md|tests/*.py|docs/*.md|docs/studies/*.txt|docs/studies/validation20-v1-manifest.json|docs/studies/validation20-final-protocol.json|docs/studies/cpu8-infra-protocol.json|AGENTS.md|README.md|pyproject.toml) ;;
+      common/*.py|harness/*.py|harness/README.md|harness/*/README.md|benchmarks/*.py|analysis/*.py|scripts/*.py|scripts/*.sh|scripts/README.md|scripts/common/prompts/README.md|scripts/studies/causal_experiments/README.md|tests/*.py|docs/*.md|docs/studies/*.txt|docs/studies/validation20-v1-manifest.json|docs/studies/validation20-final-protocol.json|docs/studies/cpu8-infra-protocol.json|AGENTS.md|README.md|pyproject.toml) ;;
       *) echo "Not a scoped source path: $path" >&2; exit 1 ;;
     esac
     [[ -f "$path" && ! -L "$path" ]] || { echo "Not a regular source file: $path" >&2; exit 1; }

@@ -1,4 +1,4 @@
-"""Read-only intention-to-treat means and task-cluster contrasts for the five arms."""
+"""Read-only intention-to-treat means and task-cluster contrasts for the six arms."""
 
 import argparse
 from bisect import bisect_left,bisect_right
@@ -14,7 +14,7 @@ from analysis.stats import bootstrap_ci
 from common.io import read_json, write_json
 from scripts.studies.krama_repeats import finite_score
 from scripts.studies.matched_matrix_report import price
-from .runtime import ARMS, backend_for
+from .runtime import ARMS
 
 CONTRASTS=(('null_worker','native'),('native','single'),('recon_transplant','single'),
            ('self_brief','brief_prompt'),('brief_prompt','single'))
@@ -84,11 +84,12 @@ def summarize(plan,grades):
 
 def report(root):
     plan=read_json(root/'plan.json');summary=read_json(root/'summary.json',{})
-    result=summarize(plan,summary.get('grades',[]))
+    result=summarize(plan,[g for g in summary.get('grades',[]) if g['arm'] in ARMS])
     accounting=[]
     availability=[];secondary=[]
     for row in summary.get('rows',[]):
-        folder=Path(row['output'])/row['task_id']/backend_for(row['arm'])
+        from .run import session_backend
+        folder=Path(row['output'])/row['task_id']/session_backend(row['arm'])
         ledger=folder/'gateway-requests.jsonl'
         rows=[json.loads(line) for line in ledger.read_text().splitlines()] if ledger.exists() else []
         receipt=model_receipts(rows)
@@ -100,7 +101,7 @@ def report(root):
         if row['arm']=='recon':
             donor=read_json(Path(row['output'])/'packet.json',{})
             availability.append(donor.get('status')=='available')
-        else:
+        elif row['arm'] in ARMS:
             events_path=folder/'native-profile/observer/events.jsonl'
             events=[json.loads(x) for x in events_path.read_text().splitlines()] if events_path.exists() else []
             lead=lambda r:not (r.get('agent_id') or '/subagents/' in str(r.get('transcript_path','')))
@@ -120,7 +121,8 @@ def report(root):
                 delegation_calls=sum(lead(r) and r.get('hook_event_name')=='PreToolUse' and r.get('tool_name') in {'Agent','Task'} for r in events),
                 report_to_observed_submission_write_seconds=delay,
                 timing_scope='Hook emissions only; Bash-based writes or absent timestamps are unknown, and report emission is not verified incorporation'))
-    return dict(result,accounting=accounting,judge_calls=summary.get('judge_calls'),
+    from .e4_report import summarize as e4_summary
+    return dict(result,e4=e4_summary(plan,summary.get('grades',[])),accounting=accounting,judge_calls=summary.get('judge_calls'),
         judge_cost_scope='Retained judge request/response receipts; model lower bounds above exclude judges',
         account_delta=summary.get('account_delta'),accounting_scope=summary.get('accounting_scope'),
         recon_availability=dict(available=sum(availability),assigned=plan['independent_recon_attempts'],observed=len(availability),

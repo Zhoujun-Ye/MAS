@@ -3,6 +3,7 @@
 ## Current Protocols
 
 - [Krama Random20 repeat protocol and stopped partial batch](krama-three-repeats.md)
+- [Native/Single six-arm study and E4 replay](../../scripts/studies/causal_experiments/README.md)
 - [Active infrastructure and baseline boundaries](evidence-infra.md)
 - [Reproducibility and current inference settings](../reproducibility.md)
 - [Manifest execution, crash recovery and resource admission](fullscale-infra.md)
@@ -24,8 +25,8 @@ FULL/OBS and their ablations are historical conditions only.
   [consolidated anomaly audit/fixes](krama-anomaly-audit-20261112.md)
 - [Krama Random20 at thinking off/T=0, two batches](krama-random20-20261111.md)
 - [Structured T=1.0 pilot](temperature1-pilot-20261112.md)
-- Retired tool-loop guard: [design and free checks](tool-loop-guard-20261111.md),
-  [paid pilot](loop-guard-pilot-20261111.md) and [retirement](loop-guard-retirement-20261112.md)
+- Retired tool-loop guard: [paid pilot](loop-guard-pilot-20261111.md) and
+  [consolidated design, free checks and retirement](loop-guard-retirement-20261112.md)
 - [November 11 infrastructure review fixes](infra-review-fixes-20261111.md)
 - [November 11 three-benchmark infrastructure check](threebench-infra-20261111.md)
 - [FDABench CPU8 matched rerun](fdabench-cpu8-rerun-20261110.md) and [original diagnostic](fdabench-smoke4-20261110.md)

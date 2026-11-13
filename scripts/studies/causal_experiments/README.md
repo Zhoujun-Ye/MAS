@@ -31,8 +31,10 @@ Seeds 0, 1, 2 determine dispatch order only, not provider sampling. Every round
 has 180 solvers and thirty independent recon sessions; total 540 + 90 sessions.
 The judge cap is the actual eligible question count x six arms x three rounds,
 frozen before launch, with one call per cell and no retry.
-Thinking is disabled, temperature 1.0, CPU8/thread4, task deadline 3600s, zero
-retries. Failed attempts, donor failures, partial costs and raw scores are retained.
+The completed November 12 study used thinking disabled, temperature 1.0,
+CPU8/thread4, task deadline 3600s and zero retries. Fresh plans bind the current
+fixed default (now T=0.7), never rewrite those historical settings, and require
+new paid authorization. Failed attempts, donor failures, partial costs and raw scores are retained.
 
 | Arm | Intervention | Identifiable Contrast |
 | --- | --- | --- |
@@ -84,13 +86,18 @@ and the 16384-byte limit; only the enforced arm denies premature Bash.
   without a matching parent journal claim and reviewed execution marker.
 - `run.py` defaults to a no-call plan. `--prepare` checks source, task, image,
   binary, input hashes and a source-bound free proof for all six roles.
-- Rounds run sequentially. Within a round, up to sixteen solver/recon sessions
+- Rounds are work-conserving across seeds. Up to sixteen solver/recon/replay sessions
   and two grader threads overlap, sharing sixteen CPU reservation slots. Task and
   arm order are seeded/interleaved. Each E2 enters the ready queue immediately
   when its own recon finishes; no all-recon phase barrier or per-arm serialization.
 - Judge claims are reserved before dispatch and never refunded on uncertain
   failure. No retry/resume or best-of-N path exists. An exclusive controller lock,
   SQLite journal and one-shot marker protect irreversible work.
+- The completed T=1.0 run's one-time host-controller handoff is historical only.
+  Its implementation and amendment remain in frozen provenance
+  `20261112-causal-dispatch-overlap-01`; active code no longer offers handoff,
+  process adoption or continuation flags. E4 paired lead replay is a separate
+  prespecified intervention, not controller recovery.
 - Nonfatal HTTP5xx/transport errors and model deviations are recorded but do not
   truncate the assignment. No response, solver or judge is retried. Integrity,
   key/balance, unknown execution and cleanup failures stop new dispatch. Fatal
@@ -128,3 +135,41 @@ difference. The experiment is exploratory mechanism evidence, not unique causal
 mediation. Packet availability, non-submission rate, delegation count and observed
 report-to-submission timing are secondary outcomes. Bash-based write timing and
 unobserved incorporation remain unknown.
+
+## E4 Premise Replay
+
+The authorized T=0.7 study adds ten targeted tasks, three brief variants and three
+repeats: ninety worker-role sessions and ninety paired lead continuations. These
+are separate from the six-arm ITT, for 810 new sessions in total and at most 72
+one-call judges (six-arm eligible tasks only). Each E4 session has 900 seconds.
+
+`e4_prepare.py` freezes one historical first-delegation prefix per task, eight
+suspect/hedged hypotheses and two correct-premise controls. A verbatim brief,
+exact-span open-question rewrite and original-task-only prompt share a JSON
+reporting footer. Fresh native main sessions select the recorded built-in role
+and tool restrictions; they regenerate a primary-session system prompt rather
+than claiming bit-for-bit reproduction of the original subagent request.
+
+Each entire returned report goes to its own resumed lead at the identical first
+Agent/Task boundary. This fixes immediate delivery, not historical asynchronous
+timing. No final workspace, pipeline, submission or later transcript is copied.
+Prefixes with earlier successful command/file/planner mutations are rejected.
+Only unchanged original task guidance is restored. Unavailable/malformed reports
+remain in the assignment without repair, report selection or retries.
+
+Native fake-provider proofs cover both worker role surfaces and all ten resumed
+lead prefixes before paid admission (`--e4-manifest`, `--e4-proof`, and an explicit
+`--authorized-e4-sessions 180`). Historical delegation outside the continuation's
+hook window is not a missing-delegation error; the baseline audit is retained but
+marked inapplicable to this intervention. Verification, premise stance and answer
+correctness are separate measurements. Stance/evidence need trace coding, not
+keyword labels; correct-report/wrong-final alone does not establish uptake loss.
+
+Worker `strict_candidate_score` measures final-answer formatting/matching, not
+semantic report correctness; `score` remains unknown until evidence-backed coding.
+`e4_semantic.py --run RUN --output FRESH_PACK` exports all ninety reports and
+trace references. With `--pack PACK --coding CODING --output FRESH_ANALYSIS`, it
+validates complete, quoted coding and writes a separate semantic overlay. Original
+grades/traces are hash-checked before and after, never rewritten. Partial answers,
+abstentions, ambiguity and unavailable reports remain separate from incorrectness.
+This workflow makes no provider, judge or pipeline calls.

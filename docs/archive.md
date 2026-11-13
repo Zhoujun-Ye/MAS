@@ -30,9 +30,20 @@ sources live under `/home/zhoujunye/mas-stages/`.
 | `krama-random20-20261112-01` | `20261112-krama-random20-t1-01` | Sixty authorized Single/Native/Structured slots on the same frozen Random20, thinking off/T=1.0, no loop detector, concurrency sixteen, CPU8/thread4, at most six one-call judges, zero retries; user requested no monetary cap and active monitoring |
 | `krama-random20-three-repeats-20261112-01` | `20261112-krama-three-repeats-run-01` | Stopped in its first round; user subsequently deleted only its Native/Structured result payloads. Retain the complete twenty-task Single, frozen source and common/host accounting for all incurred costs; never resume this pruned batch |
 | `krama-random20-forced-repeats-20261112-01` | `20261112-krama-forced-repeats-01` | Reuse two existing Single rounds once each; one new Single and three new Native/Structured rounds under mandatory delegation: 140 new solvers, at most 14 one-call judges, zero retries, thinking off/T=1.0, CPU8/thread4, concurrency sixteen plus two graders, no monetary cap and continuous monitoring |
+| `krama-temperature-screen-20261112-01` | `20261112-temperature-screen-01` | Twelve T=0.3 and twelve T=0.5 Single/Native attempts; 23 completed, one T=0.5 attempt explicitly stopped by the user. Preserve interrupted evidence, operator receipts, all costs and frozen pilot sources; no retries or paid judges |
+| `krama-temperature07-screen-20261112-01` | `20261112-temperature07-screen-01` | Twelve completed T=0.7 Single/Native attempts, 900s, concurrency six, CPU8/thread4, no retries or paid judges. Preserve source/proof/input bindings and raw traces; the retired pilot code remains only in frozen paid provenance |
+| `native-single-causal30-20261112-01` | `20261112-native-causal30-01` and `20261112-causal-dispatch-overlap-01` | Completed T=1.0 six-arm study: 540 solvers, 90 independent recon sessions, 72 one-call judges; preserve the one-time controller amendment, original child source, journal and all accounting; no retries |
+| `native-single-causal30-e4-t07-20261112-01` | `20261112-native-causal30-e4-t07-01` | Completed T=0.7 six-arm/E4 study: 810 sessions, 720 grades and 72 one-call judges; preserve independent recon, worker/paired lead reports, original prefixes, proofs, raw grades and all accounting; no retries |
 
 Preserve raw attempts, submissions, ledgers, incurred costs, frozen settings,
 admission proofs, source and result reports, including failed/incomplete work.
+The causal/E4 study [method and limitations](../scripts/studies/causal_experiments/README.md)
+remain active documentation. Keep the offline semantic analyzer's frozen source
+`20261112-e4-semantic-offline-01`, final decision script and validation receipts,
+and the local final review pack (`e4-semantic-review-pack-20261112-v2.json`),
+coding and analysis. Coding and validation bind that pack's canonical fingerprint;
+the earlier unbound pack and incomplete progress exports are disposable, not raw
+paid evidence. Removing them does not rewrite the raw grades or semantic overlay.
 Use authorized upstream recovery as the same task's primary replacement, never
 best-of selection; retain both attempts' costs. A lifecycle failure alone does
 not authorize a retry. Retired FULL/OBS artifacts are read-only history; their
@@ -108,6 +119,19 @@ hashes and scope rather than deleted payload copies.
 | November 11 release cleanup | `maintenance-20261111-release-cleanup/` | 9,631 entries / 385,739,781 regular-file bytes removed; all 37,133 protected entries unchanged; 897 tests, nine synthetic workflows and sixty task preflights passed, zero paid calls |
 | November 12 review cleanup | `maintenance-20261112-cleanup/cleanup.json` | Five superseded unpaid tool-loop guard stages and two receipts with no document or receipt reference, plus eight production-tree files already deleted in Git: 1,521 files / 15,495,166 bytes; 72,963 protected entries rehashed unchanged; zero paid calls |
 | November 12 environment removal | `maintenance-20261112-environments/` | User-authorized removal of the stale project `.venv` and two retired Codex environments plus their launcher: 10,702 entries / 1,193,231,344 bytes, per-entry manifest retained; 69,769 protected entries including the evaluation environment rehashed unchanged; 1,060 tests passed afterwards; zero paid calls |
+| November 12 final deep cleanup | `maintenance-20261112-final-deep-cleanup/` | Removed 1,200 server entries / 3,765,781 bytes (project caches, superseded free-probe workspaces and two incomplete progress exports); 162,144 protected entries rechecked unchanged. Local: three superseded exports / 9,391,435 bytes, 37 retained entries unchanged. Server suite: 1,229 passed; final focused checks: 75 passed; zero paid calls |
+
+The final cleanup used independent source stage `20261112-deep-cleanup-final-01`,
+not production deployment. Its completed test-only temporary trees and bytecode
+were subsequently removed: 43,695 entries / 154,266,731 bytes; this is generated
+verification material, not pre-existing storage savings. Exact deletion and
+protected-file manifests are compressed JSON in the receipt root. Paid outputs,
+frozen sources, proof/trace files and all accounting remain unchanged. The
+one-time causal-controller handoff and its exclusive tests were removed from
+active source; E4 paired lead replay and one-shot admission remain. The retired
+loop-guard development narrative is consolidated in its retirement record.
+Overlapping uncommitted source was saved, without outputs or credentials, at
+`/Users/zhoujun/.codex/maintenance/mas-deep-cleanup-20261112-01/source-before.tar.gz`.
 
 Historical receipts retain failed checks and successful replacements. The first
 random20 cleanup verifier mistook sixteen special paths for regular files; the
@@ -115,9 +139,10 @@ replacement rehashed 35,521 regular files and checked the special paths remained
 Their target identity was not hash-compared. The earliest superseded random20
 preparation lacked per-tree deletion counts; these remain unknown.
 
-Generated report JSON was removed only where byte-identical canonical exports
-remain. Local `outputs/` contains small retained paid reports without exact
-duplicates. Raw paid evidence and frozen paid source were not deleted. Earlier
+Earlier generated report JSON was removed only where byte-identical canonical
+exports remained. Local `outputs/` now also contains the final causal/E4 reports
+and semantic coding artifacts described above. Raw paid evidence and frozen paid
+source were not deleted. Earlier
 Krama pages are consolidated in [Krama history](studies/krama-history.md); old
 host request-reservation code was unused and removed, not replaced by a scheduler.
 

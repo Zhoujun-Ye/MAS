@@ -6,7 +6,6 @@ from pathlib import Path
 
 from common.io import write_json
 from harness import ClaudeCodeSingleAgentCLI, ClaudeCodeSubagentsCLI
-from .hooks import NULL_REQUEST
 from .packet_validation import validate_packet
 
 ARMS = ('single', 'native', 'null_worker', 'recon_transplant', 'self_brief', 'brief_prompt')

@@ -27,7 +27,7 @@ coordinator/full modes, capability catalogs, or custom scheduling semantics.
   stops, lead notices and host loop termination. Do not restore loop-mode launch
   options or pilot drivers. Preserve frozen paid sources/results; historical
   analysis may read recorded fields without executing a detector. Default solver
-  settings remain thinking disabled, T=1.0. See
+  settings are now thinking disabled, fixed T=0.7. See
   `docs/studies/loop-guard-retirement-20261112.md`.
 - `harness/_cli.py`: CLI preflight, process lifetime, stdin and raw evidence only.
 - The November 12 anomaly fix sets native print background-wait ceiling to zero
@@ -99,8 +99,9 @@ coordinator/full modes, capability catalogs, or custom scheduling semantics.
   replace failures, or describe this repeatedly used set as an independent final test.
 - The Krama Random20 three-repeat driver uses the same frozen 20 questions in
   Single/Native/Structured, three independent rounds (180 solvers). Its seeds
-  control dispatch order only, not provider sampling. Keep thinking off/T=1.0,
-  zero retries and equal-weight repeat reporting; see `docs/studies/krama-three-repeats.md`.
+  control dispatch order only, not provider sampling. New preparations use the
+  current thinking-off/T=0.7 default; frozen paid T=1.0 runs stay unchanged.
+  Keep zero retries and equal-weight repeat reporting; see `docs/studies/krama-three-repeats.md`.
   Implementation/free checks do not authorize paid execution of the prepared plan.
 - CooperBench is retired, not an active dependency or retained result source.
 - FDABench is opt-in and local-only: exclude missing/invalid public scoring
@@ -116,7 +117,14 @@ See `docs/cli-adapters.md` for pinned versions, references and limitations.
 
 ## Server Operations
 
-- Current DeepSeek reproducibility policy: thinking disabled, temperature 1.0,
+- On November 12 the user selected fixed T=0.7 and retired the temporary
+  temperature pilot, post-session repetition screen and sampling override API.
+  The T=0.3/T=0.5 scope ended with 23 completed and one user-interrupted attempt;
+  all twelve T=0.7 attempts completed before the subsequent stop request.
+  Preserve these paid outputs, frozen source stages and accounting; see
+  `docs/archive.md`. Cleanup authorizes free verification, not further paid runs.
+
+- Current DeepSeek reproducibility policy: thinking disabled, fixed temperature 0.7,
   effective reasoning effort not applicable (`--effort none`). Configure this
   through the pinned CLI, not request-body rewriting in the gateway. Native
   main/worker requests must match the frozen policy before upstream dispatch.
@@ -181,6 +189,18 @@ See `docs/cli-adapters.md` for pinned versions, references and limitations.
   `scripts/studies/causal_experiments/`; do not change baseline prompts or restore
   loop detection. The existing `0eb2850` fixes were separately authorized for
   production source sync; that does not authorize deployment of unfinished study code.
+- The subsequent T=0.7 authorization is a fresh six-arm thirty-task comparison,
+  three rounds (540 solvers and 90 independent recon), plus E4 on ten targeted
+  tasks: three brief variants, three repeats, 90 worker-role replays and 90 paired
+  lead continuations. Total 810 new sessions, at most 72 one-call semantic judges,
+  zero retries, no monetary cap, active monitoring, shared concurrency 16 plus
+  two graders and CPU8/thread4. E4 sessions have 900-second limits. Use fresh
+  frozen source and native fake-provider role/resume proofs; never copy final
+  workspaces or later transcripts into replay prefixes. Immediate first-report
+  delivery and regenerated worker-role main-session prompts are study limitations,
+  not exact reproduction of historical asynchronous native subagents. Seeds only
+  control dispatch order. The user delegated remaining within-scope launch decisions
+  and requested durable offline execution while asleep; no extra sessions or retries.
 - Local `/Users/zhoujun/Desktop/MAS`; server
   `zhoujunye@10.123.4.30:22`, `/home/zhoujunye/mas`.
 - External server data and evaluation environment: `/home/zhoujunye/mas-data`.

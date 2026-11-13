@@ -169,11 +169,16 @@ def test_changed_donor_packet_is_rejected_before_single_dispatch(tmp_path,monkey
                     '--credentials',str(tmp_path/'secret'),'--execute'])
 
 
-def execution_fixture(tmp_path,monkeypatch,*,judges=False,fail=False,interrupt=False,deviation=False,infra=False):
+def execution_fixture(tmp_path,monkeypatch,*,judges=False,fail=False,interrupt=False,deviation=False,infra=False,e4=False):
     root=tmp_path/'run';root.mkdir()
     ids=[f't{i}' for i in range(30)]
     plan=dict(task_ids=ids,source_manifest={'source':'hash'},upstream=str(tmp_path/'up'),image_id='fake',
         maximum_judge_calls=36,judge_task_ids=ids[:2],schedule={str(s):run.ordered_jobs(ids,s) for s in (0,1,2)})
+    if e4:
+        from scripts.studies.causal_experiments.e4_trial import ARMS as E4_ARMS
+        plan['e4']=dict(manifest=dict(cases=[dict(task_id=t) for t in ids[:10]]))
+        for seed in (0,1,2):
+            plan['schedule'][str(seed)]+=[[t,a] for t in ids[:10] for a in E4_ARMS if a.startswith('e4_worker_')]
     args=SimpleNamespace(output=root,credentials=tmp_path/'credentials',estimated_cost='100')
     monkeypatch.setattr(run,'validate_execution',lambda *a:plan)
     monkeypatch.setattr(run.shared,'source_manifest',lambda:plan['source_manifest'])
@@ -193,13 +198,16 @@ def execution_fixture(tmp_path,monkeypatch,*,judges=False,fail=False,interrupt=F
             with lock:
                 calls.append((self.seed,self.task,self.arm));running[0]+=1;running[1]=max(running)
             if self.arm=='recon_transplant':assert (base.parent/'recon/packet.json').exists()
+            if self.arm.startswith('e4_lead_'):
+                assert (base.parent/self.arm.replace('e4_lead_','e4_worker_',1)/'worker-report.json').exists()
             record=dict(status='cli_exited',cleanup=dict(stopped=True),infra_degraded=infra,
                 manipulation_check=dict(passed=not deviation,integrity_failure=False),
                 grade=dict(status='pending_judge' if judges and self.task in ids[:2] else 'graded',score=1),
                 single_agent_audit=dict(passed=True),pipeline_replay=dict(status='matched'))
             write_json(base/'result.json',record)
-            write_json(base/self.task/runtime.backend_for(self.arm)/'report.json',record)
+            write_json(base/self.task/run.session_backend(self.arm)/'report.json',record)
             if self.arm=='recon':write_json(base/'packet.json',dict(status='available',task_id=self.task,packet={}))
+            if self.arm.startswith('e4_worker_'):write_json(base/'worker-report.json',dict(status='available',text='full report'))
         def wait(self,**kwargs):
             if interrupt:run.signal.getsignal(run.signal.SIGTERM)(run.signal.SIGTERM,None)
             time.sleep(.002)
@@ -215,6 +223,21 @@ def execution_fixture(tmp_path,monkeypatch,*,judges=False,fail=False,interrupt=F
         return dict(status='graded',score=1,attempted_calls=1)
     monkeypatch.setattr(run,'judge_once',judge)
     return args,plan,calls,judge_calls,running
+
+
+def test_combined_e4_has_exactly_810_sessions_and_shared_16_slots(tmp_path,monkeypatch):
+    from scripts.studies.causal_experiments import e4_report
+    args,plan,calls,judges,running=execution_fixture(tmp_path,monkeypatch,e4=True)
+    monkeypatch.setattr(e4_report,'worker_evaluation',lambda *a:dict(score=None,status='report_available'))
+    assert run.execute(args)==0
+    counts=Counter(a for _,_,a in calls)
+    assert len(calls)==len(set(calls))==810
+    assert sum(v for a,v in counts.items() if a.startswith('e4_worker_'))==90
+    assert sum(v for a,v in counts.items() if a.startswith('e4_lead_'))==90
+    assert counts['recon']==90 and all(counts[a]==90 for a in runtime.ARMS)
+    assert 1<running[1]<=16
+    summary=read_json(args.output/'summary.json')
+    assert summary['complete'] and len(summary['grades'])==720
 
 
 def test_all_three_rounds_are_interleaved_bounded_and_donor_dependent(tmp_path,monkeypatch):
@@ -306,3 +329,37 @@ def test_thirty_question_extension_is_outcome_blind_and_reproducible(tmp_path,mo
     assert a==b and len(a)==30 and len({t.id for t in a})==30
     assert [t.id for t in a[:20]]==[r['task_id'] for r in base]
     assert manifest['sampling_seed']==20261112
+
+
+def test_next_seed_starts_before_a_long_tail_finishes(tmp_path,monkeypatch):
+    args,plan,calls,_,_=execution_fixture(tmp_path,monkeypatch)
+    original=run.subprocess.Popen
+    next_seed=threading.Event()
+    slow_task,slow_arm=plan['schedule']['0'][0]
+    class SlowProcess(original):
+        def __init__(self,*values,**kwargs):
+            super().__init__(*values,**kwargs)
+            if self.seed==1:next_seed.set()
+        def wait(self,**kwargs):
+            if (self.seed,self.task,self.arm)==(0,slow_task,slow_arm):
+                assert next_seed.wait(10), 'Round barrier left the free slots idle'
+            return super().wait(**kwargs)
+    monkeypatch.setattr(run.subprocess,'Popen',SlowProcess)
+    assert run.execute(args)==0
+    assert next_seed.is_set() and len(calls)==len(set(calls))==630
+
+
+@pytest.mark.parametrize('flag',['--continue-frozen-source','--superseded-controller-pid'])
+def test_retired_handoff_flags_cannot_bypass_one_shot_admission(tmp_path,monkeypatch,flag):
+    monkeypatch.setattr(run,'execute',lambda *a:pytest.fail('Retired handoff reached execution'))
+    with pytest.raises(SystemExit) as error:
+        run.main(['--output',str(tmp_path),'--proof',str(tmp_path/'proof'),
+                  '--execute',flag,'123'])
+    assert error.value.code==2
+
+
+def test_existing_execution_marker_blocks_before_reading_credentials(tmp_path,monkeypatch):
+    write_json(tmp_path/'execution.json',{})
+    monkeypatch.setattr(run.shared,'credential',lambda *a:pytest.fail('Repeated execution read credentials'))
+    with pytest.raises(FileExistsError,match='One-shot'):
+        run.execute(SimpleNamespace(output=tmp_path))

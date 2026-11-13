@@ -71,8 +71,9 @@ def single_reference(path, manifest):
         raise ValueError('Missing retained Single batch summary')
     settings = summary['authorization']['protocol_settings']
     expected = manifest['baseline_settings']
+    policy = settings.get('inference_policy')
     if (summary['authorization'].get('task_manifest_sha256') != matrix.digest(MANIFEST)
-            or settings.get('inference_policy') != dict(thinking='disabled', temperature=1.0, effort=None)
+            or policy not in (dict(thinking='disabled', temperature=1.0, effort=None), runtime.inference_configuration())
             or settings.get('cpu_per_attempt') != 8 or settings.get('compute_threads') != 4
             or settings.get('timeout_seconds_by_benchmark', {}).get('kramabench') != 3600
             or settings.get('organization_sha256', {}).get(CONDITIONS[0]) != expected['organization_sha256'][CONDITIONS[0]]):
@@ -105,7 +106,7 @@ def single_reference(path, manifest):
         requests = [json.loads(line) for line in ledger.read_text().splitlines()]
         model = [r for r in requests if r.get('event') == 'dispatched' and r.get('route') == '/anthropic/v1/messages']
         if not model or any(r.get('request_parameters', {}).get('thinking') != 'disabled'
-                or r.get('request_parameters', {}).get('temperature') != 1.0 for r in model):
+                or r.get('request_parameters', {}).get('temperature') != policy['temperature'] for r in model):
             raise ValueError('Retained Single lacks matching observed thinking/temperature evidence')
         roots = [folder]
         artifact = grades[row['task_id']].get('grading_artifact')
@@ -120,6 +121,7 @@ def single_reference(path, manifest):
     if len(set(attempts.values())) != 20:
         raise ValueError('Retained Single native attempts are not independent')
     return dict(run=str(path), rows=rows, native_attempts=attempts, files_sha256=files,
+                inference_policy=policy,
                 original_accounting=matched_matrix_report.summarize(rows), new_solver_calls=0, new_judge_calls=0)
 
 
@@ -128,6 +130,8 @@ def build_plan(args, *, check_runtime=False):
     if set(manifest['benchmarks']) != {'kramabench'} or len(manifest['benchmarks']['kramabench']) != 20:
         raise ValueError('Expected the unchanged frozen Krama Random20 manifest')
     references = [single_reference(path, manifest) for path in (args.reuse_single or [])]
+    if any(r.get('inference_policy',runtime.inference_configuration()) != runtime.inference_configuration() for r in references):
+        raise ValueError('Retained Single sampling policy differs from the current default; do not mix temperatures')
     if references and set(references[0]['native_attempts'].values()) & set(references[1]['native_attempts'].values()):
         raise ValueError('The same Single attempt cannot count as two independent repeats')
     rounds = []
@@ -148,9 +152,9 @@ def build_plan(args, *, check_runtime=False):
         planned = json.loads(output.getvalue())
         settings = planned['protocol_settings']
         if (planned['attempts'] != 20*len(conditions) or settings['inference_policy'] !=
-                dict(thinking='disabled', temperature=1.0, effort=None) or
+                runtime.inference_configuration() or
                 settings['organization_sha256'] != {c: manifest['baseline_settings']['organization_sha256'][c] for c in conditions}):
-            raise ValueError('Frozen prompts or thinking-off/T=1.0 policy changed')
+            raise ValueError('Frozen prompts or current thinking-off sampling policy changed')
         ready = planned.get('runtime_preflight')
         binding = None if ready is None else {k: ready[k] for k in ('image_id', 'binary_sha256', 'proofs')}
         rounds.append(dict(index=index, seed=seed, name=name, protocol=settings,

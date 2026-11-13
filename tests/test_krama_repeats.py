@@ -42,7 +42,7 @@ def test_default_plan_preserves_twenty_tasks_and_never_dispatches(prepared, monk
     for row in plan['rounds']:
         assert len(row['selections']) == 60
         assert {r['task_id'] for r in row['selections']} == ids
-        assert row['protocol']['inference_policy']['temperature'] == 1.0
+        assert row['protocol']['inference_policy']['temperature'] == 0.7
         assert row['protocol']['deterministic_environment']['PYTHONHASHSEED'] == '0'
         assert row['protocol']['cpu_per_attempt'] == 8
         assert row['protocol']['solver_concurrency'] == 16
@@ -375,7 +375,7 @@ def reference_fixture(prepared, monkeypatch):
         folder = root/'solvers/kramabench'/task/repeats.CONDITIONS[0]/task/repeats.CONDITIONS[0]
         write_json(folder/'report.json', dict(cli={'native_result': {'session_id': 'native-'+task}}))
         (folder/'gateway-requests.jsonl').write_text(json.dumps(dict(event='dispatched', route='/anthropic/v1/messages',
-            request_parameters=dict(thinking='disabled', temperature=1.0)))+'\n')
+            request_parameters=dict(thinking='disabled', temperature=plan['rounds'][0]['protocol']['inference_policy']['temperature'])))+'\n')
         rows.append(dict(benchmark='kramabench', task_id=task, backend=repeats.CONDITIONS[0],
             status='cli_exited', native_audit_passed=True, score=0, infra_degraded=False, evidence=str(folder),
             seconds=None, total_usd_offpeak=None, model_requests=1))
@@ -394,6 +394,22 @@ def test_retained_single_preserves_zero_scores_and_binds_original_payloads(prepa
     assert len(result['files_sha256']) == 41
     assert all(r['score'] == 0 for r in result['rows'])
     assert result['new_solver_calls'] == result['new_judge_calls'] == 0
+
+
+def test_historical_temperature_one_stays_readable_but_cannot_mix_into_new_plan(prepared, monkeypatch):
+    root,manifest,rows,summary=reference_fixture(prepared,monkeypatch)
+    old_policy=dict(thinking='disabled',temperature=1.0,effort=None)
+    summary['authorization']['protocol_settings']['inference_policy']=old_policy
+    write_json(root/'summary.json',summary)
+    for row in rows:
+        (Path(row['evidence'])/'gateway-requests.jsonl').write_text(json.dumps(dict(
+            event='dispatched',route='/anthropic/v1/messages',
+            request_parameters=dict(thinking='disabled',temperature=1.0)))+'\n')
+    retained=repeats.single_reference(root,manifest)
+    assert retained['inference_policy']==old_policy
+    args,_=prepared;args.reuse_single=[root,root.parent/'other-retained']
+    monkeypatch.setattr(repeats,'single_reference',lambda *a:retained)
+    with pytest.raises(ValueError,match='do not mix temperatures'):repeats.build_plan(args)
 
 
 @pytest.mark.parametrize('corruption', ['wire-temperature', 'duplicate-session', 'audit', 'score',

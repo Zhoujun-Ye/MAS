@@ -27,8 +27,46 @@ from scripts.studies.benchmark_matrix import cleanup_owned_containers
 from .selection import selected_tasks
 from .runtime import ARMS, ROLES, RECON, SELF_BRIEF, backend_for
 from .hooks import NULL_REQUEST
+from . import e4_trial, e4_prepare
 
 SOLVERS, RECONS = 540, 90
+
+
+def session_backend(arm):
+    return e4_trial.backend_for(arm) if arm in e4_trial.ARMS else backend_for(arm)
+
+
+def session_counts(plan):
+    extra=180 if plan.get('e4') else 0
+    return SOLVERS+RECONS+extra,SOLVERS+extra
+
+
+def dependent_arm(arm):
+    if arm=='recon':return 'recon_transplant'
+    if arm.startswith('e4_worker_') and arm in e4_trial.ARMS:
+        return arm.replace('e4_worker_','e4_lead_',1)
+    return None
+
+
+def e4_scope(args,binding,ids):
+    path=getattr(args,'e4_manifest',None)
+    if not path:return None
+    manifest=e4_prepare.validate(read_json(path))
+    proof_path=getattr(args,'e4_proof',None)
+    proof=read_json(proof_path) if proof_path else None
+    expected={f"lead-{c['task_id']}-verbatim" for c in manifest['cases']}
+    for role in ('Explore','general-purpose'):
+        task=next(c['task_id'] for c in manifest['cases'] if c['prefix']['agent_type']==role)
+        expected.update(f'worker-{task}-{v}' for v in ('verbatim','open','task_only'))
+    if (not proof or proof.get('passed') is not True or proof.get('paid_calls')!=0
+            or proof.get('runtime_binding')!=binding or proof.get('source_manifest')!=shared.source_manifest()
+            or proof.get('manifest_sha256')!=fingerprint(manifest)
+            or set(proof.get('checks',{}))!=expected
+            or any(c.get('passed') is not True for c in proof['checks'].values())
+            or any(c['task_id'] not in ids for c in manifest['cases'])):
+        raise ValueError('Fresh E4 source-bound native role/resume proofs are required')
+    return dict(manifest=manifest,manifest_path=str(path.resolve()),manifest_sha256=sha(path),
+        proof_path=str(proof_path.resolve()),proof_sha256=sha(proof_path),worker_sessions=90,lead_sessions=90)
 
 
 def sha(path):
@@ -60,7 +98,7 @@ def build_plan(args):
     if (os.cpu_count() or 0) < 16*8:
         raise ValueError('Host lacks the authorized CPU reservations')
     inventory=krama.verify_inputs(args.root/'kramabench/upstream')
-    return dict(kind='native-single-causal30-v2', task_ids=ids, seeds=[0,1,2], arms=list(ARMS),
+    plan=dict(kind='native-single-causal30-v2', task_ids=ids, seeds=[0,1,2], arms=list(ARMS),
         solver_attempts=SOLVERS,independent_recon_attempts=RECONS,maximum_judge_calls=judges,
         judge_task_ids=eligible,retries=0,solver_concurrency=16,judge_concurrency=2,
         cpu_per_attempt=8,compute_threads=4,shared_compute_slots=16,
@@ -72,6 +110,7 @@ def build_plan(args):
         intervention_prompts=dict(recon=RECON,self_brief=SELF_BRIEF,null_worker=NULL_REQUEST),
         null_worker_tool_policy='Preserve native definitions and lead context; deny every worker tool execution, do not hide tool definitions',
         schedule={str(s):ordered_jobs(ids,s) for s in (0,1,2)},
+        round_scheduling='Work-conserving across seeds; retain within-seed order and same-seed donor dependencies',
         budget_policy=dict(currency='CNY',monetary_cap=None,balance_reserve='5',safety_factor='1.5'),
         estimands=dict(null_worker='Total Native package after replacing every delegated request/report with an empty no-tool worker; not a unique mediation decomposition',
             recon_transplant='Availability of an independent untrusted report plus its delivery context; donor compute/cost is additional',
@@ -96,6 +135,16 @@ def build_plan(args):
             'No retries, best-of-N, automatic report repair, or historical-score replacement.',
             'Thirty task clusters with three stochastic repetitions, not ninety independent questions.',
             'Failed recon produces an explicit unavailable receipt; E2 still runs once and remains in intention-to-treat reporting.'])
+    e4=e4_scope(args,binding,ids)
+    if e4:
+        plan['e4']=e4
+        plan['kind']='native-single-causal30-e4-t07-v1'
+        plan['total_new_sessions']=810
+        for seed in (0,1,2):
+            additions=[[c['task_id'],a] for c in e4['manifest']['cases'] for a in e4_trial.ARMS if a.startswith('e4_worker_')]
+            plan['schedule'][str(seed)] = sorted(plan['schedule'][str(seed)]+additions,
+                key=lambda x:hashlib.sha256(f'{seed}:{x[0]}:{x[1]}'.encode()).hexdigest())
+    return plan
 
 
 def prepare(args):
@@ -117,6 +166,8 @@ def validate_execution(args):
             or args.authorized_solvers != SOLVERS or args.authorized_recons != RECONS
             or args.authorized_judges != plan.get('maximum_judge_calls')):
         raise ValueError('Review confirmation, exact plan hash and exact 540/90/judge authorization are required')
+    if plan.get('e4') and getattr(args,'authorized_e4_sessions',None)!=180:
+        raise ValueError('Exact authorization for 180 additional E4 sessions is required')
     if not plan or plan != build_plan(args):
         raise ValueError('Prepared source, assets, runtime, proof or scope changed')
     if read_json(args.output/'prepared.json')['plan_sha256'] != fingerprint(plan):
@@ -134,19 +185,25 @@ def validate_round_inputs(plan):
             or sha(shared.CLAUDE)!=plan['binary_sha256']
             or fingerprint(krama.verify_inputs(Path(plan['upstream'])))!=plan['inputs_sha256']):
         raise ValueError('Frozen source, proof, binary, tasks or inputs changed between rounds')
+    if plan.get('e4'):
+        e4=plan['e4']
+        if sha(Path(e4['manifest_path']))!=e4['manifest_sha256'] or sha(Path(e4['proof_path']))!=e4['proof_sha256']:
+            raise ValueError('Frozen E4 manifest or proof changed')
 
 
 def execute(args):
     plan=validate_execution(args)
     root=args.output
+    trial_source=Path(__file__).resolve().parents[3]
     key=shared.credential(args.credentials)
-    before=shared.safe_balance(key,root,'balance-before')
-    admission=admit_balance(before,'CNY',args.estimated_cost,'1.5','5')
+    current=shared.safe_balance(key,root,'balance-before')
+    before=current
+    admission=admit_balance(current,'CNY',args.estimated_cost,'1.5','5')
     tasks={t.id:t for t in load_tasks(Path(plan['upstream']))[0]}
     stop,done=threading.Event(),threading.Event()
     lock=threading.Lock(); active=set(); rows=[]; grades=[]; claims=0
     compute=threading.BoundedSemaphore(16)
-    watch=BalanceWatch(lambda:shared.safe_balance(key,root,'balance-current'),'CNY','5',initial=before)
+    watch=BalanceWatch(lambda:shared.safe_balance(key,root,'balance-current'),'CNY','5',initial=current)
     journal=Journal(root/'phases.sqlite')
     binding=fingerprint(plan)
 
@@ -188,7 +245,8 @@ def execute(args):
         journal.claim('session',identity,binding,initial)
         if stop.is_set():
             result=dict(initial,status='not_started');journal.finish('session',identity,binding,result);return result
-        command=[sys.executable,'-m','scripts.studies.causal_experiments.trial','--plan',str(root/'plan.json'),
+        module='e4_trial' if arm in e4_trial.ARMS else 'trial'
+        command=[sys.executable,'-m','scripts.studies.causal_experiments.'+module,'--plan',str(root/'plan.json'),
                  '--seed',str(seed),'--task',task,'--arm',arm,'--credentials',str(args.credentials),'--execute']
         with compute:
             if stop.is_set():
@@ -200,7 +258,7 @@ def execute(args):
                 with lock:
                     if stop.is_set():
                         result=dict(initial,status='not_started');journal.finish('session',identity,binding,result);return result
-                    p=subprocess.Popen(command,stdout=stream,stderr=subprocess.STDOUT,env=env,cwd=Path(__file__).resolve().parents[3])
+                    p=subprocess.Popen(command,stdout=stream,stderr=subprocess.STDOUT,env=env,cwd=trial_source)
                     active.add(p)
                 try:
                     try:code=p.wait(timeout=4200)
@@ -229,9 +287,13 @@ def execute(args):
         seed,task,arm=row['seed'],row['task_id'],row['arm']
         identity=(seed,task,arm)
         journal.claim('grade',identity,binding,dict(status='grading_unknown'))
-        folder=Path(row['output'])/task/backend_for(arm)
+        folder=Path(row['output'])/task/session_backend(arm)
         report=read_json(folder/'report.json')
-        if not report or report.get('cleanup',{}).get('stopped') is not True:
+        if arm.startswith('e4_worker_'):
+            from .e4_report import worker_evaluation
+            result=dict(seed=seed,task_id=task,arm=arm,judge_calls=0,
+                **worker_evaluation(Path(row['output']),Path(plan['upstream']),task))
+        elif not report or report.get('cleanup',{}).get('stopped') is not True:
             result=dict(seed=seed,task_id=task,arm=arm,status='grading_unavailable',score=None,judge_calls=0)
         else:
             with compute:
@@ -261,37 +323,44 @@ def execute(args):
     with exclusive(root/'controller.lock'):
         with (root/'execution.json').open('x') as stream:
             json.dump(dict(plan_sha256=binding,started_at=shared.now(),authorized_solvers=SOLVERS,
-                authorized_recons=RECONS,authorized_judges=plan['maximum_judge_calls'],balance_admission=admission,review_confirmed=True),stream)
+                authorized_recons=RECONS,authorized_e4_sessions=180 if plan.get('e4') else 0,
+                authorized_judges=plan['maximum_judge_calls'],balance_admission=admission,review_confirmed=True),stream)
         previous={s:signal.signal(s,interrupt) for s in (signal.SIGTERM,signal.SIGINT)}
         watcher=threading.Thread(target=monitor,daemon=True);watcher.start()
         try:
             with ThreadPoolExecutor(max_workers=16) as solvers, ThreadPoolExecutor(max_workers=2) as graders:
+                solving={};grading=set()
+                ready=deque()
                 for seed in (0,1,2):
                     if stop.is_set():break
                     validate_round_inputs(plan)
-                    ready=deque(tuple(j) for j in plan['schedule'][str(seed)])
-                    solving={};grading=set()
-                    while ready or solving or grading:
-                        while ready and len(solving)<16 and not stop.is_set():
-                            task,arm=ready.popleft()
-                            f=solvers.submit(checked,solve,seed,task,arm);solving[f]=(task,arm)
-                        if not solving and not grading:break
-                        finished,_=wait(set(solving)|grading,return_when=FIRST_COMPLETED)
-                        for f in finished:
-                            if f in solving:
-                                task,arm=solving.pop(f);row=f.result();rows.append(row)
-                                if arm=='recon' and row['status'] not in {'not_started','dispatch_unknown'}:
-                                    ready.appendleft((task,'recon_transplant'))
-                                elif arm!='recon' and row['status'] not in {'not_started','dispatch_unknown'}:
-                                    grading.add(graders.submit(checked,grade,row))
-                            else:
-                                grading.remove(f);grades.append(f.result())
-                        write_json(root/'progress.json',dict(active_seed=seed,completed_sessions=len(rows),
-                            completed_solvers=sum(r['arm']!='recon' for r in rows),completed_recons=sum(r['arm']=='recon' for r in rows),
-                            completed_grades=len(grades),judge_calls=claims,paused=stop.is_set(),at=shared.now()))
+                    ready.extend((seed,t,a) for t,a in plan['schedule'][str(seed)])
+                while ready or solving or grading:
+                    while ready and len(solving)<16 and not stop.is_set():
+                        seed,task,arm=ready.popleft()
+                        f=solvers.submit(checked,solve,seed,task,arm);solving[f]=(seed,task,arm)
+                    if not solving and not grading:break
+                    finished,_=wait(set(solving)|grading,return_when=FIRST_COMPLETED)
+                    for f in finished:
+                        if f in solving:
+                            seed,task,arm=solving.pop(f);row=f.result();rows.append(row)
+                            dependency=dependent_arm(arm)
+                            if dependency and row['status'] not in {'not_started','dispatch_unknown'}:
+                                ready.appendleft((seed,task,dependency))
+                            if arm!='recon' and row['status'] not in {'not_started','dispatch_unknown'}:
+                                grading.add(graders.submit(checked,grade,row))
+                        else:
+                            grading.remove(f);grades.append(f.result())
+                    active_seeds=sorted({ident[0] for ident in solving.values()})
+                    write_json(root/'progress.json',dict(active_seed=active_seeds[0] if len(active_seeds)==1 else None,
+                        active_seeds=active_seeds,completed_sessions=len(rows),
+                        completed_solvers=sum(r['arm'] in ARMS for r in rows),completed_recons=sum(r['arm']=='recon' for r in rows),
+                        completed_e4_workers=sum(r['arm'].startswith('e4_worker_') for r in rows),
+                        completed_e4_leads=sum(r['arm'].startswith('e4_lead_') for r in rows),
+                        completed_grades=len(grades),judge_calls=claims,paused=stop.is_set(),at=shared.now()))
             after=shared.safe_balance(key,root,'balance-after')
             write_json(root/'summary.json',dict(plan_sha256=binding,rows=rows,grades=grades,judge_calls=claims,
-                complete=len(rows)==SOLVERS+RECONS and len(grades)==SOLVERS and not stop.is_set(),
+                complete=(len(rows),len(grades))==session_counts(plan) and not stop.is_set(),
                 account_delta=shared.observed_balance_deltas(before,after),
                 accounting_scope='Host request ledgers and shared-account interval; unknown partial billing is not zero',finished_at=shared.now()))
         except BaseException as error:
@@ -302,7 +371,7 @@ def execute(args):
             done.set();watcher.join()
             if stop.is_set():cleanup_owned_containers(root)
             for s,h in previous.items():signal.signal(s,h)
-    return 0 if len(grades)==SOLVERS and not stop.is_set() else 1
+    return 0 if (len(rows),len(grades))==session_counts(plan) and not stop.is_set() else 1
 
 
 def main(argv=None):
@@ -311,6 +380,8 @@ def main(argv=None):
     p.add_argument('--output',type=Path,required=True)
     p.add_argument('--image',default=shared.DEFAULT_SOLVER_IMAGE)
     p.add_argument('--proof',type=Path,required=True)
+    p.add_argument('--e4-manifest',type=Path);p.add_argument('--e4-proof',type=Path)
+    p.add_argument('--authorized-e4-sessions',type=int)
     p.add_argument('--credentials',type=Path,default=Path('/home/zhoujunye/mas/.env'))
     mode=p.add_mutually_exclusive_group()
     mode.add_argument('--prepare',action='store_true');mode.add_argument('--execute',action='store_true')

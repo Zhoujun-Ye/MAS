@@ -3,7 +3,7 @@
 import math
 
 DEFAULT_EFFORT = "none"
-DEFAULT_TEMPERATURE = 1.0
+DEFAULT_TEMPERATURE = 0.7
 EFFORTS = ("none", "high", "max")
 
 

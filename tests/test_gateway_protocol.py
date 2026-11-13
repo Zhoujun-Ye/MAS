@@ -37,14 +37,15 @@ def post(gateway, path="/anthropic/v1/messages", payload=None):
 
 
 @pytest.mark.parametrize('override', [
-    {'temperature': 0}, {'temperature': '1.0'}, {'temperature': True},
+    {'temperature': 0}, {'temperature': 0.3}, {'temperature': 0.5}, {'temperature': 1.0},
+    {'temperature': '0.7'}, {'temperature': True},
     {'thinking': {'type': 'adaptive'}}, {'thinking': None},
     {'output_config': {'effort': 'high'}},
 ])
 def test_inference_drift_is_rejected_before_paid_dispatch(tmp_path, monkeypatch, override):
     from harness.runtime_support.inference import configuration
     monkeypatch.setattr(credential_gateway, 'open_upstream', lambda *a: pytest.fail('Configuration drift dispatched'))
-    payload = dict(model='deepseek-flash', temperature=1.0, thinking={'type': 'disabled'}, max_tokens=32000)
+    payload = dict(model='deepseek-flash', temperature=0.7, thinking={'type': 'disabled'}, max_tokens=32000)
     payload.update(override)
     with CredentialGateway('synthetic', ledger_path=tmp_path/'ledger', inference_policy=configuration()) as gateway:
         with pytest.raises(urllib.error.HTTPError) as caught:
@@ -55,7 +56,7 @@ def test_inference_drift_is_rejected_before_paid_dispatch(tmp_path, monkeypatch,
 
 def test_inference_validation_never_rewrites_native_payload(tmp_path, monkeypatch):
     from harness.runtime_support.inference import configuration
-    payload = dict(model='deepseek-flash', temperature=1.0, thinking={'type': 'disabled'}, max_tokens=32000,
+    payload = dict(model='deepseek-flash', temperature=0.7, thinking={'type': 'disabled'}, max_tokens=32000,
                    messages=[{'role': 'user', 'content': 'private question'}])
     def upstream(request):
         assert request.data == json.dumps(payload).encode()
@@ -66,7 +67,7 @@ def test_inference_validation_never_rewrites_native_payload(tmp_path, monkeypatc
     with CredentialGateway('synthetic', ledger_path=tmp_path/'ledger', inference_policy=configuration()) as gateway:
         post(gateway, payload=payload).close()
     rows = [json.loads(x) for x in (tmp_path/'ledger').read_text().splitlines()]
-    assert rows[-1]['request_parameters']['temperature'] == 1.0
+    assert rows[-1]['request_parameters']['temperature'] == 0.7
     assert rows[-1]['request_parameters']['thinking'] == 'disabled'
     assert rows[-1]['request_parameters']['max_tokens'] == 32000
     assert rows[-1]['request_parameters']['effort'] is None

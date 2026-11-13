@@ -63,8 +63,21 @@ accuracy or attribute shared-account deltas as per-condition invoices.
 | `full-infra-paid4-20261110-01` | Four FULL attempts, two paid grades | Both DataClaw tasks and Krama score 1, HDR SQL 0; eight overflow captures verified; later DNS/read repairs were free validation only |
 | `threebench-infra-20261111-01` plus `-unstarted-01` | Twelve Single/Structured attempts, no paid judge | All CLI/native audits passed; HDR SQL 0, Krama 0.953846 mean in both conditions; text answers ungraded and three stream costs unknown |
 
-Later raw evidence is server-side; local `outputs/` contains only the small
-retained CPU8/smoke reports. All listed frozen paid stages and original failures
+## Native/Single Mechanism Studies
+
+The six-arm T=1.0 study `native-single-causal30-20261112-01` completed 540 solvers,
+90 independent recon sessions and 72 one-call judges. The fresh T=0.7 study
+`native-single-causal30-e4-t07-20261112-01` completed 810 sessions, including
+90 E4 worker-role replays and 90 paired lead continuations, plus 72 one-call
+judges. Neither study includes Structured or permits retries. The
+[study documentation](../scripts/studies/causal_experiments/README.md) owns the
+interventions and limits; completion is not evidence of a causal mechanism.
+
+Raw evidence is server-side. Local `outputs/` keeps final causal reports/audits,
+the bound E4 semantic review pack, coding, analysis and validation, as well as
+retained CPU8/smoke reports. The E4 semantic overlay does not replace raw grades;
+its single unblinded coding and post-hoc contrasts remain limitations. Superseded
+progress exports are disposable. All frozen paid stages and original failures
 remain protected. No new paid run follows from an offline cleanup or proof.
 
 - [Retained Krama configuration, accounting and trajectory diagnosis](studies/krama-history.md)

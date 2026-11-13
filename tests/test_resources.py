@@ -162,7 +162,7 @@ def test_historical_infra_profile_preserves_t0_without_changing_current_t1():
     profile=Path(__file__).resolve().parents[1]/'docs/studies/cpu8-infra-protocol.json'
     historical=json.loads(profile.read_text())
     assert historical['inference_policy']==dict(thinking='disabled',temperature=0.0,effort=None)
-    assert settings['inference_policy']==dict(thinking='disabled',temperature=1.0,effort=None)
+    assert settings['inference_policy']==dict(thinking='disabled',temperature=0.7,effort=None)
     changed = {'inference_policy', 'mandatory_delegation'}
     assert {k:v for k,v in historical.items() if k not in changed}=={
         k:v for k,v in settings.items() if k not in changed}
