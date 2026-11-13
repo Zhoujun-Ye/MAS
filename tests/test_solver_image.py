@@ -1,3 +1,4 @@
+import hashlib
 import json
 import subprocess
 import sys
@@ -24,15 +25,33 @@ def test_sqlite_archive_rejected_before_extraction(tmp_path):
         sqlite_sources(archive)
 
 
-def test_sql_probe_exports_hashes_and_denies_writes():
+@pytest.mark.parametrize('timing_contains_sentinel', [False, True])
+def test_sql_probe_exports_hashes_and_denies_writes(timing_contains_sentinel):
     config = dict(external=False, timeout=1, queries=[
         'SELECT count(*) FROM events', 'DELETE FROM events', 'SELECT count(*) FROM events'])
-    result = subprocess.run([sys.executable, '-c', PROBE], input=json.dumps(config),
+    probe = PROBE
+    if timing_contains_sentinel:
+        # Reproduce the old false positive without depending on real clock digits.
+        probe = ('import time\n_cpu_clock=iter([0.0, 0.120001]*3)\n'
+                 'time.process_time=lambda: next(_cpu_clock)\n') + probe
+    result = subprocess.run([sys.executable, '-c', probe], input=json.dumps(config),
                             text=True, capture_output=True, check=True, timeout=10)
     receipt = json.loads(result.stdout)
+    assert set(receipt) == {'version', 'compile_options', 'features', 'results'}
     first, denied, last = receipt['results']
     assert first['status'] == last['status'] == 'completed'
     assert denied['status'] == 'error'
-    assert first['ordered_sha256'] == last['ordered_sha256']
-    assert first['rows'] == 1
-    assert '12000' not in result.stdout
+    assert denied['error_type'] == 'OperationalError'
+    expected = hashlib.sha256(json.dumps([json.dumps([12000])]).encode()).hexdigest()
+    assert first['ordered_sha256'] == last['ordered_sha256'] == expected
+    assert first['multiset_sha256'] == last['multiset_sha256'] == expected
+    assert first['rows'] == last['rows'] == 1
+    completed_fields = {'query_sha256', 'status', 'rows', 'ordered_sha256', 'multiset_sha256',
+                        'plan_sha256', 'scan_steps', 'automatic_index_steps', 'seconds', 'cpu_seconds'}
+    assert set(first) == set(last) == completed_fields
+    assert set(denied) == {'query_sha256', 'status', 'error_type', 'seconds', 'cpu_seconds'}
+    for query, row in zip(config['queries'], receipt['results']):
+        assert row['query_sha256'] == hashlib.sha256(query.encode()).hexdigest()
+    if timing_contains_sentinel:
+        assert first['cpu_seconds'] == last['cpu_seconds'] == 0.120001
+        assert '12000' in result.stdout
