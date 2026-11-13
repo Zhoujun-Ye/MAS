@@ -73,7 +73,7 @@ def single_reference(path, manifest):
     expected = manifest['baseline_settings']
     policy = settings.get('inference_policy')
     if (summary['authorization'].get('task_manifest_sha256') != matrix.digest(MANIFEST)
-            or policy not in (dict(thinking='disabled', temperature=1.0, effort=None), runtime.inference_configuration())
+            or policy not in (dict(thinking='disabled', temperature=0.7, effort=None), runtime.inference_configuration())
             or settings.get('cpu_per_attempt') != 8 or settings.get('compute_threads') != 4
             or settings.get('timeout_seconds_by_benchmark', {}).get('kramabench') != 3600
             or settings.get('organization_sha256', {}).get(CONDITIONS[0]) != expected['organization_sha256'][CONDITIONS[0]]):

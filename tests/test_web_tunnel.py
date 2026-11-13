@@ -238,7 +238,11 @@ def test_lost_proxy_does_not_permanently_pause_unrelated_solvers(tmp_path,monkey
                 (out/task/'claude-code-subagents/gateway-requests.jsonl').write_text(json.dumps(dict(
                     event='finished',route='/v1/tools/fetch',web_proxy_unavailable=True)))
         def wait(self,**kw):
-            if self.paid:time.sleep(1.2)
+            if self.paid:
+                deadline=time.monotonic()+10
+                while not (tmp_path/'out/web-tunnel-interruption.json').exists():
+                    if time.monotonic()>=deadline:pytest.fail('Monitor did not publish the proxy observation')
+                    time.sleep(.01)
             return 0
         def terminate(self):terminated.append(True)
     monkeypatch.setattr(matrix.subprocess,'Popen',LostProxy)

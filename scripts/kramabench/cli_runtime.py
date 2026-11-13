@@ -317,7 +317,15 @@ def collect_attempt(folder, report, args):
                     report['pipeline_replay']['status'] = ('invalid_output' if not valid else
                         'matched' if report['pipeline_answer_matches_submission'] else 'answer_mismatch')
             finally:
-                subprocess.run(["docker", "rm", "-f", name], capture_output=True)
+                try:
+                    report['replay_cleanup'] = runtime.remove_named_container(name)
+                except Exception as error:
+                    diagnostic = report['pipeline_replay']
+                    if report.get('artifact_error'):
+                        diagnostic['execution_error'] = report['artifact_error']
+                    diagnostic.update(execution_status=diagnostic['status'], status='harness_error', stage='cleanup')
+                    report['replay_cleanup'] = dict(removed=False, error_type=type(error).__name__, container_name=name)
+                    raise
     except Exception as error:
         report["artifact_error"] = dict(type=type(error).__name__, message=str(error))
         diagnostic = report['pipeline_replay']

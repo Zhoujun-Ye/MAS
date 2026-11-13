@@ -35,6 +35,18 @@ def test_matrix_uses_the_shared_grader():
     assert benchmark_matrix.grade_attempt is grading.grade_attempt
 
 
+def test_replay_harness_failure_never_dispatches_a_paid_judge(tmp_path,monkeypatch):
+    record=dict(status='cli_exited',grade=dict(status='pending_judge',score=None),
+                pipeline_replay=dict(status='harness_error',stage='cleanup'))
+    (tmp_path/'summary.json').write_text(json.dumps(dict(rows=[record])))
+    monkeypatch.setattr(grading,'judge_once',lambda **kw:pytest.fail('Harness failure invoked a judge'))
+    assert not grading.needs_judge('kramabench',None,tmp_path,True)
+    result=grading.grade_attempt('kramabench',SimpleNamespace(id='fixture'), 'claude-code-subagents',tmp_path,
+        data_root=tmp_path,grades_root=tmp_path/'grades',credentials=None,judge_enabled=True,key=None,command_run=None,log=None)
+    assert result['judge_calls']==0 and result['pipeline_replay_status']=='harness_error'
+    assert result['grade']==record['grade']
+
+
 def test_shared_json_reader_keeps_missing_defaults_but_does_not_hide_corruption(tmp_path):
     assert read is read_json
     path = tmp_path / 'receipt.json'

@@ -110,6 +110,7 @@ def test_replay_diagnostics_preserve_raw_answer_grade(tmp_path,monkeypatch,code,
     (work/'pipeline.py').write_text('print(1)')
     (work/'submission.json').write_text(json.dumps(dict(answer=1,pipeline_path='pipeline.py',evidence='',unfinished=[])))
     def run(command,**kw):
+        if command[:2]==['docker','ps']:return SimpleNamespace(returncode=0,stdout='')
         if command[:2]==['docker','run']:
             if code is None:raise subprocess.TimeoutExpired(command,1,output=stdout,stderr=b'partial error')
             return SimpleNamespace(returncode=code,stdout=stdout,stderr=b'Worksheet not found' if code else b'')
@@ -133,6 +134,32 @@ def test_missing_submission_is_not_an_observed_pipeline_success(tmp_path,monkeyp
     r=krama.collect_attempt(tmp_path,dict(backend='claude-code-subagents',task_id='fixture',status='cli_exited'),
         SimpleNamespace(upstream=tmp_path))
     assert r['pipeline_replay']['status']=='missing_submission' and r['grade']['score']==0
+
+
+@pytest.mark.parametrize('execution_status', ['matched','runtime_error','timed_out'])
+def test_replay_cleanup_failure_is_harness_failure_not_model_blame(tmp_path,monkeypatch,execution_status):
+    work=tmp_path/'workspace';work.mkdir()
+    (work/'pipeline.py').write_text('print(1)')
+    (work/'submission.json').write_text(json.dumps(dict(answer=1,pipeline_path='pipeline.py',evidence='',unfinished=[])))
+    def execute(command, **kwargs):
+        if command[:2]==['docker','run']:
+            if execution_status=='timed_out':raise subprocess.TimeoutExpired(command,1)
+            return SimpleNamespace(returncode=int(execution_status=='runtime_error'),stdout=b'{"answer":1}\n',stderr=b'')
+        return SimpleNamespace(returncode=0,stdout='{}')
+    def fail(name):raise RuntimeError('Synthetic daemon removal failure')
+    monkeypatch.setattr(krama.subprocess,'run',execute)
+    monkeypatch.setattr(krama.runtime,'remove_named_container',fail)
+    monkeypatch.setattr(krama,'replay_failure',lambda *a:dict(status='runtime_error',execution_origin='container_process'))
+    monkeypatch.setattr(krama,'grade_answer',lambda *a:dict(status='graded',score=1,judge_calls=0))
+    record=krama.collect_attempt(tmp_path,dict(backend='claude-code-subagents',task_id='fixture',status='cli_exited'),
+                                 SimpleNamespace(upstream=tmp_path,image='fixture',replay_timeout=1))
+    assert record['pipeline_replay']['status']=='harness_error'
+    assert record['pipeline_replay']['stage']=='cleanup'
+    assert record['pipeline_replay']['execution_status']==execution_status
+    assert record['replay_cleanup']['removed'] is False
+    assert record['grade']['score']==1
+    if execution_status=='runtime_error':
+        assert record['pipeline_replay']['execution_error']['type']=='PipelineExecutionError'
 
 
 def test_historical_pipeline_diagnostics_do_not_change_scores():
@@ -224,6 +251,7 @@ def test_timeout_submission_diagnostic_never_changes_zero_primary_score(tmp_path
     hook_fixture(tmp_path,cutoff)
     if timing=='after':os.utime(sub,(cutoff.timestamp()+10,cutoff.timestamp()+10))
     def run(cmd,**kw):
+        if cmd[:2]==['docker','ps']:return SimpleNamespace(returncode=0,stdout='')
         if cmd[:2]==['docker','run']:return SimpleNamespace(returncode=0,stdout=b'{"answer":1}\n',stderr=b'')
         return SimpleNamespace(returncode=0,stdout='{}')
     monkeypatch.setattr(krama.subprocess,'run',run)

@@ -157,6 +157,14 @@ class ContainerResources:
         except (OSError,ValueError,KeyError,subprocess.SubprocessError):
             return dict(available=False)
 
+    @staticmethod
+    def merge_exit_oom(result):
+        if (result.get('container_exit') or {}).get('oom_killed') is True:
+            memory = result['memory']
+            memory.setdefault('sampled_oom_observed', memory.get('oom_observed'))
+            memory['oom_observed'] = True
+            memory['oom_observation_basis'] = 'docker_container_state'
+
     def close(self, *, final_sample=True):
         if self.result is not None:
             return self.result
@@ -175,6 +183,7 @@ class ContainerResources:
         result['memory']=memory_summary(self.samples)
         result['pressure']=pressure_summary(self.samples)
         result['container_exit']=self.exit_state() if self.thread is not None else None
+        self.merge_exit_oom(result)
         write_json(self.output / 'cpu-summary.json', result)
         self.result = result
         return result
@@ -182,5 +191,6 @@ class ContainerResources:
     def record_exit(self):
         result=self.close()
         result['container_exit']=self.exit_state()
+        self.merge_exit_oom(result)
         write_json(self.output/'cpu-summary.json',result)
         return result

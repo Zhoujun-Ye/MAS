@@ -4,19 +4,24 @@
 
 `harness/runtime_support/inference.py` owns the defaults and request checks.
 Current solver defaults are `--effort none`: DeepSeek thinking disabled,
-fixed temperature 0.7, effective reasoning effort null/not applicable. This replaces
+fixed temperature 1.0, effective reasoning effort null/not applicable. This replaces
 the erroneous max default; high remains the user's requested setting if thinking
-is explicitly re-enabled. Historical actual high/max, T=0 and T=1.0 runs are not rewritten.
+is explicitly re-enabled. Historical actual high/max, T=0, T=0.7 and T=1.0 runs are not rewritten.
 On November 12 the user removed the loop detector entirely, including observation
 counts, warnings, worker stops and loop-triggered host termination. Native event
 recording, strict-Single permissions and mandatory delegation remain. The temporary
 temperature pilot and sampling overrides have been removed. The twelve completed
 T=0.7 pilot attempts did not reproduce the screened pattern; that is not a guarantee
 against loops or of identical repeated answers.
+The later T=0.7 harness regression exhibited sustained model-directed repeated
+debugging. The user therefore chose T=1.0 for future runs, prioritizing that risk
+over lower sampling variability. This is an operational choice, not evidence
+that temperature alone caused or eliminates repetition. Fresh native proofs must
+verify T=1.0 before new separately authorized paid dispatch.
 
 The pinned Claude CLI receives `MAX_THINKING_TOKENS=0`,
 `CLAUDE_CODE_EFFORT_LEVEL=auto` and `CLAUDE_CODE_EXTRA_BODY` containing explicit
-`thinking.type=disabled` and `temperature=0.7`. Auto here suppresses the native
+`thinking.type=disabled` and `temperature=1.0`. Auto here suppresses the native
 effort field; it does not enable provider thinking. A free native experiment
 confirmed that merely unsetting effort still sent high, so omission alone is
 not sufficient. Do not use the unrelated display-only thinking toggle.
@@ -87,5 +92,4 @@ Multithreaded numerical reductions may differ at floating-point precision.
 Record concurrency and complete native/gateway/resource evidence. Keep failed,
 cancelled and unknown-usage calls; do not relabel unknown charges as zero or pick
 the best repeated answer. Multiple repeats would need separate paid authorization.
-Current work is configuration hardening and free verification; paid dispatch stays
-on hold for the requested configuration review.
+Each new paid run still requires its own explicit task/count/budget authorization.

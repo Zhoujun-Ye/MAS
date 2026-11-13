@@ -288,6 +288,24 @@ def stop_container(identity):
         raise RuntimeError("Could not stop owned container: " + identity)
     return dict(stopped=True, container_id=identity, elapsed_seconds=time.monotonic()-started)
 
+
+def remove_named_container(name):
+    """Bounded, once-only removal; verify absence without parsing Docker error text."""
+    if not isinstance(name, str) or not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_.-]+', name):
+        raise ValueError('Expected an owned Docker container name')
+    removal_error = None
+    try:
+        result = subprocess.run(['docker', 'rm', '-f', name], capture_output=True, timeout=15)
+        if result.returncode:
+            removal_error = 'nonzero_exit'
+    except (OSError, subprocess.TimeoutExpired) as error:
+        removal_error = type(error).__name__
+    remaining = subprocess.run(['docker', 'ps', '-aq', '--filter', 'name=^/' + re.escape(name) + '$'],
+                               capture_output=True, text=True, timeout=15)
+    if remaining.returncode != 0 or remaining.stdout.strip():
+        raise RuntimeError('Owned container removal could not be verified: ' + name)
+    return dict(removed=True, container_name=name, removal_error=removal_error)
+
 def safe_balance(key, root, name):
     try:
         value = balance(key)

@@ -43,6 +43,24 @@ def test_missing_metrics_are_unknown_not_zero():
     assert summarize([], 8)['available'] is False
 
 
+@pytest.mark.parametrize('sampled', [False, None, True])
+@pytest.mark.parametrize('docker_oom', [True, False, None])
+def test_final_docker_oom_is_not_hidden_by_a_missed_sample(tmp_path, monkeypatch, sampled, docker_oom):
+    collector=ContainerResources('fixture',tmp_path,8)
+    events=dict(oom=0,oom_kill=0,max=475)
+    collector.result=dict(memory=dict(oom_observed=sampled,events_delta=dict(events)))
+    state=dict(oom_killed=docker_oom)
+    monkeypatch.setattr(collector,'exit_state',lambda:state)
+    result=collector.record_exit()
+    assert result['memory']['oom_observed'] is (True if docker_oom is True else sampled)
+    assert result['memory']['events_delta']==events
+    assert result['container_exit']==state
+    if docker_oom is True:
+        assert result['memory']['sampled_oom_observed'] is sampled
+        assert result['memory']['oom_observation_basis']=='docker_container_state'
+    assert json.loads((tmp_path/'cpu-summary.json').read_text())==result
+
+
 def test_every_benchmark_dispatches_the_same_explicit_default_resources(tmp_path):
     args=SimpleNamespace(root=tmp_path,proofs=tmp_path,image='fixture',credentials=tmp_path/'private')
     assert runtime.DEFAULT_CPUS==8 and runtime.DEFAULT_COMPUTE_THREADS==4
@@ -162,7 +180,7 @@ def test_historical_infra_profile_preserves_t0_without_changing_current_t1():
     profile=Path(__file__).resolve().parents[1]/'docs/studies/cpu8-infra-protocol.json'
     historical=json.loads(profile.read_text())
     assert historical['inference_policy']==dict(thinking='disabled',temperature=0.0,effort=None)
-    assert settings['inference_policy']==dict(thinking='disabled',temperature=0.7,effort=None)
+    assert settings['inference_policy']==dict(thinking='disabled',temperature=1.0,effort=None)
     changed = {'inference_policy', 'mandatory_delegation'}
     assert {k:v for k,v in historical.items() if k not in changed}=={
         k:v for k,v in settings.items() if k not in changed}

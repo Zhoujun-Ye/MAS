@@ -276,7 +276,7 @@ def main(argv=None):
                         help='Return after solver cleanup; parent matrix must finalize in its grading pool')
     parser.add_argument("--execute", action="store_true")
     parser.add_argument("--effort", choices=shared.EFFORTS, default=shared.DEFAULT_EFFORT,
-                        help="none disables thinking and fixes temperature=0.7; high/max explicitly enable thinking")
+                        help="none disables thinking and fixes temperature=1.0; high/max explicitly enable thinking")
     args = parser.parse_args(argv)
     if args.defer_offline_evaluation and args.judge_limit:
         parser.error('Deferred offline evaluation cannot own paid judges')

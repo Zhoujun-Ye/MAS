@@ -17,6 +17,8 @@ No document or offline proof authorizes paid execution.
 
 ## Retained Evidence
 
+- [Harness review and authorized nine-solver regression](harness-review-paid9-20261112.md)
+
 [Current results](../current-results.md) summarizes outcomes and limitations.
 The reports below preserve the settings actually used, not current launch defaults.
 FULL/OBS and their ablations are historical conditions only.

@@ -32,7 +32,7 @@ def test_historical_random20_protocol_stays_frozen_when_current_temperature_chan
         effort="none", concurrency=16, judge_concurrency=2, cpus=8, compute_threads=4, record_resources=True))
     assert protocol == manifest["baseline_settings"]
     assert protocol['inference_policy']==dict(thinking='disabled',temperature=0.0,effort=None)
-    assert settings['inference_policy']==dict(thinking='disabled',temperature=0.7,effort=None)
+    assert settings['inference_policy']==dict(thinking='disabled',temperature=1.0,effort=None)
     changed = {'inference_policy', 'mandatory_delegation'}
     assert {k:v for k,v in protocol.items() if k not in changed} == {k:v for k,v in settings.items() if k not in changed}
     assert 'mandatory_delegation' not in protocol

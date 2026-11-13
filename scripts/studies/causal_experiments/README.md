@@ -33,7 +33,7 @@ The judge cap is the actual eligible question count x six arms x three rounds,
 frozen before launch, with one call per cell and no retry.
 The completed November 12 study used thinking disabled, temperature 1.0,
 CPU8/thread4, task deadline 3600s and zero retries. Fresh plans bind the current
-fixed default (now T=0.7), never rewrite those historical settings, and require
+fixed default (now T=1.0), never rewrite those historical settings, and require
 new paid authorization. Failed attempts, donor failures, partial costs and raw scores are retained.
 
 | Arm | Intervention | Identifiable Contrast |

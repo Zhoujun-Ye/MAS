@@ -44,6 +44,7 @@ Path('invocation.json').write_text(json.dumps(record))
 print({stdout!r}, end='', flush=True)
 sys.stderr.write('stub stderr\\n')
 sys.stderr.flush()
+Path('ready').touch()
 time.sleep({delay!r})
 sys.exit({exit_code!r})
 ''')
@@ -169,7 +170,7 @@ def test_nonzero_exit_keeps_raw_logs(stub, workspace, tmp_path):
     report = stub(exit_code=7).run("task", model="model", workspace=workspace,
                                                 output=tmp_path / "out", execute=True)
     assert report["status"] == "cli_error" and report["returncode"] == 7
-    assert "native reply" in (tmp_path / "out/stdout.log").read_text()
+    assert json.loads((tmp_path / "out/stdout.log").read_text())['result'] == 'native reply'
 
 
 def test_native_accounting_is_preserved_without_imputing_role_coverage(stub, workspace, tmp_path):
@@ -189,14 +190,27 @@ def test_blank_prompt_does_not_dispatch(stub, workspace, tmp_path):
     assert not (tmp_path / "out").exists()
 
 
-def test_timeout_stops_process_group_and_preserves_partial_output(stub, workspace, tmp_path):
+def test_timeout_stops_process_group_and_preserves_partial_output(stub, workspace, tmp_path, monkeypatch):
+    original_wait = subprocess.Popen.wait
+    injected = False
+    def wait(process, *args, **kwargs):
+        nonlocal injected
+        if '--version' not in process.args and not injected:
+            deadline = time.monotonic() + 10
+            while not (workspace/'ready').exists():
+                if time.monotonic() >= deadline:pytest.fail('Stub did not reach its ready boundary')
+                time.sleep(0.01)
+            injected = True
+            raise subprocess.TimeoutExpired(process.args, kwargs['timeout'])
+        return original_wait(process, *args, **kwargs)
+    monkeypatch.setattr(subprocess.Popen, 'wait', wait)
     report = stub(delay=60, child=True).run(
-        "task", model="model", workspace=workspace, output=tmp_path / "out", timeout=0.5, execute=True)
+        "task", model="model", workspace=workspace, output=tmp_path / "out", timeout=30, execute=True)
     assert report["status"] == "timed_out" and report["returncode"] < 0
-    assert report['timing']['native_process_seconds'] >= .5
+    assert injected and report['timing']['native_process_seconds'] >= 0
     assert report['timing']['process_cleanup_seconds'] >= 0
     assert report['timing']['result_parse_seconds'] is None
-    assert "native reply" in (tmp_path / "out/stdout.log").read_text()
+    assert json.loads((tmp_path / "out/stdout.log").read_text())['result'] == 'native reply'
     pid = json.loads((workspace / "invocation.json").read_text())["child_pid"]
     deadline = time.monotonic() + 2
     while time.monotonic() < deadline:

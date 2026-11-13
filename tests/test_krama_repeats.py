@@ -42,7 +42,7 @@ def test_default_plan_preserves_twenty_tasks_and_never_dispatches(prepared, monk
     for row in plan['rounds']:
         assert len(row['selections']) == 60
         assert {r['task_id'] for r in row['selections']} == ids
-        assert row['protocol']['inference_policy']['temperature'] == 0.7
+        assert row['protocol']['inference_policy']['temperature'] == 1.0
         assert row['protocol']['deterministic_environment']['PYTHONHASHSEED'] == '0'
         assert row['protocol']['cpu_per_attempt'] == 8
         assert row['protocol']['solver_concurrency'] == 16
@@ -396,15 +396,15 @@ def test_retained_single_preserves_zero_scores_and_binds_original_payloads(prepa
     assert result['new_solver_calls'] == result['new_judge_calls'] == 0
 
 
-def test_historical_temperature_one_stays_readable_but_cannot_mix_into_new_plan(prepared, monkeypatch):
+def test_historical_point_seven_stays_readable_but_cannot_mix_into_new_plan(prepared, monkeypatch):
     root,manifest,rows,summary=reference_fixture(prepared,monkeypatch)
-    old_policy=dict(thinking='disabled',temperature=1.0,effort=None)
+    old_policy=dict(thinking='disabled',temperature=0.7,effort=None)
     summary['authorization']['protocol_settings']['inference_policy']=old_policy
     write_json(root/'summary.json',summary)
     for row in rows:
         (Path(row['evidence'])/'gateway-requests.jsonl').write_text(json.dumps(dict(
             event='dispatched',route='/anthropic/v1/messages',
-            request_parameters=dict(thinking='disabled',temperature=1.0)))+'\n')
+            request_parameters=dict(thinking='disabled',temperature=0.7)))+'\n')
     retained=repeats.single_reference(root,manifest)
     assert retained['inference_policy']==old_policy
     args,_=prepared;args.reuse_single=[root,root.parent/'other-retained']

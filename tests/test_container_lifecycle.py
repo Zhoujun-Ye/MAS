@@ -10,6 +10,28 @@ from harness.runtime_support import runtime
 from harness.runtime_support.credential_gateway import CredentialGateway
 
 
+@pytest.mark.parametrize('removal', ['ok', 'missing', 'timeout'])
+@pytest.mark.parametrize('remaining', ['absent', 'present', 'daemon_error'])
+def test_named_removal_requires_bounded_structured_absence(monkeypatch, removal, remaining):
+    calls=[]
+    def execute(command, **kwargs):
+        calls.append(command)
+        assert kwargs['timeout']==15
+        if command[:2]==['docker','rm']:
+            if removal=='timeout':raise subprocess.TimeoutExpired(command,15)
+            return SimpleNamespace(returncode=int(removal=='missing'))
+        assert command[-1]=='name=^/mas\\-cli6\\-fixture$'
+        return SimpleNamespace(returncode=int(remaining=='daemon_error'),
+                               stdout='id\n' if remaining=='present' else '')
+    monkeypatch.setattr(runtime.subprocess,'run',execute)
+    if remaining=='absent':
+        assert runtime.remove_named_container('mas-cli6-fixture')['removed']
+    else:
+        with pytest.raises(RuntimeError,match='could not be verified'):
+            runtime.remove_named_container('mas-cli6-fixture')
+    assert len(calls)==2
+
+
 def test_creation_interrupt_uses_registered_name(tmp_path, monkeypatch):
     calls = []
     expected = "mas-cli6-0123456789ab"

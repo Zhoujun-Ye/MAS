@@ -31,10 +31,10 @@ scores/audits and distinguish this batch from any future corrected-harness run.
 
 ## Settings
 
-- New plans use thinking disabled, fixed temperature 0.7, effort none; no loop guard.
+- New plans use thinking disabled, fixed temperature 1.0, effort none; no loop guard.
   The completed November 12 batches above retain their frozen T=1.0 policy.
-  Reused Single rounds must match a new plan's sampling policy; never mix T=1.0
-  historical Single observations with fresh T=0.7 attempts.
+  Reused Single rounds must match a new plan's sampling policy; never mix
+  historical T=0.7 observations with fresh T=1.0 attempts (or vice versa).
 - Exact frozen prompts, common 3600-second task deadline, CPU8/thread4.
 - Default seeds 0, 1, 2 deterministically shuffle whole task groups. They are
   **dispatch-order seeds only**, not provider sampling seeds. The pinned CLI has

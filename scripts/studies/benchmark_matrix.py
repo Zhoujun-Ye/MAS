@@ -525,7 +525,7 @@ def main(argv=None):
     parser.add_argument('--require-module', action='append', default=[])
     parser.add_argument('--capability-probe', action='append', default=[])
     parser.add_argument("--effort", choices=runtime.EFFORTS, default=runtime.DEFAULT_EFFORT,
-                        help="none disables thinking and fixes temperature=0.7; high/max explicitly enable thinking")
+                        help="none disables thinking and fixes temperature=1.0; high/max explicitly enable thinking")
     parser.add_argument("--organization-prompt", type=Path)
     parser.add_argument("--backends", nargs="+", choices=BACKENDS, default=BACKENDS,
                         help="Explicit conditions to run; defaults to the matched Single/Subagents pair")
@@ -898,6 +898,10 @@ def main(argv=None):
                 with compute_slots:
                     finalize_deferred(out, args.root / b / 'upstream', args.image,
                                       asset_cache=args.output / 'asset-digests.sqlite')
+                records = json.loads((out / 'summary.json').read_text()).get('rows', [])
+                if any((r.get('pipeline_replay') or {}).get('status') == 'harness_error' for r in records):
+                    stop.set()
+                    raise RuntimeError('Krama replay infrastructure failure; stop new dispatch without retry')
             grades_root=args.output/'grades'
             if k == 'native':
                 grades_root=grades_root/k

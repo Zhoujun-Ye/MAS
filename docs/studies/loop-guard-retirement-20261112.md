@@ -1,7 +1,8 @@
 # Loop Guard Retirement
 
 The November 12 retirement used thinking disabled, temperature 1.0. The later
-fixed default is T=0.7; see [current inference policy](../reproducibility.md).
+fixed default was T=0.7 and is now T=1.0 following the review; see
+[current inference policy](../reproducibility.md).
 Neither retirement nor cleanup authorizes another paid solver, judge or retry.
 
 Removed from active code: exact-loop state/counters, all loop modes, warnings,

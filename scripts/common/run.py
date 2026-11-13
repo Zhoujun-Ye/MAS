@@ -386,7 +386,7 @@ def main(argv=None, *, benchmark=None):
     parser.add_argument('--preflight',action='store_true',help='Freeze plan and check actual no-network container without model calls')
     parser.add_argument('--from-plan',action='store_true',help='Execute only after matching the saved preflight plan')
     parser.add_argument("--effort", choices=runtime.EFFORTS, default=runtime.DEFAULT_EFFORT,
-                        help="none disables thinking and fixes temperature=0.7; high/max explicitly enable thinking")
+                        help="none disables thinking and fixes temperature=1.0; high/max explicitly enable thinking")
     parser.add_argument("--organization-prompt", type=Path,
                         help="Explicit lead-only Claude Subagents study prompt override")
     args = parser.parse_args(argv)

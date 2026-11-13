@@ -98,7 +98,7 @@ On November 12 the user retired the loop detector, including observation-only
 counting, warnings, worker stops, lead notices and host termination monitoring.
 There are no loop-mode launch options or active loop-pilot drivers. Native hooks
 retain strict-Single permissions and the mandatory-delegation policy below, but no loop detection.
-Default inference is thinking disabled, fixed temperature 0.7. This is not a
+Default inference is thinking disabled, fixed temperature 1.0. This is not a
 guarantee against repetition; ordinary task deadlines remain enforced.
 
 Preserve the paid guard/T=1 pilots, frozen sources and raw receipts under
@@ -125,7 +125,7 @@ The stopped 180-slot batch retains its old protocol; a new paid run needs confir
 
 DeepSeek request policy is configured by the native CLI and validated, not
 rewritten, by the host gateway. Current defaults are thinking disabled and
-fixed temperature 0.7 (`--effort none`); actual reasoning effort is not applicable.
+fixed temperature 1.0 (`--effort none`); actual reasoning effort is not applicable.
 High/max explicitly enable thinking and are not silent defaults. Main/worker
 request fields and remaining nondeterminism are documented in
 [Reproducibility](reproducibility.md).

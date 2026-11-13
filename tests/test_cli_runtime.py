@@ -196,12 +196,20 @@ def test_krama_fatal_monitor_ignores_transcript_text_and_uses_host_ledger(tmp_pa
     ledger.write_text(json.dumps(dict(event="finished", upstream_attempted=True,
                                       route="/anthropic/v1/messages", http_status=200)) + "\n")
     stopped = []
+    observed = threading.Event()
+    from harness.runtime_support import admission
+    fatal_record = admission.fatal_provider_record
+    def observe(path):
+        result = fatal_record(path)
+        observed.set()
+        return result
+    monkeypatch.setattr(admission, 'fatal_provider_record', observe)
     monkeypatch.setattr(runtime.subprocess, "run", lambda argv, **kw: stopped.append(argv[-1]))
     stop, done, lock = threading.Event(), threading.Event(), threading.Lock()
     watcher = threading.Thread(target=runtime.monitor, args=(tmp_path, stop, {"owned-container"}, lock, done, 0.02))
     watcher.start()
     try:
-        time.sleep(0.3)
+        assert observed.wait(5), 'Monitor did not read the initial ledger'
         assert not stop.is_set() and not (tmp_path / "fatal-provider-error.json").exists()
         with ledger.open("a") as stream:
             stream.write(json.dumps(dict(event="finished", upstream_attempted=True,

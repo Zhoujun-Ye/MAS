@@ -153,15 +153,34 @@ def test_monitor_exception_preserves_inflight_child(tmp_path,monkeypatch):
                 out=Path(cmd[cmd.index('--output')+1]);task=cmd[cmd.index('--task-id')+1]
                 (out/task/'claude-code-subagents/gateway-requests.jsonl').write_text('[]')
         def wait(self,**kw):
-            if self.paid:time.sleep(1.2)
+            if self.paid:
+                deadline=time.monotonic()+10
+                while not (tmp_path/'out/balance-paused.json').exists():
+                    if time.monotonic()>=deadline:pytest.fail('Monitor did not publish its pause')
+                    time.sleep(.01)
             return 0
         def terminate(self):terminated.append(True)
     monkeypatch.setattr(matrix.subprocess,'Popen',Running)
+    def unavailable(path):raise OSError('Synthetic ledger read failure')
+    monkeypatch.setattr(matrix,'fatal_provider_record',unavailable)
     monkeypatch.setattr(matrix,'grade_attempt',lambda b,t,k,*a,**kw:dict(benchmark=b,task_id=t.id,backend=k,status='graded',judge_calls=0))
     assert matrix.main(args(tmp_path/'out'))==1
     assert not terminated
     assert (tmp_path/'out/monitor-error.json').exists()
     assert (tmp_path/'out/balance-paused.json').exists()
+
+
+def test_replay_infrastructure_failure_stops_matrix_before_a_judge(tmp_path,monkeypatch):
+    from scripts.kramabench import run as krama_run
+    args=setup_matrix(tmp_path,monkeypatch)
+    monkeypatch.setattr(matrix.subprocess,'Popen',FakeProcess)
+    def finalize(out,*a,**kw):
+        (out/'summary.json').write_text(json.dumps(dict(rows=[dict(pipeline_replay=dict(status='harness_error'))])))
+    monkeypatch.setattr(krama_run,'finalize_deferred',finalize)
+    monkeypatch.setattr(matrix,'grade_attempt',lambda *a,**kw:pytest.fail('Infrastructure failure reached grading'))
+    assert matrix.main(args(tmp_path/'out','--authorized-judges','2'))==1
+    summary=json.loads((tmp_path/'out/summary.json').read_text())
+    assert summary['interrupted'] and any(g['status']=='grading_failed' for g in summary['grades'])
 
 
 def test_deterministic_grading_claim_is_safe_to_resume(tmp_path,monkeypatch):

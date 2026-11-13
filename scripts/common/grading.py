@@ -10,6 +10,7 @@ from benchmarks.kramabench.semantic_judge import judge_once
 def krama_judge_eligible(record):
     return (record.get('status') in {'cli_exited', 'native_condition_unverified'}
             and record.get('condition_status') != 'single_agent_condition_violated'
+            and (record.get('pipeline_replay') or {}).get('status') != 'harness_error'
             and (record.get('grade') or {}).get('status') == 'pending_judge')
 
 
@@ -41,6 +42,7 @@ def grade_attempt(benchmark, task, backend, run, *, data_root, grades_root,
         if 'decision_gate' in record:
             raise ValueError('Retired decision-gate attempts are read-only; use their recorded grades')
         result.update(status=record.get("grade", {}).get("status"), grade=record.get("grade"),
+                      pipeline_replay_status=(record.get('pipeline_replay') or {}).get('status'),
                       pipeline_exit_code=record.get("pipeline_exit_code"),
                       pipeline_answer_matches_submission=record.get("pipeline_answer_matches_submission"))
         # Lifecycle evidence and answer eligibility are separate. judge_once

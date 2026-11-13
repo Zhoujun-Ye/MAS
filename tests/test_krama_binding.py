@@ -234,6 +234,8 @@ def test_replay_inherits_the_same_reproducible_cpu_environment(tmp_path, monkeyp
     (work/'submission.json').write_text(json.dumps(dict(answer=1,pipeline_path='pipeline.py',evidence='fixture',unfinished=[])))
     commands = []
     def execute(cmd, **kwargs):
+        if cmd[:2] == ['docker','ps']:
+            return SimpleNamespace(returncode=0,stdout='')
         if cmd[:2] == ['docker','run']:
             commands.append(cmd)
             return SimpleNamespace(returncode=0,stdout=b'{"answer":1}\n',stderr=b'')

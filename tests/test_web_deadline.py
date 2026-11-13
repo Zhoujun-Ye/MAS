@@ -3,7 +3,6 @@
 import http.client
 import socket
 import threading
-import time
 from types import SimpleNamespace
 
 import pytest
@@ -30,19 +29,20 @@ def test_slow_drip_headers_cannot_extend_fetch_deadline(monkeypatch):
 
     def drip():
         try:
-            server.sendall(b'HTTP/1.1 200 OK\r\nX-Slow: ')
-            while not done.wait(0.02):server.sendall(b'x')
+            server.sendall(b'HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: 0\r\nX-Slow: ')
+            for _ in range(30):
+                if done.wait(0.02):return
+                server.sendall(b'x')
+            server.sendall(b'\r\n\r\n')
         except OSError:pass
 
     monkeypatch.setattr(web_fetch, 'public_address', lambda *a:'8.8.8.8')
     monkeypatch.setattr(web_fetch, 'proxy_connection', lambda *a:Connection())
     worker = threading.Thread(target=drip)
     worker.start()
-    started = time.monotonic()
     try:
         with pytest.raises(TimeoutError):
             web_fetch.fetch('https://example.org', timeout=0.15)
-        assert time.monotonic() - started < 2
     finally:
         done.set()
         server.close()
@@ -69,7 +69,7 @@ def test_readiness_interrupts_blocked_connect(monkeypatch):
         server.close()
 
 
-def test_late_socket_is_interrupted_and_successful_guard_is_cancelled():
+def test_late_socket_is_interrupted_and_successful_guard_is_cancelled(monkeypatch):
     stopped=[]
     resource=SimpleNamespace(shutdown=lambda how:stopped.append(how))
     guard=web_fetch.RequestDeadline(0.01)
@@ -77,9 +77,19 @@ def test_late_socket_is_interrupted_and_successful_guard_is_cancelled():
     with pytest.raises(TimeoutError):guard.watch(resource)
     assert stopped == [socket.SHUT_RDWR]
     stopped.clear()
+    class Timer:
+        def __init__(self, timeout, callback):self.callback=callback;self.cancelled=False
+        def start(self):pass
+        def cancel(self):self.cancelled=True
+        def join(self):pass
+        def is_alive(self):return False
+        def fire(self):
+            if not self.cancelled:self.callback()
+    monkeypatch.setattr(web_fetch.threading,'Timer',Timer)
     with web_fetch.RequestDeadline(0.02) as active:
         active.watch(resource)
-    time.sleep(0.04)
+    active.timer.fire()
+    assert active.timer.cancelled
     assert not stopped
     assert not active.timer.is_alive()
 

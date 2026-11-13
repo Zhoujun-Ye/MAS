@@ -80,6 +80,13 @@ its single unblinded coding and post-hoc contrasts remain limitations. Supersede
 progress exports are disposable. All frozen paid stages and original failures
 remain protected. No new paid run follows from an offline cleanup or proof.
 
+The later [harness review and two targeted nine-slot rounds](studies/harness-review-paid9-20261112.md)
+retain both T=0.7 and T=1.0 outcomes, including a model-directed repeated-debugging
+timeout and a separately reproduced model-pipeline OOM. They validate engineering
+mechanics on reused tasks, not independent quality or causal temperature effects.
+The user selected thinking off/T=1.0 for future runs; neither consumed scope
+authorizes another paid attempt.
+
 - [Retained Krama configuration, accounting and trajectory diagnosis](studies/krama-history.md)
 - [Active infra](studies/evidence-infra.md)
 - [Full-scale offline readiness](studies/fullscale-infra.md)

@@ -27,7 +27,7 @@ coordinator/full modes, capability catalogs, or custom scheduling semantics.
   stops, lead notices and host loop termination. Do not restore loop-mode launch
   options or pilot drivers. Preserve frozen paid sources/results; historical
   analysis may read recorded fields without executing a detector. Default solver
-  settings are now thinking disabled, fixed T=0.7. See
+  settings are now thinking disabled, fixed T=1.0. See
   `docs/studies/loop-guard-retirement-20261112.md`.
 - `harness/_cli.py`: CLI preflight, process lifetime, stdin and raw evidence only.
 - The November 12 anomaly fix sets native print background-wait ceiling to zero
@@ -100,7 +100,7 @@ coordinator/full modes, capability catalogs, or custom scheduling semantics.
 - The Krama Random20 three-repeat driver uses the same frozen 20 questions in
   Single/Native/Structured, three independent rounds (180 solvers). Its seeds
   control dispatch order only, not provider sampling. New preparations use the
-  current thinking-off/T=0.7 default; frozen paid T=1.0 runs stay unchanged.
+  current thinking-off/T=1.0 default; frozen paid T=0.7/T=1.0 runs stay unchanged.
   Keep zero retries and equal-weight repeat reporting; see `docs/studies/krama-three-repeats.md`.
   Implementation/free checks do not authorize paid execution of the prepared plan.
 - CooperBench is retired, not an active dependency or retained result source.
@@ -124,7 +124,14 @@ See `docs/cli-adapters.md` for pinned versions, references and limitations.
   Preserve these paid outputs, frozen source stages and accounting; see
   `docs/archive.md`. Cleanup authorizes free verification, not further paid runs.
 
-- Current DeepSeek reproducibility policy: thinking disabled, fixed temperature 0.7,
+- The later November 12 review found sustained model-directed repeated debugging
+  in a T=0.7 regression attempt. The user selected T=1.0 for all future runs,
+  prioritizing this issue over reduced sampling variability. Keep the T=0.7
+  frozen attempt unchanged; this observation is not a causal temperature result
+  or authorization to restore a loop detector. Fresh T=1.0 native proofs are
+  required before separately scoped paid dispatch.
+
+- Current DeepSeek reproducibility policy: thinking disabled, fixed temperature 1.0,
   effective reasoning effort not applicable (`--effort none`). Configure this
   through the pinned CLI, not request-body rewriting in the gateway. Native
   main/worker requests must match the frozen policy before upstream dispatch.
@@ -132,6 +139,18 @@ See `docs/cli-adapters.md` for pinned versions, references and limitations.
   authorized otherwise; never silently default to max. Keep historical actual
   high/max settings unchanged. Configuration changes require free native
   verification before any separately authorized paid dispatch.
+- The subsequent harness review authorizes nine T=0.7 solvers on astronomy-easy-5,
+  biomedical-hard-7 and biomedical-hard-8 in Single/Native/Structured, zero retries
+  and no required judges, CNY20 budget with CNY18 account stop-loss. After observing
+  repeated model debugging the user separately authorized the same nine fresh
+  solvers at T=1.0, zero retries/judges and an independent CNY20 budget/CNY18 stop-loss.
+  Each round uses frozen source, CPU8/thread4, concurrency three and unchanged
+  prompts/3600-second limits. Keep both outputs and all accounting; never treat
+  the second round as replacements or reuse paid authorization after completion.
+  Both nine-slot rounds are now complete (zero retries/judges); these scopes
+  are consumed. Preserve the T=0.7 timeout/repeated-debugging trace and T=1.0
+  model-pipeline OOM evidence. The post-run OOM telemetry repair received free
+  validation only, not paid replacement attempts.
 - The completed November 12 authorization permitted exactly three Structured solvers,
   once each on legal-easy-11, astronomy-easy-5 and wildfire-hard-10, thinking off,
   T=1.0, loop observation only, 900 seconds, concurrency three, CPU8/thread4,
